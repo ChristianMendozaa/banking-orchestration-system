@@ -1,1 +1,29 @@
-doc/
+# Secretos y configuracion local
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.key
+*.p12
+*.pfx
+*.pem
+
+# Datos locales, embeddings y archivos de ejecucion
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Configuracion personal del editor/SO
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# El documento fuente se mantiene local; solo se versionan los entregables.
+doc/*
+!doc/auditoria_backend_arquitectura.pdf
+!doc/rag/
+doc/rag/*
+!doc/rag/*.pdf
+!doc/rag/manifest.json

@@ -1,0 +1,47 @@
+[project]
+name = "sistema-orquestacion-backend"
+version = "0.1.0"
+description = "Backend del sistema de orquestacion de atencion bancaria"
+requires-python = ">=3.12"
+dependencies = [
+  "alembic>=1.16.0",
+  "argon2-cffi>=25.1.0",
+  "email-validator>=2.2.0",
+  "fastapi>=0.116.0",
+  "httpx>=0.28.0",
+  "openai>=1.99.0",
+  "pgvector>=0.4.1",
+  "psycopg[binary]>=3.2.9",
+  "pwdlib[argon2]>=0.2.1",
+  "pydantic-settings>=2.10.0",
+  "pyjwt>=2.10.1",
+  "python-multipart>=0.0.20",
+  "pypdf>=5.8.0",
+  "reportlab>=4.4.0",
+  "sqlalchemy[asyncio]>=2.0.41",
+  "structlog>=25.4.0",
+  "tiktoken>=0.9.0",
+  "uvicorn[standard]>=0.35.0",
+]
+
+[dependency-groups]
+dev = [
+  "aiosqlite>=0.21.0",
+  "coverage>=7.9.0",
+  "pytest>=8.4.0",
+  "pytest-asyncio>=1.1.0",
+  "ruff>=0.12.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["B008"]
