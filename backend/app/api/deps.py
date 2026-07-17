@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 from functools import lru_cache
 from uuid import UUID
 
@@ -89,4 +90,9 @@ async def get_kiosk_session(
     )
     if not kiosk_session:
         raise AppError("SESSION_NOT_FOUND", "Sesion inexistente o token invalido", 404)
+    expires_at = kiosk_session.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    if expires_at <= datetime.now(UTC):
+        raise AppError("SESSION_EXPIRED", "La sesion de kiosco ha vencido", 401)
     return kiosk_session

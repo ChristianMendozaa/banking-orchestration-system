@@ -1,29 +1,28 @@
-'use client'
+"use client"
 
+import type { ManagementMetrics } from "@/lib/types"
 import {
-  BarChart,
   Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from 'recharts'
-import { hourlyData } from '@/lib/mock-data'
+} from "recharts"
 
-export function HourlyChart() {
+export function HourlyChart({ data }: { data: ManagementMetrics["hourly"] }) {
+  if (data.length === 0) {
+    return <div className="grid h-full place-items-center text-sm text-gray-400">Sin datos</div>
+  }
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={hourlyData} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#F3F4F6" />
-        <XAxis dataKey="hour" tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fontSize: 11, fill: '#9CA3AF' }} axisLine={false} tickLine={false} />
-        <Tooltip
-          contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,.1)' }}
-          labelStyle={{ color: '#374151', fontWeight: 600 }}
-          formatter={(value) => [value, 'Casos']}
-        />
-        <Bar dataKey="casos" fill="#1168BD" radius={[6, 6, 0, 0]} maxBarSize={40} />
+    <ResponsiveContainer height="100%" width="100%">
+      <BarChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+        <CartesianGrid stroke="#F3F4F6" strokeDasharray="3 3" />
+        <XAxis axisLine={false} dataKey="hour" tick={{ fontSize: 11, fill: "#9CA3AF" }} tickLine={false} />
+        <YAxis allowDecimals={false} axisLine={false} tick={{ fontSize: 11, fill: "#9CA3AF" }} tickLine={false} />
+        <Tooltip formatter={(value) => [value, "Casos"]} />
+        <Bar dataKey="cases" fill="#1168BD" maxBarSize={40} radius={[6, 6, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   )

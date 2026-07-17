@@ -1,9 +1,10 @@
-from uuid import uuid4
+from datetime import UTC, datetime, timedelta
+from uuid import UUID, uuid4
 
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.db.models import Requirement
+from app.db.models import KioskSession, Requirement
 from tests.conftest import TestSession
 
 
@@ -94,3 +95,42 @@ async def test_session_token_is_required(client: AsyncClient) -> None:
     )
     assert response.status_code == 401
     assert response.json()["code"] == "SESSION_TOKEN_REQUIRED"
+
+
+async def test_expired_session_is_rejected(client: AsyncClient) -> None:
+    session_id, token = await _session(client)
+    async with TestSession() as db:
+        session = await db.get(KioskSession, UUID(session_id))
+        assert session is not None
+        session.expires_at = datetime.now(UTC) - timedelta(seconds=1)
+        await db.commit()
+    response = await client.get(
+        f"/api/v1/kiosk/sessions/{session_id}",
+        headers={"X-Session-Token": token},
+    )
+    assert response.status_code == 401
+    assert response.json()["code"] == "SESSION_EXPIRED"
+
+
+async def test_turn_state_machine_rejects_false_clarification_flag(
+    client: AsyncClient,
+) -> None:
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    ambiguous = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Necesito ayuda con algo"},
+    )
+    assert ambiguous.json()["next_action"] == "CLARIFY"
+    mismatch = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={
+            "turn_id": str(uuid4()),
+            "transcript": "Es sobre una tarjeta",
+            "is_clarification": False,
+        },
+    )
+    assert mismatch.status_code == 409
+    assert mismatch.json()["code"] == "INVALID_CLARIFICATION"

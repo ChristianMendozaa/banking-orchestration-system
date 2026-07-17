@@ -30,11 +30,15 @@ class OpenAIProvider:
                 ),
                 "audio": {
                     "input": {
+                        "transcription": {
+                            "model": self.settings.transcription_model,
+                            "language": "es",
+                        },
                         "turn_detection": {
                             "type": "server_vad",
                             "create_response": False,
                             "interrupt_response": False,
-                        }
+                        },
                     },
                     "output": {"voice": self.settings.realtime_voice},
                 },

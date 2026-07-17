@@ -2,6 +2,8 @@ from uuid import uuid4
 
 from httpx import AsyncClient
 
+from tests.conftest import settings_for_tests
+
 
 async def _login(client: AsyncClient, email: str, password: str) -> str:
     response = await client.post("/api/v1/auth/login", json={"email": email, "password": password})
@@ -48,7 +50,11 @@ async def test_sensitive_case_identification_assignment_and_dashboard(client: As
         "Carlos Mamani": "carlos.mamani@demo.example",
         "Maria Fernandez": "maria.fernandez@demo.example",
     }[result["executive"]["name"]]
-    executive_token = await _login(client, executive_email, "ChangeMe-Executive-2026")
+    executive_token = await _login(
+        client,
+        executive_email,
+        settings_for_tests.seed_executive_password.get_secret_value(),
+    )
     executive_headers = {"Authorization": f"Bearer {executive_token}"}
     listing = await client.get("/api/v1/executive/tickets", headers=executive_headers)
     assert listing.status_code == 200, listing.text
@@ -64,7 +70,11 @@ async def test_sensitive_case_identification_assignment_and_dashboard(client: As
     assert updated.json()["status"] == "EN_ATENCION"
     assert updated.json()["version"] == 2
 
-    manager_token = await _login(client, "gerencia@demo.example", "ChangeMe-Manager-2026")
+    manager_token = await _login(
+        client,
+        "gerencia@demo.example",
+        settings_for_tests.seed_manager_password.get_secret_value(),
+    )
     metrics = await client.get(
         "/api/v1/management/metrics",
         headers={"Authorization": f"Bearer {manager_token}"},
@@ -75,7 +85,11 @@ async def test_sensitive_case_identification_assignment_and_dashboard(client: As
 
 
 async def test_manager_cannot_update_ticket_as_executive(client: AsyncClient) -> None:
-    manager_token = await _login(client, "gerencia@demo.example", "ChangeMe-Manager-2026")
+    manager_token = await _login(
+        client,
+        "gerencia@demo.example",
+        settings_for_tests.seed_manager_password.get_secret_value(),
+    )
     response = await client.get(
         "/api/v1/executive/tickets",
         headers={"Authorization": f"Bearer {manager_token}"},
@@ -86,7 +100,11 @@ async def test_manager_cannot_update_ticket_as_executive(client: AsyncClient) ->
 async def test_refresh_rotates_session_and_validation_uses_public_error_contract(
     client: AsyncClient,
 ) -> None:
-    await _login(client, "gerencia@demo.example", "ChangeMe-Manager-2026")
+    await _login(
+        client,
+        "gerencia@demo.example",
+        settings_for_tests.seed_manager_password.get_secret_value(),
+    )
     refreshed = await client.post("/api/v1/auth/refresh")
     assert refreshed.status_code == 200, refreshed.text
     assert refreshed.json()["token_type"] == "bearer"

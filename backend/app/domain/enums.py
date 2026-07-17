@@ -84,3 +84,11 @@ class KnowledgeSourceType(StrEnum):
     REGULATORY = "REGULATORY"
     SIMULATED = "SIMULATED"
     HYBRID = "HYBRID"
+
+
+class KnowledgeIndexStatus(StrEnum):
+    PENDING = "PENDING"
+    INDEXING = "INDEXING"
+    READY = "READY"
+    FAILED = "FAILED"
+    ARCHIVED = "ARCHIVED"

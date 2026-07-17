@@ -1,107 +1,125 @@
-# Backend del Sistema de Orquestacion Bancaria
+# Backend FastAPI
 
-Monolito modular FastAPI que implementa el flujo descrito en el documento del proyecto:
-voz, privacidad, clasificacion, prioridad, identificacion demostrativa, respuesta inicial,
-derivacion, ticket, trazabilidad y dashboards.
+Monolito modular que implementa el flujo de orquestación bancaria del prototipo:
+privacidad, clasificación, desambiguación, prioridad, identificación ficticia,
+respuesta RAG, derivación por habilidades, tickets, trazas, operación ejecutiva,
+métricas gerenciales y gestión documental.
+
+Para ejecutar el sistema completo consulte [`../README.md`](../README.md).
 
 ## Inicio local
 
-Requisitos: Docker, Python 3.12 o superior y `uv`.
+Requisitos: Python 3.12 o superior, `uv` y PostgreSQL con la extensión `vector`.
 
 ```bash
-docker compose up -d postgres
 uv sync
 uv run alembic upgrade head
 uv run python -m app.db.seed
-uv run python -m app.knowledge.cli build-pdfs
 uv run python -m app.knowledge.cli ingest
 uv run uvicorn app.main:app --reload
 ```
 
-La aplicacion carga `.env` por defecto. Si no existe, copie `.env.example` como `.env`; si ya
-existe, agregue solamente las variables faltantes. No reemplace ni publique `OPENAI_API_KEY`.
+La aplicación exige `APP_NAME`, `BANK_NAME`, `BRANCH_NAME`, `CORS_ORIGINS`,
+`DATABASE_URL`, `JWT_SECRET`, `IDENTIFIER_PEPPER` y las contraseñas de semilla desde
+`.env`; no existen datos de despliegue ni credenciales de respaldo en código. Copie
+`.env.example` solo si `.env` aún no existe y reemplace todos los valores marcados.
+No publique `OPENAI_API_KEY`.
 
 - OpenAPI: `http://localhost:8000/docs`
 - Salud: `http://localhost:8000/api/v1/health/ready`
-- Frontend permitido por defecto: `http://localhost:3000`
+- Configuración pública: `http://localhost:8000/api/v1/system/public-config`
 
-Usuarios de demostracion:
+## Kiosco y agentes
 
-- Ejecutivo: `maria.fernandez@demo.example` y `SEED_EXECUTIVE_PASSWORD`.
-- Gerencia: `gerencia@demo.example` y `SEED_MANAGER_PASSWORD`.
-- Identificador ficticio: `DEMO-1001`.
+1. `POST /api/v1/kiosk/sessions` crea una sesión corta con token opaco.
+2. Las siguientes llamadas usan `X-Session-Token`.
+3. `POST .../realtime-token` crea un secreto efímero para WebRTC. La API key normal
+   nunca sale del backend.
+4. `POST .../turns` enmascara PII, clasifica y prioriza. El `turn_id` hace la operación
+   idempotente.
+5. El flujo responde `CLARIFY` o `CONFIRM`.
+6. `POST .../confirmation` permite corrección o crea el caso.
+7. Los niveles `PERSONALIZADA` y `SENSIBLE` solicitan identificación ficticia.
+8. Las consultas `GENERAL` intentan RAG; cualquier falta de evidencia deriva a una
+   persona.
 
-Cambie todas las credenciales de semilla y secretos fuera del entorno local.
+Los agentes tienen responsabilidades separadas:
 
-## Flujo del kiosco
+- `ClassificationAgent`: categoría, nivel, ambigüedad y señales de riesgo.
+- `PrioritizationAgent`: prioridad determinista y atención preferente.
+- `InitialAttentionAgent`: respuesta solo para nivel general, con evidencia RAG.
+- `DerivationAgent`: habilidad exacta, similitud semántica, experiencia y carga.
 
-1. `POST /api/v1/kiosk/sessions` crea una sesion y devuelve `session_token`.
-2. Enviar ese token como `X-Session-Token` en las siguientes operaciones.
-3. `POST .../realtime-token` entrega una credencial efimera para WebRTC; nunca devuelve la
-   clave normal del servidor.
-4. El frontend envia la transcripcion final a `POST .../turns`.
-5. Atiende `CLARIFY` o presenta el resumen y usa `POST .../confirmation`.
-6. Si se recibe `IDENTIFY`, usa un identificador ficticio con `POST .../identification`.
-7. La respuesta final incluye ticket, orientacion automatica o ejecutivo/ventanilla.
+El audio y la transcripción original no se persisten. La base guarda el texto
+enmascarado. Realtime solo transcribe (`create_response=false`); el texto hablado al
+cliente proviene del backend.
 
-El audio y la transcripcion original no se persisten. Solo se guarda texto enmascarado.
+## Base de conocimiento
 
-La respuesta automatica inicial usa exclusivamente la base RAG. Si no existe evidencia con el
-umbral configurado, si el documento esta vencido o si OpenAI no esta disponible, el caso se deriva
-a un ejecutivo. El modelo Realtime tiene deshabilitada la creacion automatica de respuestas; el
-cliente de voz debe reproducir solamente el `speech_text` autorizado por el backend.
-
-## Base documental RAG
-
-Los PDFs indexables se generan en `../doc/rag` y la auditoria de arquitectura en
-`../doc/auditoria_backend_arquitectura.pdf`:
+El bootstrap consume exclusivamente `../doc/rag/manifest.json`; no genera documentos
+en tiempo de ejecución.
 
 ```bash
-uv run python -m app.knowledge.cli build-pdfs
 uv run python -m app.knowledge.cli ingest
 uv run python -m app.knowledge.cli status
 uv run python -m app.knowledge.cli evaluate
 ```
 
-`build-pdfs` es reproducible y tambien actualiza `manifest.json`. `ingest` extrae texto por pagina,
-fragmenta por secciones, genera embeddings en lotes y solo reindexa documentos cuyo hash cambio.
-Las versiones anteriores quedan inactivas. La ingestion requiere `OPENAI_API_KEY` y haber aplicado
-las migraciones. `evaluate` ejecuta 25 consultas de recuperacion, incluyendo politicas que impiden
-respuesta automatica para casos sensibles, personalizados o ambiguos.
+- `ingest`: valida manifiesto/hash, extrae texto, fragmenta y genera embeddings.
+- `status`: informa documentos activos y fragmentos.
+- `evaluate`: prueba recuperación y también clasifica los casos donde la política
+  prohíbe respuesta automática.
 
-Configuracion principal:
+La API gerencial bajo `/api/v1/management/knowledge/documents` permite listar,
+cargar, editar, versionar, descargar, reindexar y archivar. Valida firma PDF, MIME,
+tamaño, páginas, texto extraíble, categorías y URL HTTP(S). Los archivos se almacenan
+con claves UUID; el nombre original es solo metadato.
 
-- `EMBEDDING_MODEL=text-embedding-3-small` y `EMBEDDING_DIMENSIONS=1536`.
-- `RAG_TOP_K=5`, `RAG_MIN_SCORE=0.45` y `RAG_MAX_CONTEXT_TOKENS=3000`.
-- `RAG_CHUNK_TOKENS=600` y `RAG_CHUNK_OVERLAP=100`.
-- `RAG_CORPUS_DIR=../doc/rag` al ejecutar desde `backend`.
+Una respuesta automática requiere:
 
-Las consultas personalizadas y sensibles nunca se resuelven automaticamente mediante RAG. Las
-trazas guardan la consulta ya enmascarada, los identificadores de los fragmentos y un hash de la
-respuesta, no el prompt con datos originales.
+- consulta ya enmascarada;
+- documento activo y no vencido;
+- categoría compatible y similitud sobre el umbral;
+- respuesta estructurada limitada a la evidencia recuperada;
+- al menos una cita válida a un fragmento recuperado.
 
-## Supabase
+Ante cualquier incumplimiento se crea un ticket humano.
 
-El backend usa un solo esquema: PostgreSQL/pgvector local en desarrollo o PostgreSQL de Supabase
-en despliegue. No realiza doble escritura. `SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` no son una
-cadena de conexion SQL y por si solas no conectan SQLAlchemy. Copie desde el panel de Supabase las
-cadenas PostgreSQL y configure `DATABASE_URL` para ejecucion y `DATABASE_MIGRATION_URL` para
-Alembic. Habilite SSL segun la configuracion del proyecto y ejecute:
+## Persistencia y migraciones
+
+Las migraciones son explícitas y congeladas:
+
+- `20260716_0001`: esquema operacional;
+- `20260716_0002`: pgvector, documentos, fragmentos e interacciones RAG;
+- `20260716_0003`: expiración, prioridad propuesta y ciclo documental.
+
+No se usa `Base.metadata.create_all()` en migraciones. Los tests sí crean un esquema
+SQLite efímero de forma aislada.
+
+## Autorización
+
+- JWT de acceso corto en memoria del frontend.
+- Refresh opaco, rotado y almacenado como hash; cookie `HttpOnly`, `SameSite=Lax` y
+  `Secure` en producción.
+- Roles `EXECUTIVE` y `MANAGER`.
+- Un ejecutivo solo consulta sus tickets; gerencia accede a métricas y conocimiento.
+- Los estados de ticket usan versión optimista y transiciones cerradas.
+
+## Verificación
 
 ```bash
-uv run alembic upgrade head
-uv run python -m app.db.seed
-uv run python -m app.knowledge.cli ingest
-```
-
-No publique la service-role key ni la clave de OpenAI. Si `SUPABASE_URL` esta presente pero
-`DATABASE_URL` sigue en localhost, el arranque registra una advertencia sin mostrar credenciales.
-
-## Verificacion
-
-```bash
+uv run ruff format --check .
 uv run ruff check .
-uv run pytest
+uv run pytest -q
+uv run --with pip-audit pip-audit
 ```
 
-Las pruebas normales usan dobles de OpenAI y no consumen la API real.
+Las pruebas no consumen OpenAI y cubren flujo general, aclaración, corrección,
+identificación, prioridad, privacidad, RAG, caducidad, roles, refresh, concurrencia y
+ciclo documental.
+
+Para regenerar el PDF de auditoría desde su única fuente Markdown:
+
+```bash
+uv run python scripts/render_audit_pdf.py
+```

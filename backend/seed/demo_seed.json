@@ -1,0 +1,57 @@
+{
+  "executives": [
+    {
+      "name": "Maria Fernandez",
+      "title": "Tarjetas y Seguridad",
+      "window": "Ventanilla 3",
+      "email": "maria.fernandez@demo.example",
+      "skills": {
+        "BLOQUEO_TARJETA": 5,
+        "REPORTE_FRAUDE": 4
+      }
+    },
+    {
+      "name": "Carlos Mamani",
+      "title": "Prevencion de Fraudes",
+      "window": "Ventanilla 1",
+      "email": "carlos.mamani@demo.example",
+      "skills": {
+        "REPORTE_FRAUDE": 5,
+        "CONSULTA_GENERAL": 3
+      }
+    },
+    {
+      "name": "Patricia Quispe",
+      "title": "Banca Digital",
+      "window": "Ventanilla 5",
+      "email": "patricia.quispe@demo.example",
+      "skills": {
+        "BANCA_DIGITAL": 5,
+        "BLOQUEO_TARJETA": 3
+      }
+    },
+    {
+      "name": "Roberto Torrez",
+      "title": "Creditos y Atencion al Cliente",
+      "window": "Ventanilla 4",
+      "email": "roberto.torrez@demo.example",
+      "skills": {
+        "SOLICITUD_CREDITO": 5,
+        "CONSULTA_GENERAL": 4
+      }
+    }
+  ],
+  "manager": {
+    "email": "gerencia@demo.example"
+  },
+  "clients": [
+    {
+      "identifier": "DEMO-1001",
+      "name": "Cliente Demo Uno"
+    },
+    {
+      "identifier": "DEMO-1002",
+      "name": "Cliente Demo Dos"
+    }
+  ]
+}

@@ -8,43 +8,23 @@ from sqlalchemy import func, select
 from app.core.config import get_settings
 from app.db.models import KnowledgeChunk, KnowledgeDocument
 from app.db.session import SessionFactory
-from app.domain.enums import Category
+from app.domain.enums import Category, ConsultationLevel
 from app.knowledge.ingestion import KnowledgeIngestionService
-from app.knowledge.pdf_generator import generate_pdfs
 from app.knowledge.repository import KnowledgeRepository
 from app.services.openai_provider import OpenAIProvider
 
 
-def _paths() -> tuple[Path, Path]:
-    settings = get_settings()
-    corpus = Path(settings.rag_corpus_dir).resolve()
-    audit = corpus.parent / "auditoria_backend_arquitectura.pdf"
-    return corpus, audit
-
-
-def build_pdfs() -> None:
-    corpus, audit = _paths()
-    manifest = generate_pdfs(corpus, audit)
-    print(
-        json.dumps(
-            {
-                "corpus_dir": str(corpus),
-                "audit": str(audit),
-                "documents": len(manifest["documents"]),
-            },
-            ensure_ascii=False,
-        )
-    )
+def _corpus_path() -> Path:
+    return Path(get_settings().rag_corpus_dir).resolve()
 
 
 async def ingest() -> None:
     settings = get_settings()
     if not settings.openai_enabled:
         raise RuntimeError("OPENAI_API_KEY es obligatoria para generar embeddings")
-    corpus, _ = _paths()
     service = KnowledgeIngestionService(settings, OpenAIProvider(settings))
     async with SessionFactory() as db:
-        stats = await service.ingest_corpus(db, corpus)
+        stats = await service.ingest_corpus(db, _corpus_path())
     print(json.dumps(stats, ensure_ascii=False))
 
 
@@ -69,6 +49,7 @@ async def evaluate() -> None:
     cases = json.loads(cases_path.read_text(encoding="utf-8"))
     provider = OpenAIProvider(settings)
     allowed = [case for case in cases if case["automatic_allowed"]]
+    disallowed = [case for case in cases if not case["automatic_allowed"]]
     embeddings = await provider.embeddings([case["query"] for case in allowed])
     repository = KnowledgeRepository()
     failures = []
@@ -90,6 +71,25 @@ async def evaluate() -> None:
                         "got": sorted(slugs),
                     }
                 )
+        for case in disallowed:
+            decision = await provider.classify(case["query"])
+            policy_would_allow = (
+                decision.consultation_level == ConsultationLevel.GENERAL
+                and not decision.ambiguous
+                and decision.confidence >= settings.classification_confidence_threshold
+            )
+            if policy_would_allow:
+                failures.append(
+                    {
+                        "query": case["query"],
+                        "expected": "derivacion o aclaracion",
+                        "got": {
+                            "level": decision.consultation_level.value,
+                            "ambiguous": decision.ambiguous,
+                            "confidence": decision.confidence,
+                        },
+                    }
+                )
     passed = len(cases) - len(failures)
     result = {"total": len(cases), "passed": passed, "failed": len(failures), "failures": failures}
     print(json.dumps(result, ensure_ascii=False))
@@ -99,11 +99,9 @@ async def evaluate() -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Base documental RAG del prototipo")
-    parser.add_argument("command", choices=("build-pdfs", "ingest", "status", "evaluate"))
+    parser.add_argument("command", choices=("ingest", "status", "evaluate"))
     args = parser.parse_args()
-    if args.command == "build-pdfs":
-        build_pdfs()
-    elif args.command == "ingest":
+    if args.command == "ingest":
         asyncio.run(ingest())
     elif args.command == "status":
         asyncio.run(status())

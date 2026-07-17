@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import type { Category, Priority } from '@/lib/mock-data'
+import type { Category, Priority } from '@/lib/types'
 
 type BadgeVariant = Category | Priority | 'default'
 

@@ -71,12 +71,24 @@ class OrchestratorService:
         if existing:
             return self._analysis_response(kiosk_session, existing)
 
-        if kiosk_session.status in {
-            SessionStatus.ORCHESTRATING,
-            SessionStatus.RESOLVED_AUTOMATIC,
-            SessionStatus.ASSIGNED,
-        }:
-            raise AppError("SESSION_FINALIZED", "La sesion ya fue procesada", 409)
+        allowed_statuses = {
+            SessionStatus.CREATED,
+            SessionStatus.LISTENING,
+            SessionStatus.NEEDS_CLARIFICATION,
+        }
+        if kiosk_session.status not in allowed_statuses:
+            raise AppError(
+                "INVALID_SESSION_STATE",
+                "La sesion no admite un nuevo turno en su estado actual",
+                409,
+                {"status": kiosk_session.status.value},
+            )
+        if payload.is_clarification != (kiosk_session.status == SessionStatus.NEEDS_CLARIFICATION):
+            raise AppError(
+                "INVALID_CLARIFICATION",
+                "El indicador de aclaracion no coincide con el estado de la sesion",
+                409,
+            )
 
         masked = self.pii.mask(payload.transcript)
         context = masked.masked_text
@@ -113,6 +125,14 @@ class OrchestratorService:
         else:
             kiosk_session.status = SessionStatus.AWAITING_CONFIRMATION
 
+        proposed_priority = self.prioritizer.run(
+            decision.category,
+            decision.summary,
+            kiosk_session.preferential_attention,
+            urgency_detected=decision.urgency_detected,
+            security_incident=decision.security_incident,
+            distress_detected=decision.distress_detected,
+        )
         requirement = Requirement(
             session_id=kiosk_session.id,
             turn_id=payload.turn_id,
@@ -120,6 +140,7 @@ class OrchestratorService:
             pii_metadata={"types": masked.pii_types, "counts": masked.counts},
             summary=decision.summary,
             category=decision.category,
+            proposed_priority=proposed_priority,
             consultation_level=decision.consultation_level,
             confidence=decision.confidence,
             ambiguous=kiosk_session.status == SessionStatus.NEEDS_CLARIFICATION,
@@ -144,6 +165,7 @@ class OrchestratorService:
             status=kiosk_session.status,
             summary=requirement.summary,
             category=requirement.category,
+            priority=requirement.proposed_priority,
             consultation_level=requirement.consultation_level,
             confidence=requirement.confidence,
             clarification_question=question,
@@ -155,6 +177,18 @@ class OrchestratorService:
     async def confirm(
         self, db: AsyncSession, kiosk_session: KioskSession, confirmed: bool
     ) -> FlowResult:
+        if kiosk_session.status in {
+            SessionStatus.RESOLVED_AUTOMATIC,
+            SessionStatus.ASSIGNED,
+        }:
+            return await self._build_result(db, kiosk_session.id)
+        if kiosk_session.status != SessionStatus.AWAITING_CONFIRMATION:
+            raise AppError(
+                "INVALID_SESSION_STATE",
+                "La sesion no tiene un requerimiento pendiente de confirmacion",
+                409,
+                {"status": kiosk_session.status.value},
+            )
         requirement = await self.repository.latest_requirement(db, kiosk_session.id)
         if not requirement:
             raise AppError(
@@ -237,6 +271,18 @@ class OrchestratorService:
     async def identify(
         self, db: AsyncSession, kiosk_session: KioskSession, payload: IdentificationRequest
     ) -> FlowResult:
+        if kiosk_session.status in {
+            SessionStatus.RESOLVED_AUTOMATIC,
+            SessionStatus.ASSIGNED,
+        }:
+            return await self._build_result(db, kiosk_session.id)
+        if kiosk_session.status != SessionStatus.AWAITING_IDENTIFICATION:
+            raise AppError(
+                "INVALID_SESSION_STATE",
+                "La sesion no espera una identificacion",
+                409,
+                {"status": kiosk_session.status.value},
+            )
         case = await self.repository.case_by_session(
             db,
             kiosk_session.id,
@@ -292,14 +338,7 @@ class OrchestratorService:
         requirement = await db.get(Requirement, case.requirement_id)
         if not requirement:
             raise AppError("REQUIREMENT_NOT_FOUND", "El requerimiento del caso no existe", 409)
-        priority = self.prioritizer.run(
-            case.category,
-            case.summary,
-            case.preferential_attention,
-            urgency_detected=requirement.urgency_detected,
-            security_incident=requirement.security_incident,
-            distress_detected=requirement.distress_detected,
-        )
+        priority = requirement.proposed_priority
         case.priority = priority
         db.add(
             TraceEvent(

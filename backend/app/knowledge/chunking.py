@@ -42,7 +42,7 @@ def chunk_pdf(
     ordinal = 0
     for page_number, page_text in enumerate(extract_pdf_pages(path), start=1):
         segments: list[tuple[str | None, list[str]]] = []
-        current_section: str | None = None
+        current_section: str | None = f"Página {page_number}"
         current_lines: list[str] = []
         for raw_line in page_text.splitlines():
             line = raw_line.strip()
@@ -50,14 +50,13 @@ def chunk_pdf(
                 continue
             matched = headings.get(line.casefold())
             if matched:
-                if current_section and current_lines:
+                if current_lines:
                     segments.append((current_section, current_lines))
                 current_section = matched
                 current_lines = []
                 continue
-            if current_section:
-                current_lines.append(line)
-        if current_section and current_lines:
+            current_lines.append(line)
+        if current_lines:
             segments.append((current_section, current_lines))
 
         for section, lines in segments:

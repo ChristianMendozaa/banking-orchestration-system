@@ -1277,7 +1277,6 @@ dependencies = [
     { name = "pyjwt" },
     { name = "pypdf" },
     { name = "python-multipart" },
-    { name = "reportlab" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
     { name = "tiktoken" },
@@ -1290,6 +1289,7 @@ dev = [
     { name = "coverage" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
+    { name = "reportlab" },
     { name = "ruff" },
 ]
 
@@ -1308,7 +1308,6 @@ requires-dist = [
     { name = "pyjwt", specifier = ">=2.10.1" },
     { name = "pypdf", specifier = ">=5.8.0" },
     { name = "python-multipart", specifier = ">=0.0.20" },
-    { name = "reportlab", specifier = ">=4.4.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.41" },
     { name = "structlog", specifier = ">=25.4.0" },
     { name = "tiktoken", specifier = ">=0.9.0" },
@@ -1321,6 +1320,7 @@ dev = [
     { name = "coverage", specifier = ">=7.9.0" },
     { name = "pytest", specifier = ">=8.4.0" },
     { name = "pytest-asyncio", specifier = ">=1.1.0" },
+    { name = "reportlab", specifier = ">=4.4.0" },
     { name = "ruff", specifier = ">=0.12.0" },
 ]
 

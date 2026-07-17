@@ -1,49 +1,71 @@
-import { SidebarNav } from '@/components/executive/sidebar-nav'
-import { Bell, Building2 } from 'lucide-react'
+"use client"
 
-export default function EjecutivoLayout({ children }: { children: React.ReactNode }) {
+import { RoleGuard, useAuth } from "@/components/providers/auth-provider"
+import { useSystemConfig } from "@/components/providers/system-config-provider"
+import { Building2, LogOut } from "lucide-react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
+
+function ExecutiveShell({ children }: { children: React.ReactNode }) {
+  const { user, logout } = useAuth()
+  const { config } = useSystemConfig()
+  const router = useRouter()
+
+  async function exit() {
+    await logout()
+    router.replace("/login")
+  }
+
   return (
-    <div className="min-h-screen bg-[#F3F4F6] flex flex-col">
-      {/* Top navbar */}
-      <header className="bg-white border-b border-gray-200 h-16 flex items-center justify-between px-6 shrink-0">
+    <div className="flex min-h-screen flex-col bg-[#F3F4F6]">
+      <header className="flex min-h-16 items-center justify-between gap-4 border-b border-gray-200 bg-white px-5 py-3 sm:px-6">
+        <Link className="flex items-center gap-3" href="/ejecutivo">
+          <span className="grid h-9 w-9 place-items-center rounded-lg bg-[#0A1628]">
+            <Building2 className="h-5 w-5 text-white" />
+          </span>
+          <span>
+            <span className="block text-sm font-bold text-gray-900">
+              {config?.bank_name ?? "Sistema bancario"}
+            </span>
+            <span className="block text-xs text-gray-400">{config?.branch_name}</span>
+          </span>
+        </Link>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-[#0A1628] flex items-center justify-center">
-            <Building2 className="w-4 h-4 text-white" />
+          <div className="hidden text-right sm:block">
+            <p className="text-sm font-semibold text-gray-900">{user?.email}</p>
+            <p className="text-xs text-gray-400">Ejecutivo de atención</p>
           </div>
-          <div>
-            <p className="text-sm font-bold text-gray-900 leading-none">Banco Mercantil Santa Cruz</p>
-            <p className="text-xs text-gray-400 mt-0.5">Sistema de Orquestación</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <button className="relative p-2 rounded-xl hover:bg-gray-100 transition-colors">
-            <Bell className="w-5 h-5 text-gray-500" />
-            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
+          <button
+            aria-label="Cerrar sesión"
+            className="rounded-xl p-2 text-gray-500 transition hover:bg-red-50 hover:text-red-600"
+            onClick={exit}
+            type="button"
+          >
+            <LogOut className="h-5 w-5" />
           </button>
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-[#1168BD] flex items-center justify-center">
-              <span className="text-white text-sm font-bold">CM</span>
-            </div>
-            <div className="hidden sm:block">
-              <p className="text-sm font-semibold text-gray-900 leading-none">Lic. Carlos Mamani</p>
-              <p className="text-xs text-gray-400 mt-0.5">Ejecutivo de Atención</p>
-            </div>
-          </div>
         </div>
       </header>
-
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <aside className="w-60 bg-white border-r border-gray-200 flex flex-col shrink-0">
-          <SidebarNav />
+      <div className="flex flex-1">
+        <aside className="hidden w-60 border-r border-gray-200 bg-white p-4 md:block">
+          <nav>
+            <Link
+              className="block rounded-xl border-l-4 border-[#1168BD] bg-[#1168BD]/10 px-4 py-3 text-sm font-semibold text-[#1168BD]"
+              href="/ejecutivo"
+            >
+              Casos asignados
+            </Link>
+          </nav>
         </aside>
-
-        {/* Main content */}
-        <main className="flex-1 overflow-auto p-6">
-          {children}
-        </main>
+        <main className="min-w-0 flex-1 p-4 sm:p-6">{children}</main>
       </div>
     </div>
+  )
+}
+
+export default function ExecutiveLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <RoleGuard roles={["EXECUTIVE"]}>
+      <ExecutiveShell>{children}</ExecutiveShell>
+    </RoleGuard>
   )
 }

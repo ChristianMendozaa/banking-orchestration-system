@@ -9,10 +9,17 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.pool import StaticPool
 
 os.environ["APP_ENV"] = "test"
+os.environ["APP_NAME"] = "Sistema de Orquestacion de Pruebas"
+os.environ["BANK_NAME"] = "Banco de Pruebas"
+os.environ["BRANCH_NAME"] = "Sucursal de Pruebas"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite://"
+os.environ["CORS_ORIGINS"] = "http://test"
 os.environ["OPENAI_API_KEY"] = ""
 os.environ["JWT_SECRET"] = "test-jwt-secret-with-more-than-thirty-two-characters"
-os.environ["IDENTIFIER_PEPPER"] = "test-identifier-pepper"
+os.environ["IDENTIFIER_PEPPER"] = "test-identifier-pepper-with-more-than-thirty-two-characters"
+os.environ["SEED_EXECUTIVE_PASSWORD"] = "test-executive-password"
+os.environ["SEED_MANAGER_PASSWORD"] = "test-manager-password"
+os.environ["KNOWLEDGE_STORAGE_DIR"] = "/tmp/sistema-orquestacion-tests-knowledge"
 
 from app.api.deps import get_orchestrator  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
@@ -20,7 +27,11 @@ from app.db.base import Base  # noqa: E402
 from app.db.models import KnowledgeChunk, KnowledgeDocument  # noqa: E402
 from app.db.seed import seed  # noqa: E402
 from app.db.session import get_db  # noqa: E402
-from app.domain.enums import Category, KnowledgeSourceType  # noqa: E402
+from app.domain.enums import (  # noqa: E402
+    Category,
+    KnowledgeIndexStatus,
+    KnowledgeSourceType,
+)
 from app.domain.schemas import GroundedAnswerDecision  # noqa: E402
 from app.knowledge.service import KnowledgeService  # noqa: E402
 from app.main import app  # noqa: E402
@@ -113,7 +124,13 @@ async def database() -> AsyncIterator[None]:
             verified_at=datetime(2026, 1, 1, tzinfo=UTC),
             review_after=datetime(2030, 1, 1, tzinfo=UTC),
             file_name="horarios.pdf",
+            storage_key="horarios-test.pdf",
+            mime_type="application/pdf",
+            byte_size=100,
+            page_count=1,
             content_sha256="a" * 64,
+            index_status=KnowledgeIndexStatus.READY,
+            indexed_at=datetime(2026, 1, 1, tzinfo=UTC),
             active=True,
         )
         session.add(document)

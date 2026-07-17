@@ -1,8 +1,8 @@
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import SecretStr, field_validator, model_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -11,15 +11,18 @@ class Settings(BaseSettings):
     )
 
     app_env: Literal["development", "test", "production"] = "development"
-    app_name: str = "Sistema de Orquestacion Bancaria"
+    app_name: str
+    bank_name: str
+    branch_name: str
     api_v1_prefix: str = "/api/v1"
-    database_url: str = "postgresql+psycopg://orquestacion:orquestacion@localhost:5432/orquestacion"
+    database_url: str
     database_migration_url: str | None = None
     supabase_url: str | None = None
     supabase_service_role_key: SecretStr = SecretStr("")
 
     openai_api_key: SecretStr = SecretStr("")
     voice_model: str = "gpt-realtime-2.1-mini"
+    transcription_model: str = "gpt-realtime-whisper"
     orchestration_model: str = "gpt-5.4-mini"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
@@ -32,13 +35,22 @@ class Settings(BaseSettings):
     rag_chunk_overlap: int = 100
     rag_corpus_dir: str = "../doc/rag"
 
-    jwt_secret: SecretStr = SecretStr("development-only-secret-change-me-32-chars")
-    identifier_pepper: SecretStr = SecretStr("development-only-pepper-change-me")
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    jwt_secret: SecretStr
+    identifier_pepper: SecretStr
+    cors_origins: Annotated[list[str], NoDecode]
     access_token_minutes: int = 30
     refresh_token_hours: int = 8
-    seed_executive_password: SecretStr = SecretStr("ChangeMe-Executive-2026")
-    seed_manager_password: SecretStr = SecretStr("ChangeMe-Manager-2026")
+    kiosk_session_minutes: int = 30
+    seed_executive_password: SecretStr
+    seed_manager_password: SecretStr
+    seed_data_path: str = "seed/demo_seed.json"
+    dashboard_refresh_ms: int = 10_000
+    voice_drain_ms: int = 900
+
+    knowledge_storage_dir: str = "../data/knowledge"
+    knowledge_seed_dir: str = "../doc/rag"
+    knowledge_max_upload_mb: int = 20
+    knowledge_max_pages: int = 300
 
     classification_confidence_threshold: float = 0.68
     max_clarifications: int = 2
@@ -56,6 +68,20 @@ class Settings(BaseSettings):
             raise ValueError("RAG_CHUNK_TOKENS debe ser al menos 100")
         if not 0 <= self.rag_chunk_overlap < self.rag_chunk_tokens:
             raise ValueError("RAG_CHUNK_OVERLAP debe ser menor que RAG_CHUNK_TOKENS")
+        if self.embedding_dimensions != 1536:
+            raise ValueError(
+                "EMBEDDING_DIMENSIONS debe ser 1536 porque el esquema pgvector usa esa dimension"
+            )
+        if self.kiosk_session_minutes <= 0:
+            raise ValueError("KIOSK_SESSION_MINUTES debe ser positivo")
+        if self.knowledge_max_upload_mb <= 0:
+            raise ValueError("KNOWLEDGE_MAX_UPLOAD_MB debe ser positivo")
+        if self.knowledge_max_pages <= 0:
+            raise ValueError("KNOWLEDGE_MAX_PAGES debe ser positivo")
+        if self.dashboard_refresh_ms < 1_000:
+            raise ValueError("DASHBOARD_REFRESH_MS debe ser al menos 1000")
+        if not 0 <= self.voice_drain_ms <= 5_000:
+            raise ValueError("VOICE_DRAIN_MS debe estar entre 0 y 5000")
         return self
 
     @field_validator("cors_origins", mode="before")
@@ -66,23 +92,21 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def validate_production_secrets(self) -> "Settings":
-        if self.app_env != "production":
-            return self
+    def validate_security_secrets(self) -> "Settings":
         jwt_secret = self.jwt_secret.get_secret_value()
         pepper = self.identifier_pepper.get_secret_value()
-        if len(jwt_secret) < 32 or "development-only" in jwt_secret:
+        executive_password = self.seed_executive_password.get_secret_value()
+        manager_password = self.seed_manager_password.get_secret_value()
+        if len(jwt_secret) < 32:
             raise ValueError("JWT_SECRET debe ser un secreto aleatorio de al menos 32 caracteres")
-        if len(pepper) < 32 or "development-only" in pepper:
+        if len(pepper) < 32:
             raise ValueError(
                 "IDENTIFIER_PEPPER debe ser un secreto aleatorio de al menos 32 caracteres"
             )
-        if not self.openai_enabled:
+        if len(executive_password) < 12 or len(manager_password) < 12:
+            raise ValueError("Las contrasenas de semilla deben tener al menos 12 caracteres")
+        if self.app_env == "production" and not self.openai_enabled:
             raise ValueError("OPENAI_API_KEY es obligatorio en produccion")
-        if "ChangeMe" in self.seed_executive_password.get_secret_value() or "ChangeMe" in (
-            self.seed_manager_password.get_secret_value()
-        ):
-            raise ValueError("Las contrasenas de semilla deben cambiarse en produccion")
         return self
 
     @property

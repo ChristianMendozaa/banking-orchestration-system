@@ -1,4 +1,7 @@
 import asyncio
+import json
+from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,40 +15,27 @@ from app.domain.enums import Category, ExecutiveStatus, UserRole
 settings = get_settings()
 
 
-EXECUTIVES = (
-    (
-        "Maria Fernandez",
-        "Tarjetas y Seguridad",
-        "Ventanilla 3",
-        "maria.fernandez@demo.example",
-        ((Category.BLOQUEO_TARJETA, 5), (Category.REPORTE_FRAUDE, 4)),
-    ),
-    (
-        "Carlos Mamani",
-        "Prevencion de Fraudes",
-        "Ventanilla 1",
-        "carlos.mamani@demo.example",
-        ((Category.REPORTE_FRAUDE, 5), (Category.CONSULTA_GENERAL, 3)),
-    ),
-    (
-        "Patricia Quispe",
-        "Banca Digital",
-        "Ventanilla 5",
-        "patricia.quispe@demo.example",
-        ((Category.BANCA_DIGITAL, 5), (Category.BLOQUEO_TARJETA, 3)),
-    ),
-    (
-        "Roberto Torrez",
-        "Creditos y Atencion al Cliente",
-        "Ventanilla 4",
-        "roberto.torrez@demo.example",
-        ((Category.SOLICITUD_CREDITO, 5), (Category.CONSULTA_GENERAL, 4)),
-    ),
-)
+def load_seed_data() -> dict[str, Any]:
+    path = Path(settings.seed_data_path)
+    if not path.is_file():
+        raise RuntimeError(f"No existe el archivo de semilla: {path}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise RuntimeError("El archivo de semilla debe contener un objeto JSON")
+    return data
 
 
 async def seed(db: AsyncSession) -> None:
-    for name, title, window, email, skills in EXECUTIVES:
+    data = load_seed_data()
+    for item in data.get("executives", []):
+        name = str(item["name"])
+        title = str(item["title"])
+        window = str(item["window"])
+        email = str(item["email"]).lower()
+        skills = {
+            Category(category): int(level)
+            for category, level in dict(item.get("skills", {})).items()
+        }
         executive = await db.scalar(select(Executive).where(Executive.display_name == name))
         if not executive:
             executive = Executive(
@@ -68,7 +58,7 @@ async def seed(db: AsyncSession) -> None:
                     executive_id=executive.id,
                 )
             )
-        for category, level in skills:
+        for category, level in skills.items():
             skill = await db.scalar(
                 select(ExecutiveSkill).where(
                     ExecutiveSkill.executive_id == executive.id,
@@ -85,16 +75,19 @@ async def seed(db: AsyncSession) -> None:
                     )
                 )
 
-    if not await db.scalar(select(User).where(User.email == "gerencia@demo.example")):
+    manager_email = str(data["manager"]["email"]).lower()
+    if not await db.scalar(select(User).where(User.email == manager_email)):
         db.add(
             User(
-                email="gerencia@demo.example",
+                email=manager_email,
                 password_hash=hash_password(settings.seed_manager_password.get_secret_value()),
                 role=UserRole.MANAGER,
             )
         )
 
-    for identifier, name in (("DEMO-1001", "Cliente Demo Uno"), ("DEMO-1002", "Cliente Demo Dos")):
+    for client in data.get("clients", []):
+        identifier = str(client["identifier"])
+        name = str(client["name"])
         identifier_hash = hash_identifier(identifier, settings)
         if not await db.scalar(
             select(DemoClient).where(DemoClient.identifier_hash == identifier_hash)

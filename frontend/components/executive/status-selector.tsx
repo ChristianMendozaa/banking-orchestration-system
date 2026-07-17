@@ -1,56 +1,72 @@
-'use client'
+"use client"
 
-import { useState } from 'react'
-import { Button } from '@/components/ui/button'
-import { CheckCircle2 } from 'lucide-react'
-import type { Status } from '@/lib/mock-data'
+import { useAuth } from "@/components/providers/auth-provider"
+import { Button } from "@/components/ui/button"
+import { errorMessage } from "@/lib/api"
+import { statusLabels } from "@/lib/labels"
+import type { TicketDetail, TicketStatus } from "@/lib/types"
+import { CheckCircle2 } from "lucide-react"
+import { useState } from "react"
 
-interface StatusSelectorProps {
-  initialStatus: Status
+const nextStatus: Record<TicketStatus, TicketStatus | null> = {
+  PENDIENTE: "EN_ATENCION",
+  EN_ATENCION: "CERRADO",
+  CERRADO: null,
 }
 
-const statusLabels: Record<Status, string> = {
-  PENDIENTE: 'Pendiente',
-  EN_ATENCION: 'En Atención',
-  CERRADO: 'Cerrado',
-}
+export function StatusSelector({
+  ticket,
+  onUpdated,
+}: {
+  ticket: TicketDetail
+  onUpdated: (ticket: TicketDetail) => void
+}) {
+  const { request } = useAuth()
+  const [updating, setUpdating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const next = nextStatus[ticket.status]
 
-const statusColors: Record<Status, string> = {
-  PENDIENTE: 'text-yellow-700 bg-yellow-50 border-yellow-200',
-  EN_ATENCION: 'text-blue-700 bg-blue-50 border-blue-200',
-  CERRADO: 'text-green-700 bg-green-50 border-green-200',
-}
-
-export function StatusSelector({ initialStatus }: StatusSelectorProps) {
-  const [status, setStatus] = useState<Status>(initialStatus)
-  const [saved, setSaved] = useState(false)
-
-  const handleUpdate = () => {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
+  async function update() {
+    if (!next) return
+    setUpdating(true)
+    setError(null)
+    try {
+      const response = await request<TicketDetail>(`/tickets/${ticket.id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: next, expected_version: ticket.version }),
+      })
+      onUpdated(response)
+    } catch (reason) {
+      setError(errorMessage(reason))
+    } finally {
+      setUpdating(false)
+    }
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      <label className="text-sm font-medium text-gray-700">Estado del caso</label>
-      <select
-        value={status}
-        onChange={(e) => { setStatus(e.target.value as Status); setSaved(false) }}
-        className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#1168BD] focus:border-transparent cursor-pointer"
-      >
-        {(Object.keys(statusLabels) as Status[]).map((s) => (
-          <option key={s} value={s}>{statusLabels[s]}</option>
-        ))}
-      </select>
-
-      <div className={`px-4 py-2 rounded-xl border text-sm font-medium w-fit ${statusColors[status]}`}>
-        {statusLabels[status]}
+    <div className="space-y-4">
+      <div>
+        <p className="text-sm font-medium text-gray-700">Estado actual</p>
+        <span className="mt-2 inline-flex rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">
+          {statusLabels[ticket.status]}
+        </span>
       </div>
-
-      <Button variant="primary" size="md" onClick={handleUpdate} className="w-fit gap-2">
-        {saved ? <CheckCircle2 className="w-4 h-4" /> : null}
-        {saved ? 'Estado actualizado' : 'Actualizar estado'}
-      </Button>
+      {next ? (
+        <Button disabled={updating} onClick={update}>
+          <CheckCircle2 className="h-4 w-4" />
+          {updating ? "Actualizando…" : `Marcar como ${statusLabels[next].toLowerCase()}`}
+        </Button>
+      ) : (
+        <p className="text-sm text-green-700">El caso está cerrado y no admite más cambios.</p>
+      )}
+      {error && (
+        <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">
+          {error}
+        </p>
+      )}
+      <p className="text-xs text-gray-400">
+        La transición se valida en el servidor y usa control de versión para evitar sobrescrituras.
+      </p>
     </div>
   )
 }

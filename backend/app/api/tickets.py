@@ -2,15 +2,16 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import require_roles
+from app.core.datetime import ensure_aware
 from app.core.errors import AppError
 from app.db.models import CaseRecord, Ticket, TraceEvent, User
 from app.db.session import get_db
-from app.domain.enums import CaseStatus, TicketStatus, UserRole
+from app.domain.enums import CaseStatus, Priority, TicketStatus, UserRole
 from app.domain.schemas import (
     TicketDetail,
     TicketListItem,
@@ -22,18 +23,16 @@ from app.domain.schemas import (
 router = APIRouter(tags=["Operacion ejecutiva"])
 
 
-def _aware(value: datetime) -> datetime:
-    return value if value.tzinfo else value.replace(tzinfo=UTC)
-
-
 def ticket_item(ticket: Ticket) -> TicketListItem:
     now = datetime.now(UTC)
-    assigned = _aware(ticket.assigned_at) if ticket.assigned_at else None
-    elapsed = max(0, int((now - (assigned or _aware(ticket.created_at))).total_seconds() // 60))
-    started = _aware(ticket.started_at) if ticket.started_at else None
+    assigned = ensure_aware(ticket.assigned_at) if ticket.assigned_at else None
+    elapsed = max(
+        0, int((now - (assigned or ensure_aware(ticket.created_at))).total_seconds() // 60)
+    )
+    started = ensure_aware(ticket.started_at) if ticket.started_at else None
     wait = max(
         0,
-        int(((started or now) - _aware(ticket.created_at)).total_seconds() // 60),
+        int(((started or now) - ensure_aware(ticket.created_at)).total_seconds() // 60),
     )
     executive = ticket.executive
     case = ticket.case
@@ -84,7 +83,15 @@ async def executive_tickets(
                 select(Ticket)
                 .where(*filters)
                 .options(*_ticket_options())
-                .order_by(CaseRecord.priority.desc(), Ticket.created_at)
+                .order_by(
+                    case(
+                        (CaseRecord.priority == Priority.CRITICO, 0),
+                        (CaseRecord.priority == Priority.ALTO, 1),
+                        (CaseRecord.priority == Priority.MEDIO, 2),
+                        else_=3,
+                    ),
+                    Ticket.created_at,
+                )
                 .join(Ticket.case)
                 .offset((page - 1) * page_size)
                 .limit(page_size)

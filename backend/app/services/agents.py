@@ -33,46 +33,83 @@ class ClassificationAgent:
     @staticmethod
     def _fallback(text: str) -> ClassificationDecision:
         lowered = text.lower()
-        rules = (
+        category_rules = (
             (
                 Category.REPORTE_FRAUDE,
-                ConsultationLevel.SENSIBLE,
                 ("fraude", "movimiento no reconocido", "compra no reconocida", "estafa"),
             ),
             (
                 Category.BLOQUEO_TARJETA,
-                ConsultationLevel.SENSIBLE,
                 ("bloquear", "bloqueo", "tarjeta perdida", "tarjeta robada", "extrav"),
             ),
             (
                 Category.BANCA_DIGITAL,
-                ConsultationLevel.PERSONALIZADA,
                 ("banca digital", "banca en linea", "aplicacion", "contraseña", "acceso"),
             ),
             (
                 Category.SOLICITUD_CREDITO,
-                ConsultationLevel.PERSONALIZADA,
                 ("credito", "crédito", "prestamo", "préstamo", "hipotecario"),
             ),
             (
                 Category.CONSULTA_GENERAL,
-                ConsultationLevel.GENERAL,
                 ("horario", "requisito", "abrir una cuenta", "sucursal", "producto"),
             ),
         )
-        for category, level, keywords in rules:
-            if any(keyword in lowered for keyword in keywords):
-                return ClassificationDecision(
-                    summary=text[:500],
-                    category=category,
-                    consultation_level=level,
-                    confidence=0.86,
-                    ambiguous=False,
-                    urgency_detected=category
-                    in {Category.REPORTE_FRAUDE, Category.BLOQUEO_TARJETA},
-                    security_incident=category
-                    in {Category.REPORTE_FRAUDE, Category.BLOQUEO_TARJETA},
+        category = next(
+            (
+                candidate
+                for candidate, keywords in category_rules
+                if any(keyword in lowered for keyword in keywords)
+            ),
+            None,
+        )
+        if category:
+            sensitive = category in {Category.REPORTE_FRAUDE, Category.BLOQUEO_TARJETA} or any(
+                term in lowered
+                for term in ("saldo", "mis movimientos", "datos financieros", "mi tarjeta")
+            )
+            informational = any(
+                term in lowered
+                for term in (
+                    "informacion",
+                    "información",
+                    "requisito",
+                    "que necesito",
+                    "qué necesito",
+                    "horario",
+                    "donde",
+                    "dónde",
+                    "como funciona",
+                    "cómo funciona",
                 )
+            )
+            personalized = any(
+                term in lowered
+                for term in (
+                    "mi credito",
+                    "mi crédito",
+                    "mi solicitud",
+                    "estado de",
+                    "no puedo acceder",
+                    "contraseña bloqueada",
+                    "mi cuenta",
+                )
+            )
+            if sensitive:
+                level = ConsultationLevel.SENSIBLE
+            elif personalized and not informational:
+                level = ConsultationLevel.PERSONALIZADA
+            else:
+                level = ConsultationLevel.GENERAL
+            return ClassificationDecision(
+                summary=text[:500],
+                category=category,
+                consultation_level=level,
+                confidence=0.86,
+                ambiguous=False,
+                urgency_detected=category in {Category.REPORTE_FRAUDE, Category.BLOQUEO_TARJETA},
+                security_incident=category in {Category.REPORTE_FRAUDE, Category.BLOQUEO_TARJETA},
+            )
         return ClassificationDecision(
             summary=text[:500],
             category=Category.CONSULTA_GENERAL,
@@ -157,15 +194,18 @@ class DerivationAgent:
         ranked: list[tuple[float, datetime, str, Executive]] = []
         for executive in executives:
             matching = [skill for skill in executive.skills if skill.category == category]
-            best_skill = max(matching or executive.skills, key=lambda skill: skill.experience_level)
-            semantic = 1.0 if best_skill.category == category else 0.25
+            if not matching:
+                continue
+            best_skill = max(matching, key=lambda skill: skill.experience_level)
+            semantic = 1.0 if case_embedding is None else 0.0
             if case_embedding is not None:
                 try:
                     if best_skill.embedding is None and self.provider:
                         best_skill.embedding = await self.provider.embedding(best_skill.description)
                     if best_skill.embedding is not None:
                         semantic = max(
-                            semantic, _cosine(case_embedding, list(best_skill.embedding))
+                            0.0,
+                            _cosine(case_embedding, list(best_skill.embedding)),
                         )
                 except Exception:
                     pass
@@ -175,7 +215,7 @@ class DerivationAgent:
             idle = executive.last_assigned_at or datetime.min.replace(tzinfo=UTC)
             ranked.append((score, idle, str(executive.id), executive))
         ranked.sort(key=lambda row: (-row[0], row[1], row[2]))
-        return ranked[0][3]
+        return ranked[0][3] if ranked else None
 
 
 class InitialAttentionAgent:
@@ -190,6 +230,6 @@ class InitialAttentionAgent:
         level: ConsultationLevel,
         masked_query: str,
     ) -> GroundedResponse | None:
-        if category != Category.CONSULTA_GENERAL or level != ConsultationLevel.GENERAL:
+        if level != ConsultationLevel.GENERAL:
             return None
         return await self.knowledge.answer(db, case_id, category, masked_query)

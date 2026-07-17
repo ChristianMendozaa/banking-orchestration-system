@@ -2,10 +2,10 @@ import Link from 'next/link'
 import { Clock, ArrowRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
-import type { Ticket } from '@/lib/mock-data'
+import type { TicketListItem } from '@/lib/types'
 
 interface TicketCardProps {
-  ticket: Ticket
+  ticket: TicketListItem
 }
 
 export function TicketCard({ ticket }: TicketCardProps) {
@@ -28,7 +28,9 @@ export function TicketCard({ ticket }: TicketCardProps) {
             <div className="flex items-center gap-4 mt-3">
               <span className="flex items-center gap-1.5 text-xs text-gray-400">
                 <Clock className="w-3.5 h-3.5" />
-                Asignado a las {ticket.timeAssigned} — hace {ticket.minutesElapsed} min
+                {ticket.time_assigned
+                  ? `Asignado hace ${ticket.minutes_elapsed} min`
+                  : `En espera hace ${ticket.wait_time_min} min`}
               </span>
             </div>
           </div>

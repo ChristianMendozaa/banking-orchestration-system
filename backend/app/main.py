@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.engine import make_url
 
-from app.api import auth, health, kiosk, management, tickets
+from app.api import auth, health, kiosk, knowledge, management, system, tickets
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
 
@@ -104,7 +104,15 @@ async def basic_rate_limit(request: Request, call_next):
 
 
 install_error_handlers(app)
-for api_router in (health.router, auth.router, kiosk.router, tickets.router, management.router):
+for api_router in (
+    health.router,
+    system.router,
+    auth.router,
+    kiosk.router,
+    tickets.router,
+    management.router,
+    knowledge.router,
+):
     app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 

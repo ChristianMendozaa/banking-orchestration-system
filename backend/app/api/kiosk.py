@@ -1,7 +1,10 @@
+from datetime import UTC, datetime, timedelta
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_kiosk_session, get_openai_provider, get_orchestrator
+from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.security import hash_token, new_opaque_token
 from app.db.models import KioskSession
@@ -26,19 +29,25 @@ router = APIRouter(prefix="/kiosk", tags=["Kiosco"])
 
 @router.post("/sessions", response_model=SessionCreatedResponse, status_code=201)
 async def create_session(
-    payload: SessionCreateRequest, db: AsyncSession = Depends(get_db)
+    payload: SessionCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
 ) -> SessionCreatedResponse:
     token = new_opaque_token()
     kiosk_session = KioskSession(
         access_token_hash=hash_token(token),
         status=SessionStatus.CREATED,
         preferential_attention=payload.preferential_attention,
+        expires_at=datetime.now(UTC) + timedelta(minutes=settings.kiosk_session_minutes),
     )
     db.add(kiosk_session)
     await db.commit()
     await db.refresh(kiosk_session)
     return SessionCreatedResponse(
-        session_id=kiosk_session.id, session_token=token, status=kiosk_session.status
+        session_id=kiosk_session.id,
+        session_token=token,
+        status=kiosk_session.status,
+        expires_at=kiosk_session.expires_at,
     )
 
 
@@ -50,8 +59,19 @@ async def realtime_token(
 ) -> RealtimeTokenResponse:
     if not provider:
         raise AppError("OPENAI_NOT_CONFIGURED", "El servicio de voz no esta configurado", 503)
+    if kiosk_session.status not in {
+        SessionStatus.CREATED,
+        SessionStatus.LISTENING,
+        SessionStatus.NEEDS_CLARIFICATION,
+    }:
+        raise AppError(
+            "INVALID_SESSION_STATE",
+            "La sesion no admite iniciar el canal de voz en su estado actual",
+            409,
+        )
     data = await provider.create_realtime_client_secret(str(kiosk_session.id))
-    kiosk_session.status = SessionStatus.LISTENING
+    if kiosk_session.status != SessionStatus.NEEDS_CLARIFICATION:
+        kiosk_session.status = SessionStatus.LISTENING
     await db.commit()
     return RealtimeTokenResponse.model_validate(data)
 

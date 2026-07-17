@@ -1,0 +1,14 @@
+.git
+.gitignore
+**/.env
+**/.env.*
+!**/.env.example
+**/.next
+**/node_modules
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+data
+doc/TG1_ChristianMendoza.pdf
+doc/auditoria_backend_arquitectura.pdf

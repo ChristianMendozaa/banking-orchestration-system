@@ -26,6 +26,7 @@ from app.domain.enums import (
     ExecutiveStatus,
     GroundingStatus,
     IdentificationStatus,
+    KnowledgeIndexStatus,
     KnowledgeSourceType,
     Priority,
     ResolutionType,
@@ -104,6 +105,7 @@ class KioskSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "kiosk_sessions"
 
     access_token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     status: Mapped[SessionStatus] = mapped_column(
         string_enum(SessionStatus), default=SessionStatus.CREATED, index=True
     )
@@ -138,6 +140,7 @@ class Requirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     pii_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     summary: Mapped[str] = mapped_column(Text)
     category: Mapped[Category] = mapped_column(string_enum(Category), index=True)
+    proposed_priority: Mapped[Priority] = mapped_column(string_enum(Priority), index=True)
     consultation_level: Mapped[ConsultationLevel] = mapped_column(
         string_enum(ConsultationLevel), index=True
     )
@@ -249,8 +252,20 @@ class KnowledgeDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     verified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     review_after: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     file_name: Mapped[str] = mapped_column(String(255))
+    storage_key: Mapped[str] = mapped_column(String(255), unique=True)
+    mime_type: Mapped[str] = mapped_column(String(100), default="application/pdf")
+    byte_size: Mapped[int] = mapped_column(Integer)
+    page_count: Mapped[int] = mapped_column(Integer)
     content_sha256: Mapped[str] = mapped_column(String(64), index=True)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    index_status: Mapped[KnowledgeIndexStatus] = mapped_column(
+        string_enum(KnowledgeIndexStatus), default=KnowledgeIndexStatus.PENDING, index=True
+    )
+    indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    index_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     chunks: Mapped[list["KnowledgeChunk"]] = relationship(
         back_populates="document", cascade="all, delete-orphan"

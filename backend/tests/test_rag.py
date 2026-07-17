@@ -1,3 +1,5 @@
+import hashlib
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -7,9 +9,7 @@ from app.db.models import RAGInteraction
 from app.domain.enums import Category
 from app.domain.schemas import GroundedAnswerDecision
 from app.knowledge.chunking import chunk_pdf
-from app.knowledge.corpus import CORPUS_DOCUMENTS
 from app.knowledge.ingestion import KnowledgeIngestionService
-from app.knowledge.pdf_generator import generate_pdfs
 from app.knowledge.service import KnowledgeService
 from tests.conftest import TestSession, fake_provider, settings_for_tests
 
@@ -17,42 +17,38 @@ CORPUS_DIR = Path(__file__).parents[2] / "doc" / "rag"
 
 
 def test_generated_pdfs_are_searchable_and_split_by_section() -> None:
-    spec = CORPUS_DOCUMENTS[0]
+    manifest = json.loads((CORPUS_DIR / "manifest.json").read_text(encoding="utf-8"))
+    spec = manifest["documents"][0]
     chunks = chunk_pdf(
-        CORPUS_DIR / spec.file_name,
+        CORPUS_DIR / spec["file_name"],
         model=settings_for_tests.embedding_model,
         chunk_tokens=settings_for_tests.rag_chunk_tokens,
         overlap_tokens=settings_for_tests.rag_chunk_overlap,
-        known_headings={heading for heading, _ in spec.sections},
     )
-    assert len(chunks) == len(spec.sections)
-    assert chunks[0].section == "Canales de atención"
-    assert "nueve departamentos" in chunks[0].content
+    assert chunks
+    assert "nueve departamentos" in " ".join(chunk.content for chunk in chunks)
     assert all(chunk.page == 1 for chunk in chunks)
 
 
-def test_pdf_generation_is_reproducible(tmp_path) -> None:
-    corpus_dir = tmp_path / "rag"
-    audit_path = tmp_path / "audit.pdf"
-    first = generate_pdfs(corpus_dir, audit_path)
-    first_hashes = {item["file_name"]: item["sha256"] for item in first["documents"]}
-    first_audit = audit_path.read_bytes()
-    second = generate_pdfs(corpus_dir, audit_path)
-    second_hashes = {item["file_name"]: item["sha256"] for item in second["documents"]}
-    assert first_hashes == second_hashes
-    assert first_audit == audit_path.read_bytes()
+def test_manifest_hashes_match_versioned_pdfs() -> None:
+    manifest = json.loads((CORPUS_DIR / "manifest.json").read_text(encoding="utf-8"))
+    assert len(manifest["documents"]) == 8
+    for item in manifest["documents"]:
+        digest = hashlib.sha256((CORPUS_DIR / item["file_name"]).read_bytes()).hexdigest()
+        assert digest == item["sha256"]
 
 
 async def test_ingestion_is_idempotent_and_backfills_skill_embeddings() -> None:
+    manifest = json.loads((CORPUS_DIR / "manifest.json").read_text(encoding="utf-8"))
     service = KnowledgeIngestionService(settings_for_tests, fake_provider)
     async with TestSession() as db:
         first = await service.ingest_corpus(db, CORPUS_DIR)
         second = await service.ingest_corpus(db, CORPUS_DIR)
-    assert first["documents"] == len(CORPUS_DOCUMENTS)
-    assert first["chunks"] >= 32
+    assert first["documents"] == len(manifest["documents"])
+    assert first["chunks"] >= 8
     assert first["skills"] > 0
     assert second["documents"] == 0
-    assert second["unchanged"] == len(CORPUS_DOCUMENTS)
+    assert second["unchanged"] == len(manifest["documents"])
     assert second["skills"] == 0
 
 

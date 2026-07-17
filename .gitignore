@@ -23,6 +23,7 @@ Thumbs.db
 # El documento fuente se mantiene local; solo se versionan los entregables.
 doc/*
 !doc/auditoria_backend_arquitectura.pdf
+!doc/AUDITORIA_IMPLEMENTACION.md
 !doc/rag/
 doc/rag/*
 !doc/rag/*.pdf

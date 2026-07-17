@@ -29,7 +29,7 @@ def _set_refresh_cookie(response: Response, token: str, settings: Settings) -> N
         httponly=True,
         secure=settings.app_env == "production",
         samesite="lax",
-        path=f"{settings.api_v1_prefix}/auth",
+        path="/",
     )
 
 
@@ -113,7 +113,7 @@ async def logout(
         if stored and not stored.revoked_at:
             stored.revoked_at = datetime.now(UTC)
             await db.commit()
-    response.delete_cookie(REFRESH_COOKIE, path=f"{settings.api_v1_prefix}/auth")
+    response.delete_cookie(REFRESH_COOKIE, path="/")
 
 
 @router.get("/me", response_model=UserSummary)

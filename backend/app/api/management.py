@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.deps import require_roles
-from app.api.tickets import _aware
+from app.core.datetime import ensure_aware
 from app.db.models import CaseRecord, Ticket, User
 from app.db.session import get_db
 from app.domain.enums import Category, Priority, TicketStatus, UserRole
@@ -86,10 +86,10 @@ async def metrics(
         case = ticket.case
         category_counts[case.category.value] += 1
         priority_counts[case.priority.value] += 1
-        hour = _aware(ticket.created_at).astimezone(LA_PAZ).strftime("%H:00")
+        hour = ensure_aware(ticket.created_at).astimezone(LA_PAZ).strftime("%H:00")
         hourly_counts[hour] += 1
-        stop = _aware(ticket.started_at) if ticket.started_at else now
-        waits.append(max(0, (stop - _aware(ticket.created_at)).total_seconds() / 60))
+        stop = ensure_aware(ticket.started_at) if ticket.started_at else now
+        waits.append(max(0, (stop - ensure_aware(ticket.created_at)).total_seconds() / 60))
     return ManagementMetrics(
         total_cases=len(tickets),
         active_cases=sum(
@@ -150,7 +150,10 @@ async def cases(
     for ticket in tickets:
         end = ticket.closed_at or ticket.started_at
         attention = (
-            max(0, int((_aware(end) - _aware(ticket.created_at)).total_seconds() // 60))
+            max(
+                0,
+                int((ensure_aware(end) - ensure_aware(ticket.created_at)).total_seconds() // 60),
+            )
             if end
             else None
         )
@@ -162,7 +165,7 @@ async def cases(
                 executive=ticket.executive.display_name if ticket.executive else None,
                 status=ticket.status,
                 attention_time_min=attention,
-                created_at=_aware(ticket.created_at),
+                created_at=ensure_aware(ticket.created_at),
             )
         )
     return ManagementCasesResponse(items=items, page=page, page_size=page_size, total=total)
