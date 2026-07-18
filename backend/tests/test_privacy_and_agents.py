@@ -89,4 +89,6 @@ async def test_derivation_uses_semantic_similarity_before_experience() -> None:
         Category.REPORTE_FRAUDE,
         "movimiento no reconocido",
     )
-    assert selected is semantic_match
+    assert selected is not None
+    assert selected.executive is semantic_match
+    assert selected.active_load == 0

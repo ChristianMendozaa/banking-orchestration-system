@@ -1,4 +1,5 @@
 import math
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -167,6 +168,16 @@ def _cosine(left: list[float], right: list[float]) -> float:
     return numerator / denominator if denominator else 0.0
 
 
+@dataclass(frozen=True, slots=True)
+class DerivationDecision:
+    executive: Executive
+    score: float
+    semantic_score: float
+    experience_score: float
+    load_score: float
+    active_load: int
+
+
 class DerivationAgent:
     def __init__(
         self,
@@ -176,7 +187,9 @@ class DerivationAgent:
         self.provider = provider
         self.repository = repository or ExecutiveRepository()
 
-    async def run(self, db: AsyncSession, category: Category, summary: str) -> Executive | None:
+    async def run(
+        self, db: AsyncSession, category: Category, summary: str
+    ) -> DerivationDecision | None:
         executives = await self.repository.available(db)
         if not executives:
             return None
@@ -191,7 +204,7 @@ class DerivationAgent:
             except Exception:
                 case_embedding = None
 
-        ranked: list[tuple[float, datetime, str, Executive]] = []
+        ranked: list[tuple[float, datetime, str, DerivationDecision]] = []
         for executive in executives:
             matching = [skill for skill in executive.skills if skill.category == category]
             if not matching:
@@ -213,7 +226,21 @@ class DerivationAgent:
             load_score = 1 - (loads[executive.id] / max_load)
             score = 0.70 * semantic + 0.20 * experience + 0.10 * load_score
             idle = executive.last_assigned_at or datetime.min.replace(tzinfo=UTC)
-            ranked.append((score, idle, str(executive.id), executive))
+            ranked.append(
+                (
+                    score,
+                    idle,
+                    str(executive.id),
+                    DerivationDecision(
+                        executive=executive,
+                        score=score,
+                        semantic_score=semantic,
+                        experience_score=experience,
+                        load_score=load_score,
+                        active_load=loads[executive.id],
+                    ),
+                )
+            )
         ranked.sort(key=lambda row: (-row[0], row[1], row[2]))
         return ranked[0][3] if ranked else None
 

@@ -1,9 +1,9 @@
 # Backend FastAPI
 
-Monolito modular que implementa el flujo de orquestación bancaria del prototipo:
-privacidad, clasificación, desambiguación, prioridad, identificación ficticia,
-respuesta RAG, derivación por habilidades, tickets, trazas, operación ejecutiva,
-métricas gerenciales y gestión documental.
+Monolito modular que implementa el flujo de orquestación bancaria: privacidad,
+clasificación, desambiguación, prioridad, verificación protegida, respuesta RAG,
+derivación por habilidades, tickets, trazas, operación ejecutiva, métricas
+gerenciales y gestión documental.
 
 Para ejecutar el sistema completo consulte [`../README.md`](../README.md).
 
@@ -39,7 +39,8 @@ No publique `OPENAI_API_KEY`.
    idempotente.
 5. El flujo responde `CLARIFY` o `CONFIRM`.
 6. `POST .../confirmation` permite corrección o crea el caso.
-7. Los niveles `PERSONALIZADA` y `SENSIBLE` solicitan identificación ficticia.
+7. Los niveles `PERSONALIZADA` y `SENSIBLE` solicitan el código de cliente mediante
+   un campo protegido.
 8. Las consultas `GENERAL` intentan RAG; cualquier falta de evidencia deriva a una
    persona.
 
@@ -93,6 +94,7 @@ Las migraciones son explícitas y congeladas:
 - `20260716_0001`: esquema operacional;
 - `20260716_0002`: pgvector, documentos, fragmentos e interacciones RAG;
 - `20260716_0003`: expiración, prioridad propuesta y ciclo documental.
+- `20260717_0004`: registro de clientes, fuentes internas y espera estimada.
 
 No se usa `Base.metadata.create_all()` en migraciones. Los tests sí crean un esquema
 SQLite efímero de forma aislada.
@@ -123,4 +125,10 @@ Para regenerar el PDF de auditoría desde su única fuente Markdown:
 
 ```bash
 uv run python scripts/render_audit_pdf.py
+```
+
+Para regenerar el catálogo de ejecutivos y los documentos operativos administrados:
+
+```bash
+uv run python scripts/render_operational_documents.py
 ```

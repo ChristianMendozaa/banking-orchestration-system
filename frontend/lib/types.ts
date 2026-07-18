@@ -18,7 +18,7 @@ export type SessionStatus =
   | "ASSIGNED"
   | "FAILED"
 export type ConsultationLevel = "GENERAL" | "PERSONALIZADA" | "SENSIBLE"
-export type KnowledgeSourceType = "OFFICIAL" | "REGULATORY" | "SIMULATED" | "HYBRID"
+export type KnowledgeSourceType = "OFFICIAL" | "REGULATORY" | "INTERNAL" | "HYBRID"
 export type KnowledgeIndexStatus =
   | "PENDING"
   | "INDEXING"
@@ -84,7 +84,12 @@ export interface FlowResult {
   next_action: "CAPTURE" | "IDENTIFY" | "COMPLETE"
   identification_status: "ANONIMO" | "PENDIENTE" | "IDENTIFICADO" | "FALLIDO" | null
   resolution_type: "AUTOMATIC" | "HUMAN" | null
-  ticket: { id: string; number: number; status: TicketStatus } | null
+  ticket: {
+    id: string
+    number: number
+    status: TicketStatus
+    estimated_wait_minutes: number | null
+  } | null
   executive: {
     id: string
     name: string
@@ -112,6 +117,7 @@ export interface TicketListItem {
   status: TicketStatus
   client_session_id: string
   wait_time_min: number
+  estimated_wait_minutes: number | null
   identification_status: string
   preferential_attention: boolean
   version: number

@@ -65,7 +65,9 @@ export default function TicketPage() {
               </p>
               <p className="flex items-center gap-2 text-white/45">
                 <Clock className="h-5 w-5" />
-                Aguarde a ser llamado
+                {result.ticket.estimated_wait_minutes !== null
+                  ? `Espera estimada: ${result.ticket.estimated_wait_minutes} min`
+                  : "Aguarde a ser llamado"}
               </p>
             </div>
           </section>
@@ -83,8 +85,8 @@ export default function TicketPage() {
         )}
         {result.identification_status === "FALLIDO" && (
           <p className="w-full rounded-xl border border-yellow-400/25 bg-yellow-400/10 p-4 text-sm text-yellow-100/80">
-            La identificación demostrativa no coincidió. El ejecutivo realizará la verificación
-            correspondiente sin exponer datos financieros.
+            El código de cliente no coincidió. El ejecutivo realizará la verificación
+            correspondiente de forma segura.
           </p>
         )}
         {result.tracking_information && (

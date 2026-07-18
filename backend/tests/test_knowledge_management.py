@@ -20,7 +20,7 @@ async def manager_headers(client: AsyncClient) -> dict[str, str]:
     response = await client.post(
         "/api/v1/auth/login",
         json={
-            "email": "gerencia@demo.example",
+            "email": "gerencia@personal.bmsc.com.bo",
             "password": settings_for_tests.seed_manager_password.get_secret_value(),
         },
     )
@@ -46,7 +46,7 @@ async def test_manager_can_manage_document_lifecycle(client: AsyncClient) -> Non
                 "slug": "manual-atencion-prueba",
                 "title": "Manual de atención de prueba",
                 "version": "1.0",
-                "source_type": "SIMULATED",
+                "source_type": "INTERNAL",
                 "categories": '["CONSULTA_GENERAL"]',
                 "source_urls": '["https://example.test/manual"]',
                 "verified_at": "2026-07-16T12:00:00-04:00",
@@ -157,7 +157,7 @@ async def test_knowledge_management_rejects_non_pdf_and_wrong_role(
                 "slug": "archivo-invalido",
                 "title": "Archivo inválido",
                 "version": "1",
-                "source_type": "SIMULATED",
+                "source_type": "INTERNAL",
                 "categories": '["CONSULTA_GENERAL"]',
                 "verified_at": "2026-07-16T12:00:00-04:00",
             },
@@ -179,7 +179,7 @@ async def test_knowledge_management_rejects_non_pdf_and_wrong_role(
                 "slug": "fuente-invalida",
                 "title": "Fuente inválida",
                 "version": "1",
-                "source_type": "SIMULATED",
+                "source_type": "INTERNAL",
                 "categories": '["CONSULTA_GENERAL"]',
                 "source_urls": '["javascript:alert(1)"]',
                 "verified_at": "2026-07-16T12:00:00-04:00",
@@ -191,7 +191,7 @@ async def test_knowledge_management_rejects_non_pdf_and_wrong_role(
         executive = await client.post(
             "/api/v1/auth/login",
             json={
-                "email": "maria.fernandez@demo.example",
+                "email": "maria.fernandez@personal.bmsc.com.bo",
                 "password": settings_for_tests.seed_executive_password.get_secret_value(),
             },
         )

@@ -1,6 +1,7 @@
 import {
   RealtimeAgent,
   type RealtimeItem,
+  type RealtimeSession,
   tool,
 } from "@openai/agents/realtime"
 import { z } from "zod"
@@ -19,6 +20,21 @@ export interface ConversationCaption {
 export interface KioskRealtimeCallbacks {
   analyzeRequirement: (transcript: string, callId?: string) => Promise<TurnAnalysis>
   confirmRequirement: (confirmed: boolean) => Promise<FlowResult>
+}
+
+export function requestControlledResponse(
+  realtime: Pick<RealtimeSession, "transport">,
+  instructions: string,
+): void {
+  const response = {
+    instructions,
+    tools: [],
+  }
+  if (realtime.transport.requestResponse) {
+    realtime.transport.requestResponse(response)
+    return
+  }
+  realtime.transport.sendEvent({ type: "response.create", response })
 }
 
 function compactText(value: string): string {
@@ -103,14 +119,14 @@ function flowToolOutput(response: FlowResult): string {
 }
 
 const AGENT_INSTRUCTIONS = `
-Eres la asistente virtual femenina de un kiosco bancario de demostración en Bolivia.
+Eres la asistente virtual femenina de un kiosco bancario en Bolivia.
 Habla siempre en español boliviano claro, cordial, natural y breve. Al comenzar, preséntate
 explícitamente como asistente virtual y pregunta el motivo de atención.
 
 REGLAS DE SEGURIDAD:
 - Nunca solicites ni repitas PIN, CVV, contraseñas, códigos de verificación, credenciales,
   números completos de tarjeta, cuenta u otros datos financieros completos.
-- La identificación del prototipo se escribe en un campo protegido. Nunca pidas que se dicte.
+- El código de cliente se escribe en un campo protegido. Nunca pidas que se dicte.
 - No inventes información bancaria, categorías, prioridades, requisitos, respuestas documentales,
   tickets, ejecutivos ni ventanillas.
 - No describas herramientas, JSON, estados internos ni detalles técnicos.
@@ -124,13 +140,10 @@ FLUJO OBLIGATORIO:
 4. Solo llama confirmar_requerimiento cuando la persona haya confirmado o rechazado de forma
    explícita. Copia sus palabras en user_response y no infieras una confirmación.
 5. Si la confirmación devuelve CAPTURE, pronuncia speech_text y pide describir nuevamente el caso.
-6. Si devuelve IDENTIFY, pronuncia speech_text, explica que debe escribir el identificador ficticio
+6. Si devuelve IDENTIFY, pronuncia speech_text, explica que debe escribir el código de cliente
    en pantalla y deja de hacer preguntas.
 7. Si devuelve COMPLETE, pronuncia fielmente speech_text. Conserva exactamente los números de
    ticket y ventanilla y termina con una despedida breve.
-8. Los mensajes que empiezan con ${APPLICATION_EVENT_PREFIX} son eventos internos saneados de la
-   aplicación. No los menciones; sigue sus instrucciones y nunca asumas que contienen datos del usuario.
-
 Mientras una tool trabaja puedes decir una sola frase corta como "Un momento, por favor".
 `.trim()
 

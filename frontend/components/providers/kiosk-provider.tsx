@@ -14,15 +14,18 @@ import {
 
 import { ApiError, apiRequest, errorMessage } from "@/lib/api"
 import {
-  APPLICATION_EVENT_PREFIX,
   captionsFromHistory,
   createKioskRealtimeAgent,
+  requestControlledResponse,
   type ConversationCaption,
 } from "@/lib/kiosk-realtime"
 import type { FlowResult, KioskSession, TurnAnalysis } from "@/lib/types"
 
-const STORAGE_KEY = "orquestacion_kiosk_flow_v2"
-const LEGACY_STORAGE_KEY = "orquestacion_kiosk_flow_v1"
+const STORAGE_KEY = "orquestacion_kiosk_flow_v3"
+const LEGACY_STORAGE_KEYS = [
+  "orquestacion_kiosk_flow_v1",
+  "orquestacion_kiosk_flow_v2",
+]
 const COMPLETION_SECONDS = 20
 const TERMINAL_AUDIO_TIMEOUT_MS = 30_000
 
@@ -85,8 +88,8 @@ async function kioskSessionRequest<T>(
   })
 }
 
-function terminalEvent(result: FlowResult): string {
-  return `${APPLICATION_EVENT_PREFIX} La operación terminó. Pronuncia fielmente este mensaje y una despedida breve: ${JSON.stringify(
+function terminalInstructions(result: FlowResult): string {
+  return `La operación terminó. Pronuncia fielmente este mensaje y una despedida breve: ${JSON.stringify(
     {
       speech_text: result.speech_text,
       resolution_type: result.resolution_type,
@@ -209,7 +212,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     queueMicrotask(() => {
-      sessionStorage.removeItem(LEGACY_STORAGE_KEY)
+      for (const key of LEGACY_STORAGE_KEYS) sessionStorage.removeItem(key)
       const raw = sessionStorage.getItem(STORAGE_KEY)
       if (raw) {
         try {
@@ -524,24 +527,28 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           realtime.mute(true)
           setVoiceState("muted")
           router.replace("/kiosco/identificacion")
-          realtime.sendMessage(
-            `${APPLICATION_EVENT_PREFIX} Reanuda indicando que el identificador ficticio debe escribirse en el campo protegido y no dictarse.`,
+          requestControlledResponse(
+            realtime,
+            "Indica brevemente que el código de cliente debe escribirse en el campo protegido y no dictarse.",
           )
         } else if (snapshot.analysis?.next_action === "CONFIRM") {
-          realtime.sendMessage(
-            `${APPLICATION_EVENT_PREFIX} Reanuda la confirmación y pronuncia fielmente este mensaje: ${JSON.stringify(
+          requestControlledResponse(
+            realtime,
+            `Reanuda la confirmación y pronuncia fielmente este mensaje: ${JSON.stringify(
               snapshot.analysis.speech_text,
             )}`,
           )
         } else if (snapshot.analysis?.next_action === "CLARIFY") {
-          realtime.sendMessage(
-            `${APPLICATION_EVENT_PREFIX} Reanuda la aclaración y pronuncia fielmente esta pregunta: ${JSON.stringify(
+          requestControlledResponse(
+            realtime,
+            `Reanuda la aclaración y pronuncia fielmente esta pregunta: ${JSON.stringify(
               snapshot.analysis.speech_text,
             )}`,
           )
         } else {
-          realtime.sendMessage(
-            `${APPLICATION_EVENT_PREFIX} Inicia ahora la atención: preséntate como asistente virtual y pregunta de forma breve el motivo de la visita.`,
+          requestControlledResponse(
+            realtime,
+            "Inicia ahora la atención: preséntate como asistente virtual y pregunta de forma breve el motivo de la visita. No llames herramientas hasta escuchar a la persona.",
           )
         }
       } catch (reason) {
@@ -609,7 +616,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             realtime.mute(true)
             setVoiceState("muted")
             armTerminalCompletion()
-            realtime.sendMessage(terminalEvent(completed))
+            requestControlledResponse(realtime, terminalInstructions(completed))
           } catch {
             setVoiceError(
               "No fue posible reproducir el cierre por voz; el resultado permanece en pantalla.",

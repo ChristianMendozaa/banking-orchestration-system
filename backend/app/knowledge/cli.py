@@ -98,7 +98,7 @@ async def evaluate() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Base documental RAG del prototipo")
+    parser = argparse.ArgumentParser(description="Base documental RAG de atención bancaria")
     parser.add_argument("command", choices=("ingest", "status", "evaluate"))
     args = parser.parse_args()
     if args.command == "ingest":

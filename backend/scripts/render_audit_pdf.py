@@ -280,6 +280,7 @@ def main() -> None:
         bottomMargin=0.65 * inch,
         title="Auditoría integral del sistema de orquestación bancaria",
         author="Sistema de Orquestación de Atención Bancaria",
+        invariant=1,
     )
     document.build(
         build_story(SOURCE.read_text(encoding="utf-8")),

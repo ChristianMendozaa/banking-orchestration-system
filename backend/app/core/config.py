@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     kiosk_session_minutes: int = 30
     seed_executive_password: SecretStr
     seed_manager_password: SecretStr
-    seed_data_path: str = "seed/demo_seed.json"
+    seed_data_path: str = "seed/operational_seed.json"
     dashboard_refresh_ms: int = 10_000
 
     knowledge_storage_dir: str = "../data/knowledge"
@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     classification_confidence_threshold: float = 0.68
     max_clarifications: int = 2
     openai_timeout_seconds: float = 20.0
+    estimated_service_minutes: int = 8
 
     @model_validator(mode="after")
     def validate_rag_settings(self) -> "Settings":
@@ -79,6 +80,8 @@ class Settings(BaseSettings):
             raise ValueError("KNOWLEDGE_MAX_PAGES debe ser positivo")
         if self.dashboard_refresh_ms < 1_000:
             raise ValueError("DASHBOARD_REFRESH_MS debe ser al menos 1000")
+        if self.estimated_service_minutes <= 0:
+            raise ValueError("ESTIMATED_SERVICE_MINUTES debe ser positivo")
         return self
 
     @field_validator("cors_origins", mode="before")

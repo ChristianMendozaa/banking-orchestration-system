@@ -23,7 +23,7 @@ export default function HomePage() {
         <section className="py-16">
           <div className="mb-5 inline-flex items-center gap-2 rounded-full border border-[#23A2D9]/30 bg-[#23A2D9]/10 px-4 py-2 text-sm text-[#7DD3FC]">
             <ShieldCheck className="h-4 w-4" />
-            Prototipo funcional en entorno controlado
+            Atención inteligente en sucursal
           </div>
           <h1 className="max-w-3xl text-4xl font-bold leading-tight sm:text-6xl">
             {config?.app_name ?? "Sistema de Orquestación Bancaria"}

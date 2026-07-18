@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-16T00:00:00+00:00",
+  "generated_at": "2026-07-17T00:00:00+00:00",
   "documents": [
     {
       "slug": "canales-atencion-bmsc",
@@ -9,6 +9,13 @@
       "source_type": "OFFICIAL",
       "categories": [
         "CONSULTA_GENERAL"
+      ],
+      "sections": [
+        "Canales de atención",
+        "Contact Center",
+        "Atención en agencias",
+        "Orientación del kiosco",
+        "Fuentes consultadas"
       ],
       "source_urls": [
         "https://www.bmsc.com.bo/tech",
@@ -27,6 +34,14 @@
       "source_type": "OFFICIAL",
       "categories": [
         "CONSULTA_GENERAL"
+      ],
+      "sections": [
+        "Apertura y documentación",
+        "Súper Makro Cuenta",
+        "Cuenta Rinde+",
+        "Menores de edad",
+        "Límite de la orientación",
+        "Fuentes consultadas"
       ],
       "source_urls": [
         "https://www.bmsc.com.bo/accountDetails/?key=super-mackrocuenta-detalle",
@@ -47,6 +62,13 @@
         "SOLICITUD_CREDITO",
         "CONSULTA_GENERAL"
       ],
+      "sections": [
+        "Crédito de consumo",
+        "Requisitos generales",
+        "Cuenta para desembolso",
+        "Derecho a información",
+        "Fuentes consultadas"
+      ],
       "source_urls": [
         "https://www.bmsc.com.bo/loanDetails?key=prestamo-consumo-detalle",
         "https://asfi.gob.bo/pb/tiempos-maximos-atencion-creditos"
@@ -59,20 +81,27 @@
       "slug": "banca-digital-seguridad",
       "file_name": "04_banca_digital_y_seguridad.pdf",
       "title": "Banca digital y seguridad del BMSC",
-      "version": "2026.07",
+      "version": "2026.07.1",
       "source_type": "OFFICIAL",
       "categories": [
         "BANCA_DIGITAL",
         "CONSULTA_GENERAL"
+      ],
+      "sections": [
+        "Servicios digitales",
+        "Recuperación de acceso",
+        "Protección de credenciales",
+        "Atención en sucursal",
+        "Fuentes consultadas"
       ],
       "source_urls": [
         "https://www.bmsc.com.bo/tech/internetBank",
         "https://www.bmsc.com.bo/tech",
         "https://www.bmsc.com.bo/"
       ],
-      "verified_at": "2026-07-16T00:00:00+00:00",
-      "review_after": "2026-10-14T00:00:00+00:00",
-      "sha256": "9f4d1eb544e526b1776bc1125c73999e0cdf1b44949335ba11c14ae89b382a69"
+      "verified_at": "2026-07-17T00:00:00+00:00",
+      "review_after": "2026-10-15T00:00:00+00:00",
+      "sha256": "de924d45d79c14712cd33e5ec311094c6b58d9fa02c05a7a142cb61ff6d1dbc2"
     },
     {
       "slug": "tarjetas-bloqueo-fraude",
@@ -83,6 +112,13 @@
       "categories": [
         "BLOQUEO_TARJETA",
         "REPORTE_FRAUDE"
+      ],
+      "sections": [
+        "Bloqueo de tarjeta",
+        "Movimiento no reconocido",
+        "Canales inmediatos",
+        "Seguros asociados",
+        "Fuentes consultadas"
       ],
       "source_urls": [
         "https://www.bmsc.com.bo/tech",
@@ -97,26 +133,33 @@
       "slug": "reclamos-derechos",
       "file_name": "06_reclamos_y_derechos.pdf",
       "title": "Reclamos y derechos del consumidor financiero",
-      "version": "2026.07",
+      "version": "2026.07.1",
       "source_type": "REGULATORY",
       "categories": [
         "CONSULTA_GENERAL"
+      ],
+      "sections": [
+        "Derechos principales",
+        "Primera instancia",
+        "Segunda instancia",
+        "Información y confidencialidad",
+        "Fuentes consultadas"
       ],
       "source_urls": [
         "https://www.bmsc.com.bo/help",
         "https://asfi.gob.bo/la/derechos-del-consumidor-financiero",
         "https://www.asfi.gob.bo/sites/default/files/2025-09/Ley%20N%C2%B0%20393%20de%20Servicios%20Financieros.pdf"
       ],
-      "verified_at": "2026-07-16T00:00:00+00:00",
-      "review_after": "2026-10-14T00:00:00+00:00",
-      "sha256": "1993a4cd20715c53221979eee45a352883937b1ad0dfe6aaa803a47aa483f4e5"
+      "verified_at": "2026-07-17T00:00:00+00:00",
+      "review_after": "2026-10-15T00:00:00+00:00",
+      "sha256": "b60963f7905676293d925eaa30a13c610fb06c3c142d9e7ed59b0c81ddd4a943"
     },
     {
       "slug": "manual-operativo-sucursal",
       "file_name": "07_manual_operativo_sucursal.pdf",
       "title": "Manual operativo de atención presencial",
-      "version": "2026.07",
-      "source_type": "SIMULATED",
+      "version": "2026.07.1",
+      "source_type": "INTERNAL",
       "categories": [
         "BLOQUEO_TARJETA",
         "REPORTE_FRAUDE",
@@ -124,10 +167,17 @@
         "SOLICITUD_CREDITO",
         "BANCA_DIGITAL"
       ],
+      "sections": [
+        "Clasificación de ventanillas",
+        "Prioridad",
+        "Verificación protegida",
+        "Asignación y espera",
+        "Trazabilidad"
+      ],
       "source_urls": [],
-      "verified_at": "2026-07-16T00:00:00+00:00",
-      "review_after": "2027-07-16T00:00:00+00:00",
-      "sha256": "defdcfc359c79a3f07a3f31d448afb5f173315f3ccd84b2339b18c47b5fb6971"
+      "verified_at": "2026-07-17T00:00:00+00:00",
+      "review_after": "2027-07-17T00:00:00+00:00",
+      "sha256": "1dac68b914c3f6497ceab638ae3ded577181e007dcd061fa6a93b6678ebe4cdd"
     },
     {
       "slug": "preguntas-frecuentes-bmsc",
@@ -141,6 +191,14 @@
         "CONSULTA_GENERAL",
         "SOLICITUD_CREDITO",
         "BANCA_DIGITAL"
+      ],
+      "sections": [
+        "¿Qué necesito para abrir una cuenta?",
+        "¿Dónde puedo bloquear una tarjeta?",
+        "¿Qué hago si no reconozco un movimiento?",
+        "¿Cómo recupero el acceso digital?",
+        "¿Cómo presento un reclamo?",
+        "Fuentes consultadas"
       ],
       "source_urls": [
         "https://www.bmsc.com.bo/tech",

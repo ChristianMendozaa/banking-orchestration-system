@@ -23,7 +23,7 @@ class OpenAIProvider:
                 "type": "realtime",
                 "model": self.settings.voice_model,
                 "instructions": (
-                    "Eres la asistente virtual femenina de un kiosco bancario de demostracion. "
+                    "Eres la asistente virtual femenina de un kiosco bancario. "
                     "Habla en espanol boliviano claro, cordial y breve. Nunca solicites PIN, CVV, "
                     "contrasenas, credenciales ni datos financieros completos. La aplicacion "
                     "proveera herramientas para analizar y encaminar la atencion; no ejecutas "

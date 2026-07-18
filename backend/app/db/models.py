@@ -62,8 +62,8 @@ class RefreshSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
-class DemoClient(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    __tablename__ = "demo_clients"
+class ClientReference(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "client_references"
 
     display_name: Mapped[str] = mapped_column(String(120))
     identifier_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
@@ -196,8 +196,8 @@ class Identification(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     case_id: Mapped[UUID] = mapped_column(
         ForeignKey("cases.id", ondelete="CASCADE"), unique=True, index=True
     )
-    demo_client_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("demo_clients.id", ondelete="SET NULL"), nullable=True
+    client_reference_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("client_references.id", ondelete="SET NULL"), nullable=True
     )
     identifier_hash: Mapped[str] = mapped_column(String(64))
     masked_identifier: Mapped[str] = mapped_column(String(32))
@@ -221,6 +221,7 @@ class Ticket(TimestampMixin, Base):
     )
     automatic: Mapped[bool] = mapped_column(Boolean, default=False)
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    estimated_wait_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     version: Mapped[int] = mapped_column(Integer, default=1)

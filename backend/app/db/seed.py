@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import hash_identifier, hash_password, mask_identifier
-from app.db.models import DemoClient, Executive, ExecutiveSkill, User
+from app.db.models import ClientReference, Executive, ExecutiveSkill, User
 from app.db.session import SessionFactory
 from app.domain.enums import Category, ExecutiveStatus, UserRole
 
@@ -32,10 +32,15 @@ async def seed(db: AsyncSession) -> None:
         title = str(item["title"])
         window = str(item["window"])
         email = str(item["email"]).lower()
-        skills = {
-            Category(category): int(level)
-            for category, level in dict(item.get("skills", {})).items()
-        }
+        skills = {}
+        for category, raw_skill in dict(item.get("skills", {})).items():
+            if isinstance(raw_skill, dict):
+                level = int(raw_skill["level"])
+                description = str(raw_skill["description"])
+            else:
+                level = int(raw_skill)
+                description = f"Especialista en {category.replace('_', ' ').lower()}"
+            skills[Category(category)] = (level, description)
         executive = await db.scalar(select(Executive).where(Executive.display_name == name))
         if not executive:
             executive = Executive(
@@ -46,7 +51,12 @@ async def seed(db: AsyncSession) -> None:
             )
             db.add(executive)
             await db.flush()
-        user = await db.scalar(select(User).where(User.email == email))
+        else:
+            executive.title = title
+            executive.window_number = window
+        user = await db.scalar(select(User).where(User.executive_id == executive.id))
+        if not user:
+            user = await db.scalar(select(User).where(User.email == email))
         if not user:
             db.add(
                 User(
@@ -58,7 +68,12 @@ async def seed(db: AsyncSession) -> None:
                     executive_id=executive.id,
                 )
             )
-        for category, level in skills.items():
+        else:
+            user.email = email
+            user.role = UserRole.EXECUTIVE
+            user.executive_id = executive.id
+            user.active = True
+        for category, (level, description) in skills.items():
             skill = await db.scalar(
                 select(ExecutiveSkill).where(
                     ExecutiveSkill.executive_id == executive.id,
@@ -70,13 +85,29 @@ async def seed(db: AsyncSession) -> None:
                     ExecutiveSkill(
                         executive_id=executive.id,
                         category=category,
-                        description=f"Especialista en {category.value.replace('_', ' ').lower()}",
+                        description=description,
                         experience_level=level,
                     )
                 )
+            else:
+                if skill.description != description:
+                    skill.description = description
+                    skill.embedding = None
+                skill.experience_level = level
+        existing_skills = list(
+            (
+                await db.scalars(
+                    select(ExecutiveSkill).where(ExecutiveSkill.executive_id == executive.id)
+                )
+            ).all()
+        )
+        for skill in existing_skills:
+            if skill.category not in skills:
+                await db.delete(skill)
 
     manager_email = str(data["manager"]["email"]).lower()
-    if not await db.scalar(select(User).where(User.email == manager_email)):
+    manager = await db.scalar(select(User).where(User.role == UserRole.MANAGER).limit(1))
+    if not manager:
         db.add(
             User(
                 email=manager_email,
@@ -84,21 +115,35 @@ async def seed(db: AsyncSession) -> None:
                 role=UserRole.MANAGER,
             )
         )
+    else:
+        manager.email = manager_email
+        manager.active = True
 
-    for client in data.get("clients", []):
-        identifier = str(client["identifier"])
-        name = str(client["name"])
+    desired_reference_hashes: set[str] = set()
+    for reference in data.get("client_references", []):
+        identifier = str(reference["identifier"])
+        name = str(reference["name"])
         identifier_hash = hash_identifier(identifier, settings)
-        if not await db.scalar(
-            select(DemoClient).where(DemoClient.identifier_hash == identifier_hash)
-        ):
+        desired_reference_hashes.add(identifier_hash)
+        stored = await db.scalar(
+            select(ClientReference).where(ClientReference.identifier_hash == identifier_hash)
+        )
+        if not stored:
             db.add(
-                DemoClient(
+                ClientReference(
                     display_name=name,
                     identifier_hash=identifier_hash,
                     masked_identifier=mask_identifier(identifier),
                 )
             )
+        else:
+            stored.display_name = name
+            stored.masked_identifier = mask_identifier(identifier)
+            stored.active = True
+    references = list((await db.scalars(select(ClientReference))).all())
+    for reference in references:
+        if reference.identifier_hash not in desired_reference_hashes:
+            reference.active = False
 
     await db.commit()
 
@@ -106,7 +151,7 @@ async def seed(db: AsyncSession) -> None:
 async def main() -> None:
     async with SessionFactory() as db:
         await seed(db)
-    print("Datos de demostracion cargados.")
+    print("Datos operativos cargados.")
 
 
 if __name__ == "__main__":

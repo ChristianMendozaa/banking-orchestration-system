@@ -1,0 +1,91 @@
+{
+  "catalog": {
+    "bank": "Banco Mercantil Santa Cruz",
+    "branch": "Sucursal Centro",
+    "estimated_service_minutes": 8,
+    "routing_weights": {
+      "semantic_match": 70,
+      "experience": 20,
+      "availability": 10
+    }
+  },
+  "executives": [
+    {
+      "name": "Maria Fernandez",
+      "title": "Tarjetas y Seguridad",
+      "window": "Ventanilla 3",
+      "email": "maria.fernandez@personal.bmsc.com.bo",
+      "skills": {
+        "BLOQUEO_TARJETA": {
+          "level": 5,
+          "description": "Bloqueo preventivo, extravio, robo y seguridad de tarjetas"
+        },
+        "REPORTE_FRAUDE": {
+          "level": 4,
+          "description": "Recepcion y escalamiento de operaciones no reconocidas"
+        }
+      }
+    },
+    {
+      "name": "Carlos Mamani",
+      "title": "Prevencion de Fraudes",
+      "window": "Ventanilla 1",
+      "email": "carlos.mamani@personal.bmsc.com.bo",
+      "skills": {
+        "REPORTE_FRAUDE": {
+          "level": 5,
+          "description": "Fraude, movimientos no reconocidos y eventos de seguridad financiera"
+        },
+        "CONSULTA_GENERAL": {
+          "level": 3,
+          "description": "Orientacion general y recepcion inicial de reclamos"
+        }
+      }
+    },
+    {
+      "name": "Patricia Quispe",
+      "title": "Banca Digital",
+      "window": "Ventanilla 5",
+      "email": "patricia.quispe@personal.bmsc.com.bo",
+      "skills": {
+        "BANCA_DIGITAL": {
+          "level": 5,
+          "description": "Acceso, habilitacion y soporte de banca movil y banca por internet"
+        },
+        "BLOQUEO_TARJETA": {
+          "level": 3,
+          "description": "Orientacion inicial para proteccion y bloqueo de tarjetas"
+        }
+      }
+    },
+    {
+      "name": "Roberto Torrez",
+      "title": "Creditos y Atencion al Cliente",
+      "window": "Ventanilla 4",
+      "email": "roberto.torrez@personal.bmsc.com.bo",
+      "skills": {
+        "SOLICITUD_CREDITO": {
+          "level": 5,
+          "description": "Orientacion de credito, requisitos y seguimiento de solicitudes"
+        },
+        "CONSULTA_GENERAL": {
+          "level": 4,
+          "description": "Productos, cuentas, canales y atencion general"
+        }
+      }
+    }
+  ],
+  "manager": {
+    "email": "gerencia@personal.bmsc.com.bo"
+  },
+  "client_references": [
+    {
+      "identifier": "CLI-1001",
+      "name": "Cliente Uno"
+    },
+    {
+      "identifier": "CLI-1002",
+      "name": "Cliente Dos"
+    }
+  ]
+}

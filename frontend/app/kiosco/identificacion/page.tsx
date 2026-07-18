@@ -67,16 +67,16 @@ export default function IdentificationPage() {
           <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-[#1168BD]/30">
             <IdCard className="h-9 w-9 text-[#23A2D9]" />
           </div>
-          <h1 className="mt-5 text-3xl font-semibold">Identificación demostrativa</h1>
+          <h1 className="mt-5 text-3xl font-semibold">Verificación del cliente</h1>
           <p className="mt-3 text-white/55">
-            Ingrese únicamente un identificador ficticio habilitado para esta demostración.
+            Ingrese su código de cliente para asociar la solicitud antes de continuar.
           </p>
         </div>
 
         <div className="my-6 flex gap-3 rounded-2xl border border-yellow-400/25 bg-yellow-400/10 p-4 text-sm text-yellow-100/80">
           <ShieldAlert className="h-5 w-5 shrink-0 text-yellow-300" />
-          Esto no autentica una cuenta bancaria. Nunca ingrese CI real, contraseña, PIN, CVV ni
-          número de cuenta.
+          Este paso no autoriza operaciones bancarias. Nunca ingrese contraseña, PIN, CVV ni
+          números completos de tarjeta o cuenta.
         </div>
 
         {voiceError && (
@@ -99,14 +99,14 @@ export default function IdentificationPage() {
 
         <form className="space-y-4" onSubmit={identify}>
           <label className="block text-sm font-medium text-white/70">
-            Identificador ficticio
+            Código de cliente
             <input
               autoComplete="off"
               className="mt-2 w-full rounded-xl border border-white/15 bg-[#071426] px-4 py-4 text-lg uppercase outline-none focus:border-[#23A2D9]"
               maxLength={40}
               minLength={4}
               onChange={(event) => setIdentifier(event.target.value)}
-              placeholder="Identificador de demostración"
+              placeholder="Ej.: CLI-1001"
               required
               value={identifier}
             />

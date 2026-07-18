@@ -41,6 +41,7 @@ async def test_general_query_is_masked_and_resolved_automatically(client: AsyncC
     assert result["grounding_status"] == "GROUNDED"
     assert result["citations"][0]["title"] == "Horarios de atención"
     assert result["ticket"]["status"] == "CERRADO"
+    assert result["ticket"]["estimated_wait_minutes"] == 0
     assert result["response"]
 
     async with TestSession() as db:
@@ -134,3 +135,25 @@ async def test_turn_state_machine_rejects_false_clarification_flag(
     )
     assert mismatch.status_code == 409
     assert mismatch.json()["code"] == "INVALID_CLARIFICATION"
+
+
+async def test_duplicate_analysis_while_awaiting_confirmation_returns_pending_summary(
+    client: AsyncClient,
+) -> None:
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    first = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Quiero denunciar un fraude"},
+    )
+    assert first.status_code == 200
+
+    repeated = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Quiero denunciar un fraude"},
+    )
+    assert repeated.status_code == 200
+    assert repeated.json()["requirement_id"] == first.json()["requirement_id"]
+    assert repeated.json()["next_action"] == "CONFIRM"

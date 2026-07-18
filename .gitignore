@@ -13,6 +13,7 @@
 *.sqlite
 *.sqlite3
 *.log
+/data/
 
 # Configuracion personal del editor/SO
 .DS_Store
@@ -24,6 +25,9 @@ Thumbs.db
 doc/*
 !doc/auditoria_backend_arquitectura.pdf
 !doc/AUDITORIA_IMPLEMENTACION.md
+!doc/operacion/
+doc/operacion/*
+!doc/operacion/catalogo_perfiles_ejecutivos.pdf
 !doc/rag/
 doc/rag/*
 !doc/rag/*.pdf

@@ -64,7 +64,7 @@ export default function KioskPage() {
               Solicito atención preferente
             </span>
             <span className="mt-1 block text-sm text-white/50">
-              Marque esta opción si corresponde según las condiciones de atención del prototipo.
+              Marque esta opción si corresponde según las condiciones de atención preferente.
             </span>
           </span>
         </label>

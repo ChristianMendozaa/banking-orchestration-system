@@ -1,11 +1,12 @@
 import hashlib
 import json
+import shutil
 from pathlib import Path
 from uuid import uuid4
 
 from sqlalchemy import select
 
-from app.db.models import RAGInteraction
+from app.db.models import KnowledgeDocument, RAGInteraction
 from app.domain.enums import Category
 from app.domain.schemas import GroundedAnswerDecision
 from app.knowledge.chunking import chunk_pdf
@@ -24,9 +25,15 @@ def test_generated_pdfs_are_searchable_and_split_by_section() -> None:
         model=settings_for_tests.embedding_model,
         chunk_tokens=settings_for_tests.rag_chunk_tokens,
         overlap_tokens=settings_for_tests.rag_chunk_overlap,
+        known_headings=set(spec["sections"]),
     )
     assert chunks
     assert "nueve departamentos" in " ".join(chunk.content for chunk in chunks)
+    assert {chunk.section for chunk in chunks} >= {
+        "Canales de atención",
+        "Contact Center",
+        "Atención en agencias",
+    }
     assert all(chunk.page == 1 for chunk in chunks)
 
 
@@ -50,6 +57,30 @@ async def test_ingestion_is_idempotent_and_backfills_skill_embeddings() -> None:
     assert second["documents"] == 0
     assert second["unchanged"] == len(manifest["documents"])
     assert second["skills"] == 0
+    assert second["retired"] == 0
+
+
+async def test_ingestion_retires_replaced_managed_versions(tmp_path: Path) -> None:
+    corpus = tmp_path / "rag"
+    shutil.copytree(CORPUS_DIR, corpus)
+    service = KnowledgeIngestionService(settings_for_tests, fake_provider)
+    async with TestSession() as db:
+        await service.ingest_corpus(db, corpus)
+        manifest_path = corpus / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        slug = manifest["documents"][0]["slug"]
+        manifest["documents"][0]["version"] = "2026.07.2"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        result = await service.ingest_corpus(db, corpus)
+        versions = list(
+            (
+                await db.scalars(
+                    select(KnowledgeDocument.version).where(KnowledgeDocument.slug == slug)
+                )
+            ).all()
+        )
+    assert result["retired"] == 1
+    assert versions == ["2026.07.2"]
 
 
 async def test_no_semantic_evidence_is_logged_and_routes_to_human() -> None:

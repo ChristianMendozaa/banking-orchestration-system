@@ -50,6 +50,7 @@ def ticket_item(ticket: Ticket) -> TicketListItem:
         status=ticket.status,
         client_session_id=f"SES-****-{str(case.session_id)[-4:].upper()}",
         wait_time_min=wait,
+        estimated_wait_minutes=ticket.estimated_wait_minutes,
         identification_status=case.identification_status,
         preferential_attention=case.preferential_attention,
         version=ticket.version,

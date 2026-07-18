@@ -20,7 +20,7 @@ function KioskShell({ children }: { children: React.ReactNode }) {
           </span>
         </Link>
         <span className="hidden text-xs text-white/35 sm:block">
-          Atención de demostración · No ingrese PIN ni contraseñas
+          Atención segura · No ingrese PIN ni contraseñas
         </span>
       </header>
       <main className="flex flex-1 flex-col">{children}</main>

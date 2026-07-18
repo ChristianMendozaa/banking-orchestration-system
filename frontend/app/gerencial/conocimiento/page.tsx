@@ -354,7 +354,7 @@ function CreateDocumentForm({
     form.set("slug", String(raw.get("slug") ?? "").trim())
     form.set("title", String(raw.get("title") ?? "").trim())
     form.set("version", String(raw.get("version") ?? "").trim())
-    form.set("source_type", String(raw.get("source_type") ?? "SIMULATED"))
+    form.set("source_type", String(raw.get("source_type") ?? "INTERNAL"))
     form.set("categories", JSON.stringify(categories))
     form.set(
       "source_urls",
@@ -392,7 +392,7 @@ function CreateDocumentForm({
             <label className="text-sm text-gray-700">Slug<input className="mt-1 block w-full rounded-xl border p-2" name="slug" pattern="[a-z0-9]+(?:-[a-z0-9]+)*" placeholder="manual-atencion" required /></label>
             <label className="text-sm text-gray-700">Título<input className="mt-1 block w-full rounded-xl border p-2" minLength={3} name="title" required /></label>
             <label className="text-sm text-gray-700">Versión<input className="mt-1 block w-full rounded-xl border p-2" name="version" placeholder="2026.1" required /></label>
-            <label className="text-sm text-gray-700">Tipo<select className="mt-1 block w-full rounded-xl border p-2" name="source_type"><option value="OFFICIAL">Oficial</option><option value="REGULATORY">Regulatorio</option><option value="SIMULATED">Simulado/interno</option><option value="HYBRID">Híbrido</option></select></label>
+            <label className="text-sm text-gray-700">Tipo<select className="mt-1 block w-full rounded-xl border p-2" name="source_type"><option value="OFFICIAL">Oficial</option><option value="REGULATORY">Regulatorio</option><option value="INTERNAL">Interno</option><option value="HYBRID">Híbrido</option></select></label>
             <label className="text-sm text-gray-700">Fecha verificada<input className="mt-1 block w-full rounded-xl border p-2" name="verified_at" required type="date" /></label>
             <label className="text-sm text-gray-700">Revisar después de<input className="mt-1 block w-full rounded-xl border p-2" name="review_after" type="date" /></label>
             <label className="text-sm text-gray-700">URLs fuente, una por línea<textarea className="mt-1 block min-h-20 w-full rounded-xl border p-2" name="source_urls" /></label>
@@ -470,7 +470,7 @@ function DocumentEditor({
         <CardContent>
           <form className="space-y-4" onSubmit={save}>
             <label className="block text-sm text-gray-700">Título<input className="mt-1 w-full rounded-xl border p-2" minLength={3} onChange={(event) => setTitle(event.target.value)} required value={title} /></label>
-            <label className="block text-sm text-gray-700">Tipo<select className="mt-1 w-full rounded-xl border p-2" onChange={(event) => setSourceType(event.target.value as KnowledgeSourceType)} value={sourceType}><option value="OFFICIAL">Oficial</option><option value="REGULATORY">Regulatorio</option><option value="SIMULATED">Simulado/interno</option><option value="HYBRID">Híbrido</option></select></label>
+            <label className="block text-sm text-gray-700">Tipo<select className="mt-1 w-full rounded-xl border p-2" onChange={(event) => setSourceType(event.target.value as KnowledgeSourceType)} value={sourceType}><option value="OFFICIAL">Oficial</option><option value="REGULATORY">Regulatorio</option><option value="INTERNAL">Interno</option><option value="HYBRID">Híbrido</option></select></label>
             <CategoryChecks onChange={setCategories} selected={categories} />
             <label className="block text-sm text-gray-700">URLs fuente<textarea className="mt-1 min-h-20 w-full rounded-xl border p-2" onChange={(event) => setSourceUrls(event.target.value)} value={sourceUrls} /></label>
             <div className="grid grid-cols-2 gap-3">

@@ -104,6 +104,7 @@ class TicketResult(BaseModel):
     id: UUID
     number: int
     status: TicketStatus
+    estimated_wait_minutes: int | None = None
 
 
 class FlowResult(BaseModel):
@@ -184,6 +185,7 @@ class TicketListItem(BaseModel):
     status: TicketStatus
     client_session_id: str
     wait_time_min: int
+    estimated_wait_minutes: int | None
     identification_status: IdentificationStatus
     preferential_attention: bool
     version: int

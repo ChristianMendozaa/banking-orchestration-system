@@ -5,6 +5,7 @@ import {
   captionsFromHistory,
   createKioskRealtimeAgent,
   explicitConfirmation,
+  requestControlledResponse,
 } from "../lib/kiosk-realtime"
 
 describe("explicitConfirmation", () => {
@@ -96,5 +97,23 @@ describe("createKioskRealtimeAgent", () => {
       "analizar_requerimiento",
       "confirmar_requerimiento",
     ])
+  })
+})
+
+describe("requestControlledResponse", () => {
+  it("genera una respuesta sin crear un mensaje de usuario y sin herramientas", () => {
+    const requestResponse = vi.fn()
+    const sendEvent = vi.fn()
+
+    requestControlledResponse(
+      { transport: { requestResponse, sendEvent } } as never,
+      "Saluda y pregunta el motivo de atención.",
+    )
+
+    expect(requestResponse).toHaveBeenCalledWith({
+      instructions: "Saluda y pregunta el motivo de atención.",
+      tools: [],
+    })
+    expect(sendEvent).not.toHaveBeenCalled()
   })
 })

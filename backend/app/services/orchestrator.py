@@ -9,7 +9,7 @@ from app.core.errors import AppError
 from app.core.security import hash_identifier, mask_identifier
 from app.db.models import (
     CaseRecord,
-    DemoClient,
+    ClientReference,
     Identification,
     KioskSession,
     Requirement,
@@ -70,6 +70,10 @@ class OrchestratorService:
         existing = await self.repository.requirement_by_turn(db, kiosk_session.id, payload.turn_id)
         if existing:
             return self._analysis_response(kiosk_session, existing)
+        if kiosk_session.status == SessionStatus.AWAITING_CONFIRMATION:
+            pending = await self.repository.latest_requirement(db, kiosk_session.id)
+            if pending:
+                return self._analysis_response(kiosk_session, pending)
 
         allowed_statuses = {
             SessionStatus.CREATED,
@@ -262,7 +266,7 @@ class OrchestratorService:
                 next_action="IDENTIFY",
                 identification_status=case.identification_status,
                 speech_text=(
-                    "Esta consulta requiere identificacion demostrativa. "
+                    "Esta consulta requiere verificar su codigo de cliente en el campo protegido. "
                     "No ingrese contrasenas, PIN ni datos financieros."
                 ),
             )
@@ -295,14 +299,19 @@ class OrchestratorService:
             return await self._build_result(db, kiosk_session.id)
 
         identifier_hash = hash_identifier(payload.identifier, self.settings)
-        demo_client = await db.scalar(
-            select(DemoClient).where(
-                DemoClient.identifier_hash == identifier_hash, DemoClient.active.is_(True)
+        client_reference = await db.scalar(
+            select(ClientReference).where(
+                ClientReference.identifier_hash == identifier_hash,
+                ClientReference.active.is_(True),
             )
         )
-        status = IdentificationStatus.IDENTIFICADO if demo_client else IdentificationStatus.FALLIDO
+        status = (
+            IdentificationStatus.IDENTIFICADO if client_reference else IdentificationStatus.FALLIDO
+        )
         if case.identification:
-            case.identification.demo_client_id = demo_client.id if demo_client else None
+            case.identification.client_reference_id = (
+                client_reference.id if client_reference else None
+            )
             case.identification.identifier_hash = identifier_hash
             case.identification.masked_identifier = mask_identifier(payload.identifier)
             case.identification.status = status
@@ -310,7 +319,7 @@ class OrchestratorService:
             db.add(
                 Identification(
                     case_id=case.id,
-                    demo_client_id=demo_client.id if demo_client else None,
+                    client_reference_id=client_reference.id if client_reference else None,
                     identifier_hash=identifier_hash,
                     masked_identifier=mask_identifier(payload.identifier),
                     status=status,
@@ -321,7 +330,7 @@ class OrchestratorService:
             TraceEvent(
                 case_id=case.id,
                 event_type="CLIENT_IDENTIFICATION",
-                description=f"Identificacion demostrativa: {status.value}",
+                description=f"Identificacion de cliente: {status.value}",
             )
         )
         return await self._finalize(db, kiosk_session, case)
@@ -366,6 +375,7 @@ class OrchestratorService:
                 automatic=True,
                 status=TicketStatus.CERRADO,
                 assigned_at=now,
+                estimated_wait_minutes=0,
                 started_at=now,
                 closed_at=now,
             )
@@ -394,7 +404,13 @@ class OrchestratorService:
                 else GroundingStatus.NOT_APPLICABLE
             )
             kiosk_session.citations_json = []
-            executive = await self.derivation.run(db, case.category, case.summary)
+            routing = await self.derivation.run(db, case.category, case.summary)
+            executive = routing.executive if routing else None
+            estimated_wait = (
+                (routing.active_load + 1) * self.settings.estimated_service_minutes
+                if routing
+                else None
+            )
             ticket = Ticket(
                 public_id=uuid4(),
                 case_id=case.id,
@@ -402,6 +418,7 @@ class OrchestratorService:
                 automatic=False,
                 status=TicketStatus.PENDIENTE,
                 assigned_at=now if executive else None,
+                estimated_wait_minutes=estimated_wait,
             )
             if executive:
                 executive.last_assigned_at = now
@@ -416,6 +433,18 @@ class OrchestratorService:
                     case_id=case.id,
                     event_type="CASE_ROUTED",
                     description=description,
+                    metadata_json=(
+                        {
+                            "score": round(routing.score, 4),
+                            "semantic_score": round(routing.semantic_score, 4),
+                            "experience_score": round(routing.experience_score, 4),
+                            "load_score": round(routing.load_score, 4),
+                            "active_load": routing.active_load,
+                            "estimated_wait_minutes": estimated_wait,
+                        }
+                        if routing
+                        else {"estimated_wait_minutes": None}
+                    ),
                 )
             )
         db.add(ticket)
@@ -438,9 +467,14 @@ class OrchestratorService:
         if case.session.resolution_type == ResolutionType.AUTOMATIC:
             speech = case.session.final_response or "La consulta fue resuelta."
         elif assignment:
+            wait_message = (
+                f" La espera estimada es de {ticket.estimated_wait_minutes} minutos."
+                if ticket.estimated_wait_minutes is not None
+                else ""
+            )
             speech = (
                 f"Su ticket es {ticket.number}. Dirijase a {assignment.window_number} "
-                f"con {assignment.name}."
+                f"con {assignment.name}.{wait_message}"
             )
         else:
             speech = f"Su ticket es {ticket.number}. La asignacion esta pendiente."
@@ -450,13 +484,19 @@ class OrchestratorService:
             next_action="COMPLETE",
             identification_status=case.identification_status,
             resolution_type=case.session.resolution_type,
-            ticket=TicketResult(id=ticket.public_id, number=ticket.number, status=ticket.status),
+            ticket=TicketResult(
+                id=ticket.public_id,
+                number=ticket.number,
+                status=ticket.status,
+                estimated_wait_minutes=ticket.estimated_wait_minutes,
+            ),
             executive=assignment,
             response=case.session.final_response,
             speech_text=speech,
             tracking_information=(
-                f"Conserve el ticket {ticket.number}. Para reclamos, contacte los canales "
-                "oficiales de la entidad o solicite orientacion en plataforma."
+                f"Conserve el ticket {ticket.number}. Para seguimiento o reclamos puede "
+                "comunicarse a la Linea Movil 788-12000, disponible las 24 horas, o a la "
+                "linea gratuita 800-17-0777 de lunes a sabado, de 09:00 a 18:00."
             ),
             grounding_status=case.session.grounding_status,
             citations=[

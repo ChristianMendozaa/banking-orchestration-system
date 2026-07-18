@@ -37,18 +37,19 @@ async def test_sensitive_case_identification_assignment_and_dashboard(client: As
     identified = await client.post(
         f"/api/v1/kiosk/sessions/{session_id}/identification",
         headers=session_headers,
-        json={"identifier": "DEMO-1001"},
+        json={"identifier": "CLI-1001"},
     )
     assert identified.status_code == 200, identified.text
     result = identified.json()
     assert result["identification_status"] == "IDENTIFICADO"
     assert result["resolution_type"] == "HUMAN"
     assert result["ticket"]["status"] == "PENDIENTE"
+    assert result["ticket"]["estimated_wait_minutes"] == 8
     assert result["executive"] is not None
 
     executive_email = {
-        "Carlos Mamani": "carlos.mamani@demo.example",
-        "Maria Fernandez": "maria.fernandez@demo.example",
+        "Carlos Mamani": "carlos.mamani@personal.bmsc.com.bo",
+        "Maria Fernandez": "maria.fernandez@personal.bmsc.com.bo",
     }[result["executive"]["name"]]
     executive_token = await _login(
         client,
@@ -72,7 +73,7 @@ async def test_sensitive_case_identification_assignment_and_dashboard(client: As
 
     manager_token = await _login(
         client,
-        "gerencia@demo.example",
+        "gerencia@personal.bmsc.com.bo",
         settings_for_tests.seed_manager_password.get_secret_value(),
     )
     metrics = await client.get(
@@ -87,7 +88,7 @@ async def test_sensitive_case_identification_assignment_and_dashboard(client: As
 async def test_manager_cannot_update_ticket_as_executive(client: AsyncClient) -> None:
     manager_token = await _login(
         client,
-        "gerencia@demo.example",
+        "gerencia@personal.bmsc.com.bo",
         settings_for_tests.seed_manager_password.get_secret_value(),
     )
     response = await client.get(
@@ -102,7 +103,7 @@ async def test_refresh_rotates_session_and_validation_uses_public_error_contract
 ) -> None:
     await _login(
         client,
-        "gerencia@demo.example",
+        "gerencia@personal.bmsc.com.bo",
         settings_for_tests.seed_manager_password.get_secret_value(),
     )
     refreshed = await client.post("/api/v1/auth/refresh")

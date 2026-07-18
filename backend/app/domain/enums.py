@@ -82,7 +82,7 @@ class GroundingStatus(StrEnum):
 class KnowledgeSourceType(StrEnum):
     OFFICIAL = "OFFICIAL"
     REGULATORY = "REGULATORY"
-    SIMULATED = "SIMULATED"
+    INTERNAL = "INTERNAL"
     HYBRID = "HYBRID"
 
 

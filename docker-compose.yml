@@ -7,7 +7,8 @@ x-backend-environment: &backend-environment
   KNOWLEDGE_STORAGE_DIR: /workspace/data/knowledge
   KNOWLEDGE_SEED_DIR: /workspace/doc/rag
   RAG_CORPUS_DIR: /workspace/doc/rag
-  SEED_DATA_PATH: /workspace/backend/seed/demo_seed.json
+  SEED_DATA_PATH: /workspace/backend/seed/operational_seed.json
+  ESTIMATED_SERVICE_MINUTES: ${ESTIMATED_SERVICE_MINUTES:-8}
   CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-3000}
 
 x-backend-base: &backend-base

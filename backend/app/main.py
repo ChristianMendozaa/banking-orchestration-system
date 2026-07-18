@@ -40,7 +40,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    description="API del prototipo de orquestacion de atencion bancaria",
+    description="API del sistema de orquestacion de atencion bancaria",
     lifespan=lifespan,
 )
 app.add_middleware(

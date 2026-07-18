@@ -44,6 +44,7 @@ def chunk_pdf(
         segments: list[tuple[str | None, list[str]]] = []
         current_section: str | None = f"Página {page_number}"
         current_lines: list[str] = []
+        seen_declared_heading = not headings
         for raw_line in page_text.splitlines():
             line = raw_line.strip()
             if not line or line.startswith("Sistema de Orquestación") or line.startswith("Página "):
@@ -54,6 +55,9 @@ def chunk_pdf(
                     segments.append((current_section, current_lines))
                 current_section = matched
                 current_lines = []
+                seen_declared_heading = True
+                continue
+            if not seen_declared_heading:
                 continue
             current_lines.append(line)
         if current_lines:
