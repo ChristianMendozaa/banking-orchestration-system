@@ -2,14 +2,29 @@
 
 import { useKiosk } from "@/components/providers/kiosk-provider"
 import { Button } from "@/components/ui/button"
-import { ApiError, errorMessage } from "@/lib/api"
-import type { FlowResult } from "@/lib/types"
-import { BadgeCheck, IdCard, ShieldAlert } from "lucide-react"
+import { errorMessage } from "@/lib/api"
+import {
+  BadgeCheck,
+  CircleAlert,
+  IdCard,
+  RefreshCw,
+  ShieldAlert,
+} from "lucide-react"
 import { useRouter } from "next/navigation"
 import { FormEvent, useEffect, useState } from "react"
 
 export default function IdentificationPage() {
-  const { session, result, hydrated, setResult, sessionRequest, reset } = useKiosk()
+  const {
+    session,
+    result,
+    hydrated,
+    voiceState,
+    voiceError,
+    connectVoice,
+    retryVoice,
+    reset,
+    submitIdentification,
+  } = useKiosk()
   const router = useRouter()
   const [identifier, setIdentifier] = useState("")
   const [submitting, setSubmitting] = useState(false)
@@ -18,32 +33,31 @@ export default function IdentificationPage() {
   useEffect(() => {
     if (hydrated && (!session || result?.next_action !== "IDENTIFY")) {
       router.replace(session ? "/kiosco/voz" : "/kiosco")
+      return
     }
-  }, [hydrated, result, router, session])
+    if (hydrated && session && result?.next_action === "IDENTIFY" && voiceState === "idle") {
+      void connectVoice().catch(() => {
+        // La identificación escrita puede continuar aunque falle la voz.
+      })
+    }
+  }, [connectVoice, hydrated, result, router, session, voiceState])
 
   async function identify(event: FormEvent) {
     event.preventDefault()
     setSubmitting(true)
     setError(null)
     try {
-      const completed = await sessionRequest<FlowResult>("/identification", {
-        method: "POST",
-        body: JSON.stringify({ identifier: identifier.trim() }),
-      })
-      setResult(completed)
-      router.replace(
-        completed.resolution_type === "AUTOMATIC" ? "/kiosco/respuesta" : "/kiosco/ticket",
-      )
+      await submitIdentification(identifier)
     } catch (reason) {
-      if (reason instanceof ApiError && reason.code === "SESSION_EXPIRED") {
-        reset()
-        router.replace("/kiosco")
-        return
-      }
       setError(errorMessage(reason))
     } finally {
       setSubmitting(false)
     }
+  }
+
+  function returnToStart() {
+    reset()
+    router.replace("/kiosco")
   }
 
   return (
@@ -64,6 +78,24 @@ export default function IdentificationPage() {
           Esto no autentica una cuenta bancaria. Nunca ingrese CI real, contraseña, PIN, CVV ni
           número de cuenta.
         </div>
+
+        {voiceError && (
+          <div className="mb-6 rounded-2xl border border-red-400/30 bg-red-400/10 p-4">
+            <p className="flex items-start gap-2 text-sm text-red-100" role="alert">
+              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+              {voiceError}
+            </p>
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+              <Button onClick={() => void retryVoice()} type="button">
+                <RefreshCw className="h-4 w-4" />
+                Reintentar voz
+              </Button>
+              <Button onClick={returnToStart} type="button" variant="ghost">
+                Volver al inicio y pedir ayuda
+              </Button>
+            </div>
+          </div>
+        )}
 
         <form className="space-y-4" onSubmit={identify}>
           <label className="block text-sm font-medium text-white/70">

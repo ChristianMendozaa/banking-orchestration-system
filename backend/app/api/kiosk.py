@@ -63,6 +63,8 @@ async def realtime_token(
         SessionStatus.CREATED,
         SessionStatus.LISTENING,
         SessionStatus.NEEDS_CLARIFICATION,
+        SessionStatus.AWAITING_CONFIRMATION,
+        SessionStatus.AWAITING_IDENTIFICATION,
     }:
         raise AppError(
             "INVALID_SESSION_STATE",
@@ -70,7 +72,7 @@ async def realtime_token(
             409,
         )
     data = await provider.create_realtime_client_secret(str(kiosk_session.id))
-    if kiosk_session.status != SessionStatus.NEEDS_CLARIFICATION:
+    if kiosk_session.status == SessionStatus.CREATED:
         kiosk_session.status = SessionStatus.LISTENING
     await db.commit()
     return RealtimeTokenResponse.model_validate(data)

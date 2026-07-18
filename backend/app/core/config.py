@@ -45,7 +45,6 @@ class Settings(BaseSettings):
     seed_manager_password: SecretStr
     seed_data_path: str = "seed/demo_seed.json"
     dashboard_refresh_ms: int = 10_000
-    voice_drain_ms: int = 900
 
     knowledge_storage_dir: str = "../data/knowledge"
     knowledge_seed_dir: str = "../doc/rag"
@@ -80,8 +79,6 @@ class Settings(BaseSettings):
             raise ValueError("KNOWLEDGE_MAX_PAGES debe ser positivo")
         if self.dashboard_refresh_ms < 1_000:
             raise ValueError("DASHBOARD_REFRESH_MS debe ser al menos 1000")
-        if not 0 <= self.voice_drain_ms <= 5_000:
-            raise ValueError("VOICE_DRAIN_MS debe estar entre 0 y 5000")
         return self
 
     @field_validator("cors_origins", mode="before")

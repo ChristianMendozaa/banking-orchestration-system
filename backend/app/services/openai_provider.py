@@ -23,11 +23,13 @@ class OpenAIProvider:
                 "type": "realtime",
                 "model": self.settings.voice_model,
                 "instructions": (
-                    "Eres la interfaz de voz de un kiosco bancario de demostracion. "
-                    "Habla en espanol claro. No solicites credenciales, PIN, contrasenas ni datos "
-                    "financieros completos. Transcribe fielmente y espera instrucciones "
-                    "de la aplicacion."
+                    "Eres la asistente virtual femenina de un kiosco bancario de demostracion. "
+                    "Habla en espanol boliviano claro, cordial y breve. Nunca solicites PIN, CVV, "
+                    "contrasenas, credenciales ni datos financieros completos. La aplicacion "
+                    "proveera herramientas para analizar y encaminar la atencion; no ejecutas "
+                    "operaciones bancarias."
                 ),
+                "output_modalities": ["audio"],
                 "audio": {
                     "input": {
                         "transcription": {
@@ -35,9 +37,10 @@ class OpenAIProvider:
                             "language": "es",
                         },
                         "turn_detection": {
-                            "type": "server_vad",
-                            "create_response": False,
-                            "interrupt_response": False,
+                            "type": "semantic_vad",
+                            "eagerness": "auto",
+                            "create_response": True,
+                            "interrupt_response": True,
                         },
                     },
                     "output": {"voice": self.settings.realtime_voice},

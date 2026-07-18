@@ -1,8 +1,11 @@
 # Auditoría integral de implementación
 
-**Proyecto:** Sistema de Orquestación de Atención al Cliente Bancario  
-**Documento contrastado:** `TG1_ChristianMendoza.pdf`, 100 páginas  
-**Fecha de corte:** 16 de julio de 2026, zona `America/La_Paz`  
+**Proyecto:** Sistema de Orquestación de Atención al Cliente Bancario
+
+**Documento contrastado:** `TG1_ChristianMendoza.pdf`, 100 páginas
+
+**Fecha de corte:** 17 de julio de 2026, zona `America/La_Paz`
+
 **Alcance:** backend, agentes, privacidad, RAG, persistencia, frontend, Docker,
 configuración, pruebas, dependencias y operación demostrativa.
 
@@ -48,7 +51,8 @@ Antes de la corrección se encontraron estas brechas:
 ## Correcciones implementadas
 
 - Frontend real para kiosco, ejecutivo y gerencia; se eliminó `mock-data.ts`.
-- WebRTC con secreto efímero, transcripción española y alternativa escrita.
+- Conversación speech-to-speech por WebRTC con secreto efímero, VAD semántico,
+  interrupciones, subtítulos en memoria y tools delegadas al backend.
 - Proxy de mismo origen en Next.js para API, cookies, multipart y descargas.
 - Access token solo en memoria, refresh `HttpOnly` rotado y guardado como hash.
 - Orquestador con máquina de estados, expiración, idempotencia y control de
@@ -74,8 +78,8 @@ Antes de la corrección se encontraron estas brechas:
 
 | ID | Estado | Evidencia y criterio de auditoría |
 |---|---|---|
-| RF-01 | Cumple | [`frontend/app/kiosco/voz/page.tsx`](../frontend/app/kiosco/voz/page.tsx) abre WebRTC, procesa transcripción española y ofrece entrada escrita; [`openai_provider.py`](../backend/app/services/openai_provider.py) crea el secreto efímero. |
-| RF-02 | Cumple | [`confirmacion/page.tsx`](../frontend/app/kiosco/confirmacion/page.tsx) presenta el resumen; [`orchestrator.py`](../backend/app/services/orchestrator.py) confirma o retorna `CAPTURE` para corrección. |
+| RF-01 | Cumple | [`kiosk-provider.tsx`](../frontend/components/providers/kiosk-provider.tsx) mantiene una sesión Realtime speech-to-speech continua con VAD, interrupciones y subtítulos; [`openai_provider.py`](../backend/app/services/openai_provider.py) crea el secreto efímero. |
+| RF-02 | Cumple | La tool aplica una guarda determinista de sí/no explícito y delega en [`orchestrator.py`](../backend/app/services/orchestrator.py), que conserva la decisión de negocio y confirma o retorna `CAPTURE` para corrección. |
 | RF-03 | Cumple | [`ClassificationAgent`](../backend/app/services/agents.py) produce una de las cinco categorías definidas en [`enums.py`](../backend/app/domain/enums.py). |
 | RF-04 | Cumple | El orquestador emite `CLARIFY`, conserva contexto y limita intentos mediante `MAX_CLARIFICATIONS`. |
 | RF-05 | Parcial controlado | [`PIIMaskingService`](../backend/app/services/pii.py) elimina correo, tarjeta, cuenta, teléfono, identificador, monto y nombre antes de clasificación/persistencia. El audio ya pasó por el transcriptor externo; ver riesgos residuales. |
@@ -96,16 +100,16 @@ Antes de la corrección se encontraron estas brechas:
 
 | ID | Estado | Evidencia y límite |
 |---|---|---|
-| RNF-01 | Cumple | Flujo guiado, mensajes de error, alternativa escrita, confirmación y pasos visibles. |
+| RNF-01 | Cumple | Flujo conversacional guiado, confirmación por voz, subtítulos, estados visibles y controles de recuperación ante errores. |
 | RNF-02 | Parcial controlado | Minimización, hash, masking y autorización están implementados; el audio sin enmascarar llega al proveedor Realtime. |
 | RNF-03 | Cumple | Roles `EXECUTIVE`/`MANAGER`, JWT, sesión de kiosco opaca y control de pertenencia de tickets. Un ejecutivo obtiene `403` en conocimiento gerencial. |
 | RNF-04 | Cumple | Eventos por captura, masking, clasificación, prioridad, identificación, ruta y estado; RAG registra IDs, resultado y hash de respuesta. |
-| RNF-05 | Cumple en prototipo | Healthchecks, dependencias condicionadas, fallback escrito/humano y procedimiento explícito de arranque/reinicio. Por decisión operativa, los contenedores no arrancan con la computadora. No equivale a alta disponibilidad. |
+| RNF-05 | Cumple en prototipo | Healthchecks, dependencias condicionadas, reintento de voz/fallback humano y procedimiento explícito de arranque/reinicio. Por decisión operativa, los contenedores no arrancan con la computadora. No equivale a alta disponibilidad. |
 | RNF-06 | Parcial | Async I/O, timeout, batch de embeddings, HNSW, top-k y paginación. No existe todavía una prueba de carga con SLO formal. |
 | RNF-07 | Cumple | API, dominio, servicios, repositorios, agentes y conocimiento tienen límites explícitos. |
 | RNF-08 | Cumple en prototipo | Categorías/reglas/modelos son configurables y las migraciones permiten evolución. Añadir una categoría sigue requiriendo cambio de enum, UI y migración. |
 | RNF-09 | Cumple | Tipado, lint, pruebas, configuración central, manifiesto y documentación operativa. |
-| RNF-10 | Parcial | Voz, teclado, etiquetas, estados y varios atributos ARIA están presentes. Falta auditoría WCAG con lector de pantalla/contraste automatizado. |
+| RNF-10 | Parcial | Voz, subtítulos, etiquetas, estados, identificación escrita y varios atributos ARIA están presentes. Falta auditoría WCAG con lector de pantalla/contraste automatizado. |
 | RNF-11 | Cumple | Datos ficticios, advertencias explícitas y ausencia total de integración core. |
 | RNF-12 | Cumple | Métricas, trazas, matriz RF/RNF, evaluación RAG y reporte reproducible. |
 | RNF-13 | Cumple | Identificador HMAC, valor visible parcialmente enmascarado y ninguna persistencia de audio/transcripción original. |
@@ -137,7 +141,9 @@ el alcance y más demostrable para un prototipo.
 - [`frontend/components/providers/auth-provider.tsx`](../frontend/components/providers/auth-provider.tsx):
   sesión y renovación.
 - [`frontend/components/providers/kiosk-provider.tsx`](../frontend/components/providers/kiosk-provider.tsx):
-  estado del kiosco.
+  estado, sesión Realtime, tools, reconexión, privacidad y cierre del kiosco.
+- [`frontend/lib/kiosk-realtime.ts`](../frontend/lib/kiosk-realtime.ts):
+  instrucciones, esquemas de tools y subtítulos en memoria.
 - [`frontend/app/backend-api/[...path]/route.ts`](../frontend/app/backend-api/[...path]/route.ts):
   proxy de mismo origen.
 - [`frontend/app/kiosco`](../frontend/app/kiosco): flujo completo.
@@ -168,9 +174,10 @@ un secreto efímero de Realtime asociado a su sesión, nunca la API key del serv
 Resultado del corte:
 
 - `uv run ruff check .`: aprobado.
-- `uv run pytest -q`: **23 pruebas aprobadas**.
-- `pnpm lint`: aprobado.
-- `pnpm build`: aprobado, 14 rutas.
+- `uv run pytest -q`: **26 pruebas aprobadas**.
+- `pnpm test`: **15 pruebas aprobadas**.
+- `pnpm lint` y `pnpm typecheck`: aprobados.
+- `pnpm build`: aprobado, 13 rutas.
 - `pnpm audit --prod`: sin vulnerabilidades conocidas.
 - `uv run --with pip-audit pip-audit`: sin vulnerabilidades conocidas.
 - `docker compose config --quiet`: aprobado.
@@ -200,6 +207,8 @@ integrales anteriores usaron la configuración real autorizada.
 Se eliminaron:
 
 - `frontend/lib/mock-data.ts`;
+- los controles manuales de grabar/detener, la síntesis de voz del navegador y la
+  ruta visual redundante de confirmación;
 - el generador de corpus y el generador PDF en tiempo de ejecución;
 - el Compose duplicado del backend;
 - componentes/recursos de plantilla sin uso;

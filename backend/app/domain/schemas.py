@@ -248,7 +248,6 @@ class PublicSystemConfig(BaseModel):
     bank_name: str
     branch_name: str
     dashboard_refresh_ms: int
-    voice_drain_ms: int
 
 
 class KnowledgeDocumentSummary(BaseModel):

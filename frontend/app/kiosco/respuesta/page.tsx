@@ -1,13 +1,13 @@
 "use client"
 
-import { speak, useKiosk } from "@/components/providers/kiosk-provider"
-import { Button } from "@/components/ui/button"
+import { CompletionStatus } from "@/components/kiosk/completion-status"
+import { useKiosk } from "@/components/providers/kiosk-provider"
 import { CheckCircle, ExternalLink, MessageSquare, Ticket } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 
 export default function AutomaticResponsePage() {
-  const { result, hydrated, reset } = useKiosk()
+  const { result, hydrated, voiceError, completionSeconds } = useKiosk()
   const router = useRouter()
 
   useEffect(() => {
@@ -15,13 +15,7 @@ export default function AutomaticResponsePage() {
       router.replace("/kiosco")
       return
     }
-    if (result) speak(result.speech_text)
   }, [hydrated, result, router])
-
-  function finish() {
-    reset()
-    router.replace("/kiosco")
-  }
 
   if (!result?.ticket || !result.response) return null
 
@@ -96,9 +90,11 @@ export default function AutomaticResponsePage() {
             {result.tracking_information}
           </p>
         )}
-        <Button onClick={finish} size="xl">
-          Finalizar
-        </Button>
+        <CompletionStatus
+          completionSeconds={completionSeconds}
+          readingMessage="La asistente está leyendo el resultado."
+          voiceError={voiceError}
+        />
       </div>
     </div>
   )

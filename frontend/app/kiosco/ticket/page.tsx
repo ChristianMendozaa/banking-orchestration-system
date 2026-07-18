@@ -1,14 +1,14 @@
 "use client"
 
-import { speak, useKiosk } from "@/components/providers/kiosk-provider"
+import { CompletionStatus } from "@/components/kiosk/completion-status"
+import { useKiosk } from "@/components/providers/kiosk-provider"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Clock, MapPin, Shield, TicketCheck, User } from "lucide-react"
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 
 export default function TicketPage() {
-  const { result, analysis, hydrated, reset } = useKiosk()
+  const { result, analysis, hydrated, voiceError, completionSeconds } = useKiosk()
   const router = useRouter()
 
   useEffect(() => {
@@ -16,13 +16,7 @@ export default function TicketPage() {
       router.replace("/kiosco")
       return
     }
-    if (result) speak(result.speech_text)
   }, [hydrated, result, router])
-
-  function finish() {
-    reset()
-    router.replace("/kiosco")
-  }
 
   if (!result?.ticket) return null
 
@@ -98,9 +92,11 @@ export default function TicketPage() {
             {result.tracking_information}
           </p>
         )}
-        <Button onClick={finish} size="xl">
-          Finalizar atención
-        </Button>
+        <CompletionStatus
+          completionSeconds={completionSeconds}
+          readingMessage="La asistente está leyendo el ticket."
+          voiceError={voiceError}
+        />
       </div>
     </div>
   )

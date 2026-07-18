@@ -13,8 +13,10 @@ export type SessionStatus =
   | "NEEDS_CLARIFICATION"
   | "AWAITING_CONFIRMATION"
   | "AWAITING_IDENTIFICATION"
+  | "ORCHESTRATING"
   | "RESOLVED_AUTOMATIC"
   | "ASSIGNED"
+  | "FAILED"
 export type ConsultationLevel = "GENERAL" | "PERSONALIZADA" | "SENSIBLE"
 export type KnowledgeSourceType = "OFFICIAL" | "REGULATORY" | "SIMULATED" | "HYBRID"
 export type KnowledgeIndexStatus =
@@ -43,7 +45,6 @@ export interface PublicSystemConfig {
   bank_name: string
   branch_name: string
   dashboard_refresh_ms: number
-  voice_drain_ms: number
 }
 
 export interface KioskSession {

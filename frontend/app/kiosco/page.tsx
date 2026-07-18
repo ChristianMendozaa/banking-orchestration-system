@@ -11,7 +11,7 @@ import { useState } from "react"
 
 export default function KioskPage() {
   const { config } = useSystemConfig()
-  const { beginSession, reset } = useKiosk()
+  const { beginSession } = useKiosk()
   const router = useRouter()
   const [preferential, setPreferential] = useState(false)
   const [starting, setStarting] = useState(false)
@@ -20,7 +20,6 @@ export default function KioskPage() {
   async function start() {
     setStarting(true)
     setError(null)
-    reset()
     try {
       await beginSession(preferential)
       router.push("/kiosco/voz")
@@ -49,7 +48,7 @@ export default function KioskPage() {
           <span className="mt-2 block font-bold text-[#23A2D9]">atención inteligente</span>
         </h1>
         <p className="mt-5 text-lg text-white/60">
-          Describa su necesidad con su voz o mediante el teclado.
+          Converse con una asistente virtual en tiempo real, sin grabar ni detener cada turno.
         </p>
 
         <label className="mx-auto mt-8 flex max-w-xl cursor-pointer items-start gap-4 rounded-2xl border border-white/15 bg-white/[.06] p-4 text-left">

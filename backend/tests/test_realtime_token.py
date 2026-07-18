@@ -1,9 +1,15 @@
+from uuid import UUID
+
+import pytest
 from httpx import AsyncClient
 from pydantic import SecretStr
 
 from app.api.deps import get_openai_provider
+from app.db.models import KioskSession
+from app.domain.enums import SessionStatus
 from app.main import app
 from app.services.openai_provider import OpenAIProvider
+from tests.conftest import TestSession
 
 
 class FakeRealtimeProvider:
@@ -32,7 +38,44 @@ async def test_realtime_endpoint_only_returns_ephemeral_secret(client: AsyncClie
         app.dependency_overrides.pop(get_openai_provider, None)
 
 
-async def test_realtime_session_disables_autonomous_model_responses(monkeypatch, settings) -> None:
+@pytest.mark.parametrize(
+    "status",
+    [
+        SessionStatus.NEEDS_CLARIFICATION,
+        SessionStatus.AWAITING_CONFIRMATION,
+        SessionStatus.AWAITING_IDENTIFICATION,
+    ],
+)
+async def test_realtime_endpoint_preserves_resumable_state(
+    client: AsyncClient, status: SessionStatus
+) -> None:
+    app.dependency_overrides[get_openai_provider] = lambda: FakeRealtimeProvider()
+    try:
+        created = await client.post("/api/v1/kiosk/sessions", json={})
+        data = created.json()
+        async with TestSession() as db:
+            kiosk_session = await db.get(KioskSession, UUID(data["session_id"]))
+            assert kiosk_session is not None
+            kiosk_session.status = status
+            await db.commit()
+
+        response = await client.post(
+            f"/api/v1/kiosk/sessions/{data['session_id']}/realtime-token",
+            headers={"X-Session-Token": data["session_token"]},
+        )
+        assert response.status_code == 200, response.text
+
+        async with TestSession() as db:
+            kiosk_session = await db.get(KioskSession, UUID(data["session_id"]))
+            assert kiosk_session is not None
+            assert kiosk_session.status == status
+    finally:
+        app.dependency_overrides.pop(get_openai_provider, None)
+
+
+async def test_realtime_session_enables_conversation_and_interruptions(
+    monkeypatch, settings
+) -> None:
     captured = {}
 
     class FakeResponse:
@@ -59,7 +102,16 @@ async def test_realtime_session_disables_autonomous_model_responses(monkeypatch,
     monkeypatch.setattr("app.services.openai_provider.httpx.AsyncClient", FakeHTTPClient)
     configured = settings.model_copy(update={"openai_api_key": SecretStr("test-key")})
     await OpenAIProvider(configured).create_realtime_client_secret("session-test")
-    turn_detection = captured["json"]["session"]["audio"]["input"]["turn_detection"]
-    assert turn_detection["create_response"] is False
-    assert turn_detection["interrupt_response"] is False
+    session = captured["json"]["session"]
+    turn_detection = session["audio"]["input"]["turn_detection"]
+    assert session["model"] == "gpt-realtime-2.1-mini"
+    assert session["output_modalities"] == ["audio"]
+    assert session["audio"]["input"]["transcription"]["model"] == "gpt-realtime-whisper"
+    assert session["audio"]["output"]["voice"] == "marin"
+    assert turn_detection == {
+        "type": "semantic_vad",
+        "eagerness": "auto",
+        "create_response": True,
+        "interrupt_response": True,
+    }
     assert captured["url"].endswith("/v1/realtime/client_secrets")
