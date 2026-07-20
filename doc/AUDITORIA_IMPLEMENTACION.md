@@ -4,7 +4,7 @@
 
 **Documento contrastado:** `TG1_ChristianMendoza.pdf`, 100 páginas
 
-**Fecha de corte:** 17 de julio de 2026, zona `America/La_Paz`
+**Fecha de corte:** 20 de julio de 2026, zona `America/La_Paz`
 
 **Alcance:** conversación por voz, privacidad, clasificación, prioridad, RAG,
 derivación, tickets, trazabilidad, operación ejecutiva, gestión gerencial,
@@ -15,24 +15,36 @@ persistencia, configuración, pruebas y despliegue.
 El sistema implementa el recorrido descrito en el documento: escucha continua,
 confirmación por voz, clasificación, aclaración, prioridad, verificación protegida
 cuando corresponde, respuesta con evidencia o derivación humana, emisión de ticket,
-asignación del ejecutivo compatible, ventanilla, espera estimada y trazabilidad.
+asignación del ejecutivo compatible, ventanilla, espera estimada y trazabilidad. Este
+corte incorpora la corrección del lenguaje impersonal, las respuestas duplicadas y la
+pérdida visual del ticket durante una transición o recuperación de sesión.
 
-Los 17 requerimientos funcionales cuentan con una ruta ejecutable. El frontend no
-decide el resultado del negocio: las herramientas de voz delegan al orquestador y el
-resultado persistido es la única fuente para la respuesta hablada y visual.
+Los 17 requerimientos funcionales cuentan con una ruta implementada. Esta afirmación
+describe cobertura del código y de los contratos, no una certificación de producción
+ni una prueba integral del proveedor de voz. El frontend no decide el resultado del
+negocio: las herramientas de voz delegan al orquestador y la instantánea persistida es
+la fuente para recuperar la respuesta hablada, el estado visual y la ruta del kiosco.
 
-## Corrección del bloqueo conversacional
+## Corrección del flujo conversacional y del ticket
 
-La sesión quedaba en `AWAITING_CONFIRMATION` antes de escuchar a la persona porque la
-instrucción inicial de la aplicación se agregaba al historial como un mensaje de
-usuario. El agente la enviaba a `analyze_requirement`, generaba un requerimiento y el
-turno real posterior recibía `409`.
+La prueba reportada mostraba dos fallos observables: el resumen decía «el usuario» en
+lugar de dirigirse directamente a quien hablaba y, después de ingresar el código, se
+repitió la instrucción de identificación mientras el ticket ya existía en el backend.
+La pantalla quedó en una fase anterior por redirecciones que competían entre sí.
 
-La instrucción de saludo y los mensajes controlados ahora se emiten mediante
-`response.create`, sin crear un elemento de usuario y con herramientas deshabilitadas
-para esa respuesta. Solo el audio pronunciado por la persona puede activar el
-análisis. Además, un reintento de análisis mientras existe una confirmación pendiente
-recupera el requerimiento activo de forma idempotente.
+El resumen interno se mantiene separado de `customer_summary`, que se valida como una
+frase natural de tuteo y tiene una alternativa segura por categoría. La confirmación
+incluye `requirement_id`; el backend registra la decisión y devuelve el mismo resultado
+ante un reintento compatible. El estado de sesión reconstruye la aclaración o
+confirmación pendiente y, después de avanzar, devuelve un resultado autosuficiente
+con resumen conversacional, prioridad, identificación o ticket.
+
+Las herramientas Realtime entregan resultados en segundo plano. La aplicación emite
+una única respuesta controlada, sin herramientas, y correlaciona cada locución mediante
+una clave estable de transición. El provider reconcilia la instantánea del backend y
+es la única autoridad de navegación; las páginas ya no ejecutan guards ni redirects
+competidores. El contador de cierre comienza cuando termina la locución terminal, con
+un timeout de recuperación si el audio no finaliza correctamente.
 
 ## Flujo operativo resultante
 
@@ -40,14 +52,17 @@ recupera el requerimiento activo de forma idempotente.
 2. La asistente saluda y escucha; la conversación admite interrupciones.
 3. La transcripción se enmascara antes de clasificación y persistencia.
 4. El orquestador clasifica, prioriza y solicita aclaración cuando falta contexto.
-5. La asistente resume el requerimiento y pide confirmación por voz.
-6. Una corrección vuelve a captura; una confirmación crea el caso.
+5. La asistente se dirige de tú, resume lo entendido y pide confirmación por voz.
+6. La confirmación queda asociada al requerimiento; una corrección vuelve a captura y
+   una aceptación crea o recupera el mismo caso.
 7. Los casos personalizados o sensibles solicitan el código de cliente en un campo
    escrito protegido.
 8. Una consulta general con evidencia vigente recibe respuesta RAG y ticket cerrado.
 9. Los demás casos se asignan a un perfil compatible y generan ticket pendiente.
 10. La pantalla y la voz informan número, ejecutivo, especialidad, ventanilla, espera
-    estimada y canales de seguimiento.
+    estimada y canales de seguimiento una sola vez.
+11. Tras finalizar la locución, la pantalla conserva el resultado durante 20 segundos
+    antes de volver al inicio.
 
 ## Asignación de ejecutivos
 
@@ -89,7 +104,7 @@ humana.
 | ID | Estado | Evidencia y criterio |
 |---|---|---|
 | RF-01 | Cumple | `kiosk-provider.tsx` mantiene una sesión Realtime speech-to-speech con VAD, interrupciones y subtítulos en memoria. |
-| RF-02 | Cumple | La confirmación se pronuncia por voz; la herramienta valida sí/no y el orquestador acepta o retorna a captura. |
+| RF-02 | Cumple | La confirmación usa un resumen conversacional, se pronuncia una sola vez y vincula la decisión con el requerimiento confirmado. |
 | RF-03 | Cumple | `ClassificationAgent` produce una de las cinco categorías definidas en el dominio. |
 | RF-04 | Cumple | El orquestador conserva contexto, emite `CLARIFY` y limita intentos de aclaración. |
 | RF-05 | Cumple | `PIIMaskingService` elimina correo, tarjeta, cuenta, teléfono, identificador, monto y nombre antes del procesamiento de dominio y la persistencia. |
@@ -97,7 +112,7 @@ humana.
 | RF-07 | Cumple | Fraude o movimiento no reconocido resulta crítico; bloqueo por pérdida o robo resulta alto. |
 | RF-08 | Cumple | `InitialAttentionAgent` usa RAG solo para nivel general; sin evidencia crea ticket humano. |
 | RF-09 | Cumple | `DerivationAgent` exige habilidad compatible y pondera semántica, experiencia y carga. |
-| RF-10 | Cumple | Sesión, requisito, caso, ticket y eventos quedan persistidos; los estados usan transiciones controladas. |
+| RF-10 | Cumple | Sesión, requisito, decisión de confirmación, caso, ticket y eventos quedan persistidos; los reintentos recuperan la transición ya registrada. |
 | RF-11 | Cumple | El panel ejecutivo muestra tickets asignados, resumen, prioridad, estado, espera y trazas. |
 | RF-12 | Cumple | El panel gerencial obtiene métricas y casos filtrados desde la API. |
 | RF-13 | Cumple | El resultado incluye ticket y canales publicados para seguimiento o reclamo. |
@@ -110,11 +125,11 @@ humana.
 
 | ID | Estado | Evidencia y límite |
 |---|---|---|
-| RNF-01 | Cumple | Flujo guiado, confirmación por voz, subtítulos, estados visibles y recuperación ante errores. |
+| RNF-01 | Cumple | Flujo guiado en tuteo, confirmación por voz, subtítulos, estados visibles y recuperación de la fase persistida tras recarga o reconexión. |
 | RNF-02 | Controlado | Minimización, hash, masking y autorización están implementados; el proveedor de voz procesa el audio efímero antes del masking local. |
 | RNF-03 | Cumple | Roles `EXECUTIVE` y `MANAGER`, JWT, sesión opaca y control de pertenencia de tickets. |
 | RNF-04 | Cumple | Eventos para captura, masking, clasificación, prioridad, verificación, ruta, RAG y estados. |
-| RNF-05 | Controlado | Healthchecks, dependencias condicionadas y recuperación del canal de voz; Compose cubre continuidad local. |
+| RNF-05 | Controlado | Healthchecks, dependencias condicionadas y reconciliación del estado del kiosco; Compose cubre continuidad local, no alta disponibilidad. |
 | RNF-06 | Pendiente de medición formal | Async I/O, timeout, batch, HNSW, top-k y paginación están presentes; falta fijar y medir un SLO concurrente. |
 | RNF-07 | Cumple | API, dominio, servicios, repositorios, agentes y conocimiento mantienen límites explícitos. |
 | RNF-08 | Cumple | Reglas, pesos, modelos, tiempos y fuentes se configuran; Alembic gestiona la evolución. |
@@ -136,8 +151,16 @@ La migración `20260717_0004`:
 - normaliza el tipo de fuente interna a `INTERNAL`;
 - conserva una ruta reversible para despliegues ya existentes.
 
+La migración `20260720_0005` añade a `requirements`:
+
+- `customer_summary`, con backfill conversacional por categoría y restricción no nula;
+- `confirmation_decision`, con backfill desde los casos ya creados y los requerimientos
+  descartados.
+
 `TicketResult`, `TicketListItem` y los endpoints de tickets exponen la espera
-estimada. La traza `CASE_ROUTED` conserva puntajes de afinidad, experiencia,
+estimada. `FlowResult` conserva también el resumen conversacional y la prioridad para
+recuperar identificación y cierre sin reactivar una confirmación histórica. La traza
+`CASE_ROUTED` conserva puntajes de afinidad, experiencia,
 disponibilidad, carga activa y tiempo calculado para auditoría.
 
 ## Seguridad y privacidad
@@ -153,27 +176,32 @@ disponibilidad, carga activa y tiempo calculado para auditoría.
 
 ## Verificación automatizada
 
-Resultado local del corte:
+Los conteos del corte anterior no se reutilizan como evidencia de esta corrección. La
+cobertura backend añadida verifica:
 
-- `uv run ruff format --check .`: aprobado.
-- `uv run ruff check .`: aprobado.
-- `uv run pytest -q`: 28 pruebas aprobadas.
-- `pnpm test`: 16 pruebas aprobadas.
-- `pnpm lint`: aprobado.
-- `pnpm typecheck`: aprobado.
-- `pnpm build`: aprobado, 13 rutas.
-- `python -m app.knowledge.cli evaluate`: 25 de 25 casos aprobados.
-- `docker compose up -d --build`: migración, semilla, ingesta y healthchecks
-  aprobados; ocho documentos activos y 42 fragmentos por sección.
+- resumen conversacional y recuperación de `CLARIFY`, `CONFIRM`, `IDENTIFY` y
+  `COMPLETE` desde la instantánea de sesión;
+- reintentos de confirmación e identificación con un solo caso y ticket;
+- rechazo de una decisión contradictoria después de confirmar o corregir;
+- descarte de respuestas atrasadas para que no restauren una confirmación ya superada;
+- serialización por sesión y desactivación de requisitos sustituidos tras aclaraciones;
+- creación del ticket con verificación manual cuando el código no coincide;
+- sustitución de lenguaje interno o formal emitido por el clasificador.
 
-Las pruebas cubren el bloqueo original de Realtime, idempotencia en confirmación,
-flujo general, aclaración, corrección, prioridad, privacidad, verificación, asignación,
-espera, RAG, retiro de versiones, roles, refresh, concurrencia y ciclo documental.
+La cobertura frontend añadida verifica resultados Realtime en segundo plano, metadata
+de transición con herramientas deshabilitadas, claves estables por requerimiento o
+ticket, protección ante respuestas de negocio fuera de orden, política de reintento
+de locuciones interrumpidas y la función pura que deriva la ruta para voz,
+identificación, ticket y respuesta automática.
 
-La prueba integral de fraude produjo prioridad `CRITICO`, verificación
-`IDENTIFICADO`, ticket humano, Carlos Mamani, Ventanilla 1 y espera calculada. La
-consulta sobre el horario de la línea gratuita produjo respuesta `GROUNDED`, cita a
-la sección `Contact Center` y ticket automático cerrado.
+En este corte pasan 37 pruebas backend y 28 frontend, además de Ruff, ESLint,
+verificación de tipos, SQL offline de Alembic y el build de producción de Next.js.
+
+Para las vistas modificadas se ejecutó
+`pnpm exec eslint app/kiosco components/kiosk` correctamente. No se registra en este
+corte una prueba manual completa con navegador, micrófono y proveedor Realtime; por
+ello, la reproducción WebRTC del escenario de fraude sigue siendo un criterio de
+aceptación pendiente y no se presenta como resultado aprobado.
 
 ## Riesgos operativos pendientes
 
@@ -191,11 +219,14 @@ la sección `Contact Center` y ticket automático cerrado.
    y pruebas con usuarios.
 7. **Identidad del personal.** Integrar un IdP corporativo con MFA para la operación
    centralizada.
+8. **Prueba integral de voz.** Validar en un kiosco real la locución única, la
+   navegación posterior al código, la lectura del ticket y el inicio del contador.
 
 ## Conclusión
 
-El recorrido de atención ya no se bloquea por el saludo interno. Una solicitud real
-puede avanzar desde la conversación y la confirmación por voz hasta el ticket, la
-asignación del especialista, la ventanilla, la espera y el seguimiento. El catálogo
-de perfiles, el registro declarativo, la traza de decisión y el corpus versionado
-mantienen el comportamiento reproducible y auditable.
+La implementación permite recuperar una solicitud desde la conversación y la
+confirmación por voz hasta el ticket, la asignación del especialista, la ventanilla,
+la espera y el seguimiento, sin usar el resumen interno como mensaje ni delegar la
+navegación a varias páginas. La evidencia automatizada cubre las transiciones de
+negocio; la aceptación final requiere todavía la prueba integral de voz indicada en
+los riesgos operativos.

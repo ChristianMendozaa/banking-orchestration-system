@@ -28,10 +28,12 @@ from app.domain.enums import (
     TicketStatus,
 )
 from app.domain.schemas import (
+    ConfirmationRequest,
     ExecutiveAssignment,
     FlowResult,
     IdentificationRequest,
     KnowledgeCitation,
+    SessionStatusResponse,
     TicketResult,
     TurnAnalysisResponse,
     TurnRequest,
@@ -67,13 +69,21 @@ class OrchestratorService:
     async def analyze_turn(
         self, db: AsyncSession, kiosk_session: KioskSession, payload: TurnRequest
     ) -> TurnAnalysisResponse:
+        kiosk_session = await self._lock_session(db, kiosk_session.id)
         existing = await self.repository.requirement_by_turn(db, kiosk_session.id, payload.turn_id)
-        if existing:
-            return self._analysis_response(kiosk_session, existing)
-        if kiosk_session.status == SessionStatus.AWAITING_CONFIRMATION:
+        if kiosk_session.status == SessionStatus.AWAITING_CONFIRMATION or (
+            kiosk_session.status == SessionStatus.NEEDS_CLARIFICATION and existing
+        ):
             pending = await self.repository.latest_requirement(db, kiosk_session.id)
             if pending:
                 return self._analysis_response(kiosk_session, pending)
+        if existing:
+            raise AppError(
+                "TURN_ALREADY_COMPLETED",
+                "Ese turno ya fue procesado y el flujo avanzó",
+                409,
+                {"status": kiosk_session.status.value},
+            )
 
         allowed_statuses = {
             SessionStatus.CREATED,
@@ -100,6 +110,7 @@ class OrchestratorService:
             previous = await self.repository.latest_requirement(db, kiosk_session.id)
             if previous:
                 context = f"{previous.masked_text}\nAclaracion: {masked.masked_text}"
+                previous.active = False
 
         decision = await self.classifier.run(context)
         force_human = False
@@ -143,6 +154,7 @@ class OrchestratorService:
             masked_text=context,
             pii_metadata={"types": masked.pii_types, "counts": masked.counts},
             summary=decision.summary,
+            customer_summary=decision.customer_summary,
             category=decision.category,
             proposed_priority=proposed_priority,
             consultation_level=decision.consultation_level,
@@ -163,11 +175,20 @@ class OrchestratorService:
     ) -> TurnAnalysisResponse:
         clarify = kiosk_session.status == SessionStatus.NEEDS_CLARIFICATION
         question = requirement.clarification_question if clarify else None
-        speech = question or f"Entendi lo siguiente: {requirement.summary}. ¿Es correcto?"
+        customer_summary = requirement.customer_summary.strip()
+        confirmation_clause = customer_summary.rstrip(".?!")
+        if confirmation_clause:
+            confirmation_clause = confirmation_clause[0].lower() + confirmation_clause[1:]
+        speech = question or f"¿Me confirmas si {confirmation_clause}?"
         return TurnAnalysisResponse(
             requirement_id=requirement.id,
-            status=kiosk_session.status,
+            status=(
+                SessionStatus.NEEDS_CLARIFICATION
+                if clarify
+                else SessionStatus.AWAITING_CONFIRMATION
+            ),
             summary=requirement.summary,
+            customer_summary=requirement.customer_summary,
             category=requirement.category,
             priority=requirement.proposed_priority,
             consultation_level=requirement.consultation_level,
@@ -178,9 +199,108 @@ class OrchestratorService:
             speech_text=speech,
         )
 
-    async def confirm(
-        self, db: AsyncSession, kiosk_session: KioskSession, confirmed: bool
+    async def _lock_session(self, db: AsyncSession, session_id: UUID) -> KioskSession:
+        statement = (
+            select(KioskSession)
+            .where(KioskSession.id == session_id)
+            .execution_options(populate_existing=True)
+        )
+        if db.get_bind().dialect.name == "postgresql":
+            statement = statement.with_for_update()
+        kiosk_session = await db.scalar(statement)
+        if not kiosk_session:
+            raise AppError("SESSION_NOT_FOUND", "La sesión ya no está disponible", 404)
+        return kiosk_session
+
+    @staticmethod
+    def _capture_result(kiosk_session: KioskSession, requirement: Requirement) -> FlowResult:
+        return FlowResult(
+            session_id=kiosk_session.id,
+            requirement_id=requirement.id,
+            status=SessionStatus.LISTENING,
+            next_action="CAPTURE",
+            customer_summary=requirement.customer_summary,
+            priority=requirement.proposed_priority,
+            speech_text="Cuéntame nuevamente qué necesitas.",
+        )
+
+    @staticmethod
+    def _identification_result(
+        kiosk_session: KioskSession,
+        case: CaseRecord,
+        requirement: Requirement,
     ) -> FlowResult:
+        return FlowResult(
+            session_id=kiosk_session.id,
+            requirement_id=case.requirement_id,
+            status=SessionStatus.AWAITING_IDENTIFICATION,
+            next_action="IDENTIFY",
+            customer_summary=requirement.customer_summary,
+            priority=requirement.proposed_priority,
+            identification_status=case.identification_status,
+            speech_text=(
+                "Para continuar, escribe tu código de cliente en el campo protegido. "
+                "No escribas contraseñas, PIN ni datos financieros."
+            ),
+        )
+
+    async def confirm(
+        self,
+        db: AsyncSession,
+        kiosk_session: KioskSession,
+        payload: ConfirmationRequest,
+    ) -> FlowResult:
+        kiosk_session = await self._lock_session(db, kiosk_session.id)
+        requirement = await db.scalar(
+            select(Requirement).where(
+                Requirement.id == payload.requirement_id,
+                Requirement.session_id == kiosk_session.id,
+            )
+        )
+        if not requirement:
+            raise AppError(
+                "REQUIREMENT_NOT_FOUND",
+                "No encontramos el requerimiento que intentas confirmar",
+                409,
+            )
+
+        case = await self.repository.case_by_session(db, kiosk_session.id, with_ticket=True)
+        if case and case.requirement_id != requirement.id:
+            raise AppError(
+                "REQUIREMENT_MISMATCH",
+                "La confirmación corresponde a un requerimiento anterior",
+                409,
+            )
+
+        if requirement.confirmation_decision is None:
+            if case:
+                requirement.confirmation_decision = True
+            elif not requirement.active and not requirement.ambiguous:
+                requirement.confirmation_decision = False
+
+        if requirement.confirmation_decision is not None:
+            if requirement.confirmation_decision != payload.confirmed:
+                raise AppError(
+                    "CONFIRMATION_ALREADY_RECORDED",
+                    "La confirmación ya fue registrada con otra respuesta",
+                    409,
+                )
+            if not payload.confirmed:
+                if kiosk_session.status != SessionStatus.LISTENING:
+                    raise AppError(
+                        "REQUIREMENT_MISMATCH",
+                        "La confirmación corresponde a un requerimiento anterior",
+                        409,
+                    )
+                return self._capture_result(kiosk_session, requirement)
+            if case and case.ticket:
+                return await self._build_result(db, kiosk_session.id)
+            if case and case.identification_status == IdentificationStatus.PENDIENTE:
+                kiosk_session.status = SessionStatus.AWAITING_IDENTIFICATION
+                return self._identification_result(kiosk_session, case, requirement)
+            if case:
+                return await self._finalize(db, kiosk_session, case)
+
         if kiosk_session.status in {
             SessionStatus.RESOLVED_AUTOMATIC,
             SessionStatus.ASSIGNED,
@@ -189,34 +309,31 @@ class OrchestratorService:
         if kiosk_session.status != SessionStatus.AWAITING_CONFIRMATION:
             raise AppError(
                 "INVALID_SESSION_STATE",
-                "La sesion no tiene un requerimiento pendiente de confirmacion",
+                "La sesión no tiene un requerimiento pendiente de confirmación",
                 409,
                 {"status": kiosk_session.status.value},
             )
-        requirement = await self.repository.latest_requirement(db, kiosk_session.id)
-        if not requirement:
+        pending = await self.repository.latest_requirement(db, kiosk_session.id)
+        if not pending or pending.id != requirement.id:
             raise AppError(
-                "REQUIREMENT_NOT_FOUND", "No existe un requerimiento para confirmar", 409
+                "REQUIREMENT_MISMATCH",
+                "La confirmación corresponde a un requerimiento anterior",
+                409,
             )
         if requirement.ambiguous:
             raise AppError(
-                "CLARIFICATION_REQUIRED", "Debe responder la pregunta de aclaracion", 409
+                "CLARIFICATION_REQUIRED",
+                "Primero responde la pregunta de aclaración",
+                409,
             )
 
-        if not confirmed:
+        requirement.confirmation_decision = payload.confirmed
+        if not payload.confirmed:
             requirement.active = False
             kiosk_session.correction_count += 1
             kiosk_session.status = SessionStatus.LISTENING
-            return FlowResult(
-                session_id=kiosk_session.id,
-                status=kiosk_session.status,
-                next_action="CAPTURE",
-                speech_text="Puede describir nuevamente su requerimiento.",
-            )
+            return self._capture_result(kiosk_session, requirement)
 
-        case = await self.repository.case_by_session(db, kiosk_session.id, with_ticket=True)
-        if case and case.ticket:
-            return await self._build_result(db, kiosk_session.id)
         if not case:
             identification_status = (
                 IdentificationStatus.ANONIMO
@@ -241,7 +358,7 @@ class OrchestratorService:
                     TraceEvent(
                         case_id=case.id,
                         event_type="REQUIREMENT_CAPTURED",
-                        description="Requerimiento capturado y confirmado por el cliente",
+                        description="Requerimiento capturado y confirmado",
                     ),
                     TraceEvent(
                         case_id=case.id,
@@ -260,21 +377,13 @@ class OrchestratorService:
 
         if case.identification_status == IdentificationStatus.PENDIENTE:
             kiosk_session.status = SessionStatus.AWAITING_IDENTIFICATION
-            return FlowResult(
-                session_id=kiosk_session.id,
-                status=kiosk_session.status,
-                next_action="IDENTIFY",
-                identification_status=case.identification_status,
-                speech_text=(
-                    "Esta consulta requiere verificar su codigo de cliente en el campo protegido. "
-                    "No ingrese contrasenas, PIN ni datos financieros."
-                ),
-            )
+            return self._identification_result(kiosk_session, case, requirement)
         return await self._finalize(db, kiosk_session, case)
 
     async def identify(
         self, db: AsyncSession, kiosk_session: KioskSession, payload: IdentificationRequest
     ) -> FlowResult:
+        kiosk_session = await self._lock_session(db, kiosk_session.id)
         if kiosk_session.status in {
             SessionStatus.RESOLVED_AUTOMATIC,
             SessionStatus.ASSIGNED,
@@ -283,7 +392,7 @@ class OrchestratorService:
         if kiosk_session.status != SessionStatus.AWAITING_IDENTIFICATION:
             raise AppError(
                 "INVALID_SESSION_STATE",
-                "La sesion no espera una identificacion",
+                "La sesión no espera un código de cliente",
                 409,
                 {"status": kiosk_session.status.value},
             )
@@ -294,7 +403,7 @@ class OrchestratorService:
             with_ticket=True,
         )
         if not case:
-            raise AppError("CASE_NOT_FOUND", "Primero debe confirmar el requerimiento", 409)
+            raise AppError("CASE_NOT_FOUND", "Primero confirma el requerimiento", 409)
         if case.ticket:
             return await self._build_result(db, kiosk_session.id)
 
@@ -451,11 +560,57 @@ class OrchestratorService:
         await db.flush()
         return await self._build_result(db, kiosk_session.id)
 
+    async def build_session_status(
+        self, db: AsyncSession, kiosk_session: KioskSession
+    ) -> SessionStatusResponse:
+        analysis = None
+        result = None
+        if kiosk_session.status in {
+            SessionStatus.NEEDS_CLARIFICATION,
+            SessionStatus.AWAITING_CONFIRMATION,
+        }:
+            requirement = await self.repository.latest_requirement(db, kiosk_session.id)
+            if requirement:
+                analysis = self._analysis_response(kiosk_session, requirement)
+        elif kiosk_session.status == SessionStatus.AWAITING_IDENTIFICATION:
+            case = await self.repository.case_by_session(
+                db,
+                kiosk_session.id,
+                with_ticket=True,
+            )
+            if case and case.ticket:
+                result = await self._build_result(db, kiosk_session.id)
+            elif case:
+                requirement = await db.get(Requirement, case.requirement_id)
+                if requirement:
+                    result = self._identification_result(
+                        kiosk_session,
+                        case,
+                        requirement,
+                    )
+        elif kiosk_session.status in {
+            SessionStatus.RESOLVED_AUTOMATIC,
+            SessionStatus.ASSIGNED,
+        }:
+            result = await self._build_result(db, kiosk_session.id)
+
+        return SessionStatusResponse(
+            session_id=kiosk_session.id,
+            status=kiosk_session.status,
+            resolution_type=kiosk_session.resolution_type,
+            final_response=kiosk_session.final_response,
+            analysis=analysis,
+            result=result,
+        )
+
     async def _build_result(self, db: AsyncSession, session_id: UUID) -> FlowResult:
         ticket = await self.repository.result_ticket(db, session_id)
         if not ticket:
             raise AppError("RESULT_NOT_READY", "El resultado aun no esta disponible", 409)
         case = ticket.case
+        requirement = await db.get(Requirement, case.requirement_id)
+        if not requirement:
+            raise AppError("REQUIREMENT_NOT_FOUND", "El requerimiento del caso no existe", 409)
         assignment = None
         if ticket.executive:
             assignment = ExecutiveAssignment(
@@ -465,7 +620,7 @@ class OrchestratorService:
                 window_number=ticket.executive.window_number,
             )
         if case.session.resolution_type == ResolutionType.AUTOMATIC:
-            speech = case.session.final_response or "La consulta fue resuelta."
+            speech = case.session.final_response or "Tu consulta quedó resuelta."
         elif assignment:
             wait_message = (
                 f" La espera estimada es de {ticket.estimated_wait_minutes} minutos."
@@ -473,15 +628,18 @@ class OrchestratorService:
                 else ""
             )
             speech = (
-                f"Su ticket es {ticket.number}. Dirijase a {assignment.window_number} "
+                f"Tu ticket es {ticket.number}. Dirígete a {assignment.window_number} "
                 f"con {assignment.name}.{wait_message}"
             )
         else:
-            speech = f"Su ticket es {ticket.number}. La asignacion esta pendiente."
+            speech = f"Tu ticket es {ticket.number}. La asignación está pendiente."
         return FlowResult(
             session_id=session_id,
+            requirement_id=case.requirement_id,
             status=case.session.status,
             next_action="COMPLETE",
+            customer_summary=requirement.customer_summary,
+            priority=requirement.proposed_priority,
             identification_status=case.identification_status,
             resolution_type=case.session.resolution_type,
             ticket=TicketResult(
@@ -494,9 +652,9 @@ class OrchestratorService:
             response=case.session.final_response,
             speech_text=speech,
             tracking_information=(
-                f"Conserve el ticket {ticket.number}. Para seguimiento o reclamos puede "
-                "comunicarse a la Linea Movil 788-12000, disponible las 24 horas, o a la "
-                "linea gratuita 800-17-0777 de lunes a sabado, de 09:00 a 18:00."
+                f"Conserva el ticket {ticket.number}. Para seguimiento o reclamos puedes "
+                "comunicarte a la Línea Móvil 788-12000, disponible las 24 horas, o a la "
+                "línea gratuita 800-17-0777 de lunes a sábado, de 09:00 a 18:00."
             ),
             grounding_status=case.session.grounding_status,
             citations=[

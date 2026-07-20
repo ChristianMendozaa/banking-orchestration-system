@@ -108,6 +108,8 @@ async def test_realtime_session_enables_conversation_and_interruptions(
     assert session["output_modalities"] == ["audio"]
     assert session["audio"]["input"]["transcription"]["model"] == "gpt-realtime-whisper"
     assert session["audio"]["output"]["voice"] == "marin"
+    assert "Dirígete siempre de tú" in session["instructions"]
+    assert "Pronuncia una sola vez" in session["instructions"]
     assert turn_detection == {
         "type": "semantic_vad",
         "eagerness": "auto",

@@ -6,13 +6,11 @@ import { useSystemConfig } from "@/components/providers/system-config-provider"
 import { Button } from "@/components/ui/button"
 import { errorMessage } from "@/lib/api"
 import { Accessibility, ArrowRight, Building2, ShieldCheck } from "lucide-react"
-import { useRouter } from "next/navigation"
 import { useState } from "react"
 
 export default function KioskPage() {
   const { config } = useSystemConfig()
   const { beginSession } = useKiosk()
-  const router = useRouter()
   const [preferential, setPreferential] = useState(false)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -22,7 +20,6 @@ export default function KioskPage() {
     setError(null)
     try {
       await beginSession(preferential)
-      router.push("/kiosco/voz")
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -48,7 +45,8 @@ export default function KioskPage() {
           <span className="mt-2 block font-bold text-[#23A2D9]">atención inteligente</span>
         </h1>
         <p className="mt-5 text-lg text-white/60">
-          Converse con una asistente virtual en tiempo real, sin grabar ni detener cada turno.
+          Habla con nuestra asistente en tiempo real, con la misma naturalidad que en una
+          conversación.
         </p>
 
         <label className="mx-auto mt-8 flex max-w-xl cursor-pointer items-start gap-4 rounded-2xl border border-white/15 bg-white/[.06] p-4 text-left">
@@ -64,7 +62,7 @@ export default function KioskPage() {
               Solicito atención preferente
             </span>
             <span className="mt-1 block text-sm text-white/50">
-              Marque esta opción si corresponde según las condiciones de atención preferente.
+              Marca esta opción si te corresponde atención preferente.
             </span>
           </span>
         </label>

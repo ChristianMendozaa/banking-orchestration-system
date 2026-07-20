@@ -3,19 +3,9 @@
 import { CompletionStatus } from "@/components/kiosk/completion-status"
 import { useKiosk } from "@/components/providers/kiosk-provider"
 import { CheckCircle, ExternalLink, MessageSquare, Ticket } from "lucide-react"
-import { useRouter } from "next/navigation"
-import { useEffect } from "react"
 
 export default function AutomaticResponsePage() {
-  const { result, hydrated, voiceError, completionSeconds } = useKiosk()
-  const router = useRouter()
-
-  useEffect(() => {
-    if (hydrated && (!result || result.resolution_type !== "AUTOMATIC")) {
-      router.replace("/kiosco")
-      return
-    }
-  }, [hydrated, result, router])
+  const { result, voiceError, completionSeconds } = useKiosk()
 
   if (!result?.ticket || !result.response) return null
 
@@ -27,10 +17,10 @@ export default function AutomaticResponsePage() {
             <CheckCircle className="h-11 w-11 text-green-400" />
           </div>
           <h1 className="mt-4 text-3xl font-semibold text-green-300">
-            Su consulta fue orientada
+            Encontré una orientación para ti
           </h1>
           <p className="mt-2 text-white/50">
-            Respuesta basada en documentos de conocimiento indexados.
+            Consulté información vigente para responderte.
           </p>
         </div>
 
@@ -40,7 +30,7 @@ export default function AutomaticResponsePage() {
           </div>
           <div className="flex-1 rounded-3xl rounded-tl-none border border-white/15 bg-white/[.08] px-6 py-5">
             <p className="text-xs font-semibold uppercase tracking-widest text-[#23A2D9]">
-              Orientación automática fundamentada
+              Esta es mi orientación
             </p>
             <p className="mt-3 whitespace-pre-line leading-relaxed text-white/90">
               {result.response}
@@ -51,7 +41,7 @@ export default function AutomaticResponsePage() {
         {result.citations.length > 0 && (
           <section className="w-full rounded-2xl border border-white/10 bg-white/[.04] p-5">
             <h2 className="text-sm font-semibold uppercase tracking-widest text-white/45">
-              Fuentes utilizadas
+              Información consultada
             </h2>
             <ul className="mt-3 space-y-2">
               {result.citations.map((citation) => (
@@ -81,7 +71,7 @@ export default function AutomaticResponsePage() {
         <div className="flex items-center gap-3 rounded-xl border border-white/15 bg-white/[.06] px-6 py-4">
           <Ticket className="h-5 w-5 text-[#23A2D9]" />
           <div>
-            <p className="text-xs uppercase tracking-wide text-white/45">Referencia trazable</p>
+            <p className="text-xs uppercase tracking-wide text-white/45">Tu referencia</p>
             <p className="font-bold">Ticket #{result.ticket.number}</p>
           </div>
         </div>
@@ -92,7 +82,7 @@ export default function AutomaticResponsePage() {
         )}
         <CompletionStatus
           completionSeconds={completionSeconds}
-          readingMessage="La asistente está leyendo el resultado."
+          readingMessage="Estoy leyendo tu orientación."
           voiceError={voiceError}
         />
       </div>

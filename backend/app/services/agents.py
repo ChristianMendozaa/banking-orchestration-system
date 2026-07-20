@@ -1,4 +1,5 @@
 import math
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
@@ -17,6 +18,36 @@ from app.domain.schemas import ClassificationDecision, GroundedResponse
 from app.knowledge.service import KnowledgeService
 from app.services.openai_provider import OpenAIProvider
 
+_CUSTOMER_SUMMARIES = {
+    Category.BLOQUEO_TARJETA: "Necesitas bloquear una tarjeta.",
+    Category.REPORTE_FRAUDE: (
+        "Necesitas reportar un posible fraude o un movimiento no reconocido."
+    ),
+    Category.CONSULTA_GENERAL: "Necesitas orientación sobre una consulta bancaria.",
+    Category.SOLICITUD_CREDITO: ("Quieres información o ayuda con una solicitud de crédito."),
+    Category.BANCA_DIGITAL: "Necesitas ayuda con la banca digital.",
+}
+_UNNATURAL_CUSTOMER_LANGUAGE = re.compile(
+    r"\busuario\b|\b(?:el|la|un|una)\s+(?:cliente|persona)\b|"
+    r"\b(?:usted|su|sus)\b|"
+    r"\b(?:puede|podría|podria|indique|ingrese|describa|dígame|digame|"
+    r"confirme|cuénteme|cuenteme|responda|escriba|necesita)\b",
+    re.IGNORECASE,
+)
+_NATURAL_SUMMARY_OPENING = re.compile(
+    r"^(?:necesitas|quieres|buscas|deseas|solicitas|reportas|tienes|te\b|"
+    r"no\s+reconoces|notaste|identificaste)",
+    re.IGNORECASE,
+)
+
+
+def customer_summary_for(category: Category) -> str:
+    return _CUSTOMER_SUMMARIES[category]
+
+
+def customer_facing_text_is_natural(text: str) -> bool:
+    return not _UNNATURAL_CUSTOMER_LANGUAGE.search(text)
+
 
 class ClassificationAgent:
     def __init__(self, settings: Settings, provider: OpenAIProvider | None) -> None:
@@ -26,10 +57,33 @@ class ClassificationAgent:
     async def run(self, masked_text: str) -> ClassificationDecision:
         if self.provider:
             try:
-                return await self.provider.classify(masked_text)
+                return self._ensure_customer_language(await self.provider.classify(masked_text))
             except Exception:
                 pass
         return self._fallback(masked_text)
+
+    @staticmethod
+    def _ensure_customer_language(decision: ClassificationDecision) -> ClassificationDecision:
+        customer_summary = decision.customer_summary.strip()
+        if not customer_facing_text_is_natural(customer_summary) or not (
+            _NATURAL_SUMMARY_OPENING.search(customer_summary)
+        ):
+            customer_summary = customer_summary_for(decision.category)
+
+        clarification_question = decision.clarification_question
+        if decision.ambiguous and (
+            not clarification_question
+            or not customer_facing_text_is_natural(clarification_question)
+        ):
+            clarification_question = (
+                "¿Me cuentas brevemente qué trámite o problema necesitas resolver?"
+            )
+        return decision.model_copy(
+            update={
+                "customer_summary": customer_summary,
+                "clarification_question": clarification_question,
+            }
+        )
 
     @staticmethod
     def _fallback(text: str) -> ClassificationDecision:
@@ -37,7 +91,13 @@ class ClassificationAgent:
         category_rules = (
             (
                 Category.REPORTE_FRAUDE,
-                ("fraude", "movimiento no reconocido", "compra no reconocida", "estafa"),
+                (
+                    "fraude",
+                    "movimiento no reconocido",
+                    "compra no reconocida",
+                    "no reconozco",
+                    "estafa",
+                ),
             ),
             (
                 Category.BLOQUEO_TARJETA,
@@ -104,6 +164,7 @@ class ClassificationAgent:
                 level = ConsultationLevel.GENERAL
             return ClassificationDecision(
                 summary=text[:500],
+                customer_summary=customer_summary_for(category),
                 category=category,
                 consultation_level=level,
                 confidence=0.86,
@@ -113,12 +174,13 @@ class ClassificationAgent:
             )
         return ClassificationDecision(
             summary=text[:500],
+            customer_summary=customer_summary_for(Category.CONSULTA_GENERAL),
             category=Category.CONSULTA_GENERAL,
             consultation_level=ConsultationLevel.GENERAL,
             confidence=0.42,
             ambiguous=True,
             clarification_question=(
-                "¿Podria indicar brevemente que tramite o problema necesita resolver?"
+                "¿Me cuentas brevemente qué trámite o problema necesitas resolver?"
             ),
         )
 
@@ -259,4 +321,7 @@ class InitialAttentionAgent:
     ) -> GroundedResponse | None:
         if level != ConsultationLevel.GENERAL:
             return None
-        return await self.knowledge.answer(db, case_id, category, masked_query)
+        response = await self.knowledge.answer(db, case_id, category, masked_query)
+        if response and not customer_facing_text_is_natural(response.answer):
+            return None
+        return response

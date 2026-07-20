@@ -75,6 +75,7 @@ class TurnAnalysisResponse(BaseModel):
     requirement_id: UUID
     status: SessionStatus
     summary: str
+    customer_summary: str
     category: Category
     priority: Priority
     consultation_level: ConsultationLevel
@@ -86,6 +87,7 @@ class TurnAnalysisResponse(BaseModel):
 
 
 class ConfirmationRequest(BaseModel):
+    requirement_id: UUID
     confirmed: bool
 
 
@@ -109,8 +111,11 @@ class TicketResult(BaseModel):
 
 class FlowResult(BaseModel):
     session_id: UUID
+    requirement_id: UUID
     status: SessionStatus
     next_action: Literal["CAPTURE", "IDENTIFY", "COMPLETE"]
+    customer_summary: str | None = None
+    priority: Priority | None = None
     identification_status: IdentificationStatus | None = None
     resolution_type: ResolutionType | None = None
     ticket: TicketResult | None = None
@@ -148,11 +153,13 @@ class SessionStatusResponse(BaseModel):
     status: SessionStatus
     resolution_type: ResolutionType | None = None
     final_response: str | None = None
+    analysis: TurnAnalysisResponse | None = None
     result: FlowResult | None = None
 
 
 class ClassificationDecision(BaseModel):
     summary: str = Field(min_length=5, max_length=500)
+    customer_summary: str = Field(min_length=5, max_length=500)
     category: Category
     consultation_level: ConsultationLevel
     confidence: float = Field(ge=0, le=1)

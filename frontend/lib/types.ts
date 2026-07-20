@@ -58,6 +58,7 @@ export interface TurnAnalysis {
   requirement_id: string
   status: SessionStatus
   summary: string
+  customer_summary: string
   category: Category
   priority: Priority
   consultation_level: ConsultationLevel
@@ -80,8 +81,11 @@ export interface KnowledgeCitation {
 
 export interface FlowResult {
   session_id: string
+  requirement_id: string
   status: SessionStatus
   next_action: "CAPTURE" | "IDENTIFY" | "COMPLETE"
+  customer_summary: string | null
+  priority: Priority | null
   identification_status: "ANONIMO" | "PENDIENTE" | "IDENTIFICADO" | "FALLIDO" | null
   resolution_type: "AUTOMATIC" | "HUMAN" | null
   ticket: {
@@ -101,6 +105,15 @@ export interface FlowResult {
   tracking_information: string | null
   grounding_status: "NOT_APPLICABLE" | "GROUNDED" | "NO_EVIDENCE"
   citations: KnowledgeCitation[]
+}
+
+export interface KioskSessionStatus {
+  session_id: string
+  status: SessionStatus
+  resolution_type: "AUTOMATIC" | "HUMAN" | null
+  final_response: string | null
+  analysis: TurnAnalysis | null
+  result: FlowResult | null
 }
 
 export interface TicketListItem {

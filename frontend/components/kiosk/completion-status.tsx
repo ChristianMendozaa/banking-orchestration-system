@@ -14,7 +14,7 @@ export function CompletionStatus({
   const countdown =
     completionSeconds === null
       ? null
-      : `La pantalla volverá al inicio en ${completionSeconds} segundos.`
+      : `Volveremos al inicio en ${completionSeconds} segundos.`
   const messages = voiceError
     ? [voiceError, countdown]
     : [countdown ?? readingMessage]

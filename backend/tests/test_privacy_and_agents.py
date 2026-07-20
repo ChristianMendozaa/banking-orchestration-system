@@ -7,6 +7,7 @@ from app.domain.enums import (
     ExecutiveStatus,
     Priority,
 )
+from app.domain.schemas import ClassificationDecision
 from app.services.agents import ClassificationAgent, DerivationAgent, PrioritizationAgent
 from app.services.pii import PIIMaskingService
 
@@ -29,6 +30,44 @@ async def test_fallback_classifier_is_conservative(settings) -> None:
     result = await agent.run("Tengo un movimiento no reconocido y posible fraude")
     assert result.category == Category.REPORTE_FRAUDE
     assert result.security_incident is True
+
+
+async def test_classifier_replaces_internal_or_formal_customer_language(settings) -> None:
+    class Provider:
+        async def classify(self, _: str) -> ClassificationDecision:
+            return ClassificationDecision(
+                summary="La persona reporta un movimiento no reconocido",
+                customer_summary="El usuario necesita denunciar fraude en su tarjeta.",
+                category=Category.REPORTE_FRAUDE,
+                consultation_level=ConsultationLevel.SENSIBLE,
+                confidence=0.95,
+                ambiguous=False,
+            )
+
+    result = await ClassificationAgent(settings, Provider()).run("movimiento no reconocido")
+    assert result.summary == "La persona reporta un movimiento no reconocido"
+    assert result.customer_summary == (
+        "Necesitas reportar un posible fraude o un movimiento no reconocido."
+    )
+
+
+async def test_classifier_replaces_a_formal_clarification_question(settings) -> None:
+    class Provider:
+        async def classify(self, _: str) -> ClassificationDecision:
+            return ClassificationDecision(
+                summary="Consulta bancaria ambigua",
+                customer_summary="Necesitas orientación sobre una consulta bancaria.",
+                category=Category.CONSULTA_GENERAL,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.4,
+                ambiguous=True,
+                clarification_question="¿Puede contarme qué trámite necesita?",
+            )
+
+    result = await ClassificationAgent(settings, Provider()).run("Necesito ayuda")
+    assert result.clarification_question == (
+        "¿Me cuentas brevemente qué trámite o problema necesitas resolver?"
+    )
 
 
 async def test_product_information_is_general_even_for_credit_category(settings) -> None:

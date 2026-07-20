@@ -1,14 +1,17 @@
 import {
   RealtimeAgent,
+  backgroundResult,
   type RealtimeItem,
   type RealtimeSession,
   tool,
 } from "@openai/agents/realtime"
 import { z } from "zod"
 
-import type { FlowResult, TurnAnalysis } from "@/lib/types"
+import type { FlowResult, KioskSession, TurnAnalysis } from "@/lib/types"
 
 export const APPLICATION_EVENT_PREFIX = "[EVENTO_APLICACION]"
+export const TRANSITION_METADATA_KEY = "transition_key"
+export const MAX_CONTROLLED_SPEECH_REPLAYS = 1
 
 export interface ConversationCaption {
   id: string
@@ -19,22 +22,52 @@ export interface ConversationCaption {
 
 export interface KioskRealtimeCallbacks {
   analyzeRequirement: (transcript: string, callId?: string) => Promise<TurnAnalysis>
-  confirmRequirement: (confirmed: boolean) => Promise<FlowResult>
+  confirmRequirement: (confirmed: boolean, callId?: string) => Promise<FlowResult>
+}
+
+export interface ControlledTransition {
+  transitionKey: string
+  speechText: string
+  nextAction: string
+  terminal: boolean
+}
+
+export function kioskRouteForState(state: {
+  session: KioskSession | null
+  result: FlowResult | null
+}): string {
+  if (!state.session) return "/kiosco"
+  if (state.result?.next_action === "IDENTIFY") return "/kiosco/identificacion"
+  if (state.result?.next_action === "COMPLETE") {
+    return state.result.resolution_type === "AUTOMATIC"
+      ? "/kiosco/respuesta"
+      : "/kiosco/ticket"
+  }
+  return "/kiosco/voz"
 }
 
 export function requestControlledResponse(
   realtime: Pick<RealtimeSession, "transport">,
   instructions: string,
+  transitionKey: string,
 ): void {
   const response = {
     instructions,
     tools: [],
+    tool_choice: "none",
+    metadata: { [TRANSITION_METADATA_KEY]: transitionKey },
   }
   if (realtime.transport.requestResponse) {
     realtime.transport.requestResponse(response)
     return
   }
   realtime.transport.sendEvent({ type: "response.create", response })
+}
+
+export function controlledSpeechInstructions(speechText: string): string {
+  return `Pronuncia exactamente este mensaje, sin agregar, repetir ni reformular nada: ${JSON.stringify(
+    compactText(speechText),
+  )}`
 }
 
 function compactText(value: string): string {
@@ -92,35 +125,170 @@ export function captionsFromHistory(history: RealtimeItem[]): ConversationCaptio
   })
 }
 
-function analysisToolOutput(response: TurnAnalysis): string {
-  return JSON.stringify({
+export function analysisTransitionKey(response: TurnAnalysis): string {
+  return `${response.requirement_id}:${response.next_action}`
+}
+
+export function flowTransitionKey(response: FlowResult): string {
+  if (response.next_action === "COMPLETE" && response.ticket) {
+    return `ticket:${response.ticket.id}`
+  }
+  return `${response.requirement_id}:${response.next_action}`
+}
+
+interface BusinessState {
+  analysis: TurnAnalysis | null
+  result: FlowResult | null
+}
+
+export function businessTransitionKey(state: BusinessState): string | null {
+  if (state.result) return flowTransitionKey(state.result)
+  if (state.analysis) return analysisTransitionKey(state.analysis)
+  return null
+}
+
+export function shouldReplayControlledTransition(
+  state: BusinessState,
+  transition: ControlledTransition,
+  requestRevision: number,
+  currentRevision: number,
+): boolean {
+  const currentTransitionKey = businessTransitionKey(state)
+  if (currentTransitionKey) {
+    return currentTransitionKey === transition.transitionKey
+  }
+  return (
+    requestRevision === currentRevision &&
+    ["WELCOME", "RETRY", "ASK_EXPLICIT_CONFIRMATION"].includes(
+      transition.nextAction,
+    )
+  )
+}
+
+export function canReplayControlledSpeech(attempts: number): boolean {
+  return attempts < MAX_CONTROLLED_SPEECH_REPLAYS
+}
+
+export function shouldApplyAnalysisResponse(
+  state: BusinessState,
+  response: TurnAnalysis,
+  startingRequirementId: string | null,
+  stateChanged: boolean,
+): boolean {
+  if (!stateChanged) return true
+  if (state.analysis?.requirement_id === response.requirement_id) return false
+  if (
+    state.result?.next_action === "CAPTURE" &&
+    state.result.requirement_id === response.requirement_id
+  ) {
+    return false
+  }
+  if (state.result && state.result.next_action !== "CAPTURE") return false
+  if (
+    state.analysis &&
+    state.analysis.requirement_id !== startingRequirementId
+  ) {
+    return false
+  }
+  return true
+}
+
+function flowStage(result: FlowResult): number {
+  return result.next_action === "COMPLETE" ? 2 : 1
+}
+
+export function shouldApplyFlowResponse(
+  state: BusinessState,
+  response: FlowResult,
+  startingRequirementId: string,
+  stateChanged: boolean,
+): boolean {
+  if (!stateChanged) return true
+  if (state.result) {
+    if (flowTransitionKey(state.result) === flowTransitionKey(response)) return false
+    if (state.result.requirement_id !== response.requirement_id) return false
+    return flowStage(response) > flowStage(state.result)
+  }
+  if (state.analysis) {
+    return state.analysis.requirement_id === startingRequirementId
+  }
+  return true
+}
+
+function analysisToolOutput(response: TurnAnalysis): Record<string, unknown> {
+  return {
     ok: true,
+    requirement_id: response.requirement_id,
     next_action: response.next_action,
     speech_text: response.speech_text,
+    transition_key: analysisTransitionKey(response),
     protected_summary: response.summary,
+    customer_summary: response.customer_summary,
     category: response.category,
     priority: response.priority,
     consultation_level: response.consultation_level,
     clarification_question: response.clarification_question,
-  })
+  }
 }
 
-function flowToolOutput(response: FlowResult): string {
-  return JSON.stringify({
+function flowToolOutput(response: FlowResult): Record<string, unknown> {
+  return {
     ok: true,
+    requirement_id: response.requirement_id,
     next_action: response.next_action,
     speech_text: response.speech_text,
+    transition_key: flowTransitionKey(response),
+    customer_summary: response.customer_summary,
+    priority: response.priority,
     resolution_type: response.resolution_type,
     identification_status: response.identification_status,
     response: response.response,
     ticket: response.ticket,
     executive: response.executive,
-  })
+  }
+}
+
+function errorToolOutput(toolName: string, callId: string | undefined, speechText: string) {
+  return {
+    ok: false,
+    next_action: "RETRY",
+    speech_text: speechText,
+    transition_key: `${toolName}:${callId ?? crypto.randomUUID()}:ERROR`,
+  }
+}
+
+export function controlledTransitionFromToolResult(
+  result: string,
+): ControlledTransition | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(result)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== "object") return null
+
+  const record = parsed as Record<string, unknown>
+  if (
+    typeof record.transition_key !== "string" ||
+    typeof record.speech_text !== "string" ||
+    typeof record.next_action !== "string"
+  ) {
+    return null
+  }
+
+  return {
+    transitionKey: record.transition_key,
+    speechText: compactText(record.speech_text),
+    nextAction: record.next_action,
+    terminal: record.next_action === "COMPLETE",
+  }
 }
 
 const AGENT_INSTRUCTIONS = `
 Eres la asistente virtual femenina de un kiosco bancario en Bolivia.
-Habla siempre en español boliviano claro, cordial, natural y breve. Al comenzar, preséntate
+Habla siempre en español boliviano claro, cordial, natural, breve y de tú. Conversa directamente
+con la persona: nunca la llames "usuario", "cliente" ni "persona". Al comenzar, preséntate
 explícitamente como asistente virtual y pregunta el motivo de atención.
 
 REGLAS DE SEGURIDAD:
@@ -134,17 +302,16 @@ REGLAS DE SEGURIDAD:
 FLUJO OBLIGATORIO:
 1. Escucha el motivo. Cuando haya una petición comprensible, llama a analizar_requerimiento con
    una transcripción fiel de ese último turno; no clasifiques ni respondas por tu cuenta.
-2. Si la tool devuelve CLARIFY, pronuncia exactamente speech_text. Tras la respuesta del cliente,
+2. Si la tool devuelve CLARIFY, la aplicación pronunciará speech_text. Tras la respuesta,
    vuelve a llamar analizar_requerimiento solo con esa aclaración; el backend conserva el contexto.
-3. Si devuelve CONFIRM, pronuncia fielmente speech_text y espera un sí o no inequívoco.
-4. Solo llama confirmar_requerimiento cuando la persona haya confirmado o rechazado de forma
+3. Si devuelve CONFIRM, la aplicación pronunciará speech_text; espera un sí o no inequívoco.
+4. Solo llama confirmar_requerimiento cuando recibas una confirmación o rechazo
    explícita. Copia sus palabras en user_response y no infieras una confirmación.
-5. Si la confirmación devuelve CAPTURE, pronuncia speech_text y pide describir nuevamente el caso.
-6. Si devuelve IDENTIFY, pronuncia speech_text, explica que debe escribir el código de cliente
-   en pantalla y deja de hacer preguntas.
-7. Si devuelve COMPLETE, pronuncia fielmente speech_text. Conserva exactamente los números de
-   ticket y ventanilla y termina con una despedida breve.
-Mientras una tool trabaja puedes decir una sola frase corta como "Un momento, por favor".
+5. La aplicación pronunciará el resultado de cada herramienta. Llama la herramienta directamente:
+   no digas frases de espera, no hables después de llamarla y no repitas su resultado.
+6. Si la confirmación devuelve CAPTURE, espera que vuelva a describir el caso.
+7. Si devuelve IDENTIFY, deja de hacer preguntas mientras escribe el código en pantalla.
+8. Si devuelve COMPLETE, no continúes la conversación.
 `.trim()
 
 export function createKioskRealtimeAgent(callbacks: KioskRealtimeCallbacks): RealtimeAgent {
@@ -157,18 +324,22 @@ export function createKioskRealtimeAgent(callbacks: KioskRealtimeCallbacks): Rea
     }),
     timeoutMs: 25_000,
     async execute({ transcript }, _context, details) {
-      const response = await callbacks.analyzeRequirement(
-        compactText(transcript),
-        details?.toolCall?.callId,
-      )
-      return analysisToolOutput(response)
+      try {
+        const response = await callbacks.analyzeRequirement(
+          compactText(transcript),
+          details?.toolCall?.callId,
+        )
+        return backgroundResult(analysisToolOutput(response))
+      } catch {
+        return backgroundResult(
+          errorToolOutput(
+            "analizar_requerimiento",
+            details?.toolCall?.callId,
+            "No pude analizar tu solicitud en este momento. Pide ayuda o intenta nuevamente.",
+          ),
+        )
+      }
     },
-    errorFunction: () =>
-      JSON.stringify({
-        ok: false,
-        speech_text:
-          "No pude analizar el requerimiento en este momento. Pida ayuda o intente nuevamente.",
-      }),
   })
 
   const confirmRequirement = tool({
@@ -180,23 +351,32 @@ export function createKioskRealtimeAgent(callbacks: KioskRealtimeCallbacks): Rea
       user_response: z.string().min(1).max(200),
     }),
     timeoutMs: 25_000,
-    async execute({ confirmed, user_response }) {
+    async execute({ confirmed, user_response }, _context, details) {
       const detected = explicitConfirmation(user_response)
       if (detected === null || detected !== confirmed) {
-        return JSON.stringify({
+        return backgroundResult({
           ok: false,
           next_action: "ASK_EXPLICIT_CONFIRMATION",
-          speech_text: "Por favor responda claramente sí para confirmar o no para corregir.",
+          speech_text: "Por favor, respóndeme claramente sí para confirmar o no para corregir.",
+          transition_key: `confirmar_requerimiento:${details?.toolCall?.callId ?? crypto.randomUUID()}:ASK_EXPLICIT_CONFIRMATION`,
         })
       }
-      return flowToolOutput(await callbacks.confirmRequirement(detected))
+      try {
+        return backgroundResult(
+          flowToolOutput(
+            await callbacks.confirmRequirement(detected, details?.toolCall?.callId),
+          ),
+        )
+      } catch {
+        return backgroundResult(
+          errorToolOutput(
+            "confirmar_requerimiento",
+            details?.toolCall?.callId,
+            "No pude registrar tu confirmación en este momento. Pide ayuda o intenta nuevamente.",
+          ),
+        )
+      }
     },
-    errorFunction: () =>
-      JSON.stringify({
-        ok: false,
-        speech_text:
-          "No pude registrar la confirmación en este momento. Pida ayuda o intente nuevamente.",
-      }),
   })
 
   return new RealtimeAgent({

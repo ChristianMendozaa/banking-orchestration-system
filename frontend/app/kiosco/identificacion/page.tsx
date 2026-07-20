@@ -10,7 +10,6 @@ import {
   RefreshCw,
   ShieldAlert,
 } from "lucide-react"
-import { useRouter } from "next/navigation"
 import { FormEvent, useEffect, useState } from "react"
 
 export default function IdentificationPage() {
@@ -25,22 +24,17 @@ export default function IdentificationPage() {
     reset,
     submitIdentification,
   } = useKiosk()
-  const router = useRouter()
   const [identifier, setIdentifier] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (hydrated && (!session || result?.next_action !== "IDENTIFY")) {
-      router.replace(session ? "/kiosco/voz" : "/kiosco")
-      return
-    }
     if (hydrated && session && result?.next_action === "IDENTIFY" && voiceState === "idle") {
       void connectVoice().catch(() => {
         // La identificación escrita puede continuar aunque falle la voz.
       })
     }
-  }, [connectVoice, hydrated, result, router, session, voiceState])
+  }, [connectVoice, hydrated, result, session, voiceState])
 
   async function identify(event: FormEvent) {
     event.preventDefault()
@@ -57,8 +51,9 @@ export default function IdentificationPage() {
 
   function returnToStart() {
     reset()
-    router.replace("/kiosco")
   }
+
+  if (!hydrated || !session || result?.next_action !== "IDENTIFY") return null
 
   return (
     <div className="flex flex-1 items-center justify-center px-5 py-10">
@@ -67,15 +62,19 @@ export default function IdentificationPage() {
           <div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-[#1168BD]/30">
             <IdCard className="h-9 w-9 text-[#23A2D9]" />
           </div>
-          <h1 className="mt-5 text-3xl font-semibold">Verificación del cliente</h1>
+          <h1 className="mt-5 text-3xl font-semibold">Confirma tu identidad</h1>
           <p className="mt-3 text-white/55">
-            Ingrese su código de cliente para asociar la solicitud antes de continuar.
+            Ingresa tu código de cliente en este campo protegido para asociarlo con la
+            solicitud.
           </p>
         </div>
 
-        <div className="my-6 flex gap-3 rounded-2xl border border-yellow-400/25 bg-yellow-400/10 p-4 text-sm text-yellow-100/80">
+        <div
+          className="my-6 flex gap-3 rounded-2xl border border-yellow-400/25 bg-yellow-400/10 p-4 text-sm text-yellow-100/80"
+          id="identifier-security-note"
+        >
           <ShieldAlert className="h-5 w-5 shrink-0 text-yellow-300" />
-          Este paso no autoriza operaciones bancarias. Nunca ingrese contraseña, PIN, CVV ni
+          Este paso no autoriza operaciones bancarias. Nunca ingreses contraseña, PIN, CVV ni
           números completos de tarjeta o cuenta.
         </div>
 
@@ -97,12 +96,14 @@ export default function IdentificationPage() {
           </div>
         )}
 
-        <form className="space-y-4" onSubmit={identify}>
+        <form aria-busy={submitting} className="space-y-4" onSubmit={identify}>
           <label className="block text-sm font-medium text-white/70">
             Código de cliente
             <input
+              aria-describedby="identifier-security-note identifier-next-step"
               autoComplete="off"
               className="mt-2 w-full rounded-xl border border-white/15 bg-[#071426] px-4 py-4 text-lg uppercase outline-none focus:border-[#23A2D9]"
+              disabled={submitting}
               maxLength={40}
               minLength={4}
               onChange={(event) => setIdentifier(event.target.value)}
@@ -118,8 +119,12 @@ export default function IdentificationPage() {
           )}
           <Button className="w-full" disabled={submitting} size="lg" type="submit">
             <BadgeCheck className="h-5 w-5" />
-            {submitting ? "Validando…" : "Validar y continuar"}
+            {submitting ? "Estoy validando tu código…" : "Validar mi código y continuar"}
           </Button>
+          <p className="text-center text-sm text-white/50" id="identifier-next-step">
+            Después de validar el código, verás tu número de ticket y los datos para
+            continuar.
+          </p>
         </form>
       </div>
     </div>

@@ -29,7 +29,7 @@ async def test_sensitive_case_identification_assignment_and_dashboard(client: As
     confirmed = await client.post(
         f"/api/v1/kiosk/sessions/{session_id}/confirmation",
         headers=session_headers,
-        json={"confirmed": True},
+        json={"requirement_id": turn.json()["requirement_id"], "confirmed": True},
     )
     assert confirmed.status_code == 200, confirmed.text
     assert confirmed.json()["next_action"] == "IDENTIFY"

@@ -11,17 +11,16 @@ import {
   ShieldCheck,
   Volume2,
 } from "lucide-react"
-import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 
 const statusText: Record<VoiceState, string> = {
-  idle: "Preparando la conversación…",
-  connecting: "Conectando el canal seguro…",
+  idle: "Estoy preparando nuestra conversación…",
+  connecting: "Estoy conectando el canal seguro…",
   listening: "Te escucho",
-  thinking: "Procesando tu solicitud…",
-  speaking: "La asistente está hablando",
+  thinking: "Estoy revisando lo que me contaste…",
+  speaking: "Te estoy respondiendo",
   muted: "Micrófono pausado",
-  error: "La conversación necesita atención",
+  error: "Necesitamos reconectar la conversación",
   closed: "Atención finalizada",
 }
 
@@ -37,25 +36,21 @@ export default function VoicePage() {
     retryVoice,
     reset,
   } = useKiosk()
-  const router = useRouter()
 
   useEffect(() => {
-    if (!hydrated) return
-    if (!session) {
-      router.replace("/kiosco")
-      return
-    }
+    if (!hydrated || !session) return
     if (voiceState === "idle") {
       void connectVoice().catch(() => {
         // El provider convierte el fallo en un estado recuperable visible.
       })
     }
-  }, [connectVoice, hydrated, router, session, voiceState])
+  }, [connectVoice, hydrated, session, voiceState])
 
   function returnToStart() {
     reset()
-    router.replace("/kiosco")
   }
+
+  if (!hydrated || !session) return null
 
   const recentCaptions = captions.slice(-6)
   const animated = voiceState === "listening" || voiceState === "speaking"
@@ -69,13 +64,13 @@ export default function VoicePage() {
         </p>
         <h1 className="text-3xl font-light sm:text-4xl">
           {analysis?.next_action === "CLARIFY"
-            ? "La asistente necesita una aclaración"
+            ? "Necesito que me aclares un detalle"
             : analysis?.next_action === "CONFIRM"
-              ? "Confirma el resumen con tu voz"
-              : "Cuéntame el motivo de tu atención"}
+              ? "Confírmame si entendí bien"
+              : "¿En qué puedo ayudarte?"}
         </h1>
         <p className="mt-3 text-white/50">
-          Habla con naturalidad. Puedes interrumpir a la asistente cuando lo necesites.
+          Habla con naturalidad. Puedes interrumpirme cuando lo necesites.
         </p>
       </div>
 
@@ -147,7 +142,7 @@ export default function VoicePage() {
                 } ${caption.completed ? "" : "opacity-65"}`}
               >
                 <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-white/45">
-                  {caption.role === "user" ? "Tú" : "Asistente virtual"}
+                  {caption.role === "user" ? "Tú" : "Asistente"}
                 </p>
                 {caption.text}
               </div>

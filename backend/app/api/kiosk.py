@@ -97,7 +97,7 @@ async def confirm(
     db: AsyncSession = Depends(get_db),
     orchestrator: OrchestratorService = Depends(get_orchestrator),
 ) -> FlowResult:
-    response = await orchestrator.confirm(db, kiosk_session, payload.confirmed)
+    response = await orchestrator.confirm(db, kiosk_session, payload)
     await db.commit()
     return response
 
@@ -120,13 +120,4 @@ async def get_session_status(
     db: AsyncSession = Depends(get_db),
     orchestrator: OrchestratorService = Depends(get_orchestrator),
 ) -> SessionStatusResponse:
-    result = None
-    if kiosk_session.status in {SessionStatus.RESOLVED_AUTOMATIC, SessionStatus.ASSIGNED}:
-        result = await orchestrator._build_result(db, kiosk_session.id)
-    return SessionStatusResponse(
-        session_id=kiosk_session.id,
-        status=kiosk_session.status,
-        resolution_type=kiosk_session.resolution_type,
-        final_response=kiosk_session.final_response,
-        result=result,
-    )
+    return await orchestrator.build_session_status(db, kiosk_session)

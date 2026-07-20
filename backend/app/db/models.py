@@ -139,6 +139,11 @@ class Requirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     masked_text: Mapped[str] = mapped_column(Text)
     pii_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     summary: Mapped[str] = mapped_column(Text)
+    customer_summary: Mapped[str] = mapped_column(
+        Text,
+        server_default="Necesitas orientación sobre una consulta bancaria.",
+    )
+    confirmation_decision: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     category: Mapped[Category] = mapped_column(string_enum(Category), index=True)
     proposed_priority: Mapped[Priority] = mapped_column(string_enum(Priority), index=True)
     consultation_level: Mapped[ConsultationLevel] = mapped_column(
