@@ -9,7 +9,7 @@ x-backend-environment: &backend-environment
   RAG_CORPUS_DIR: /workspace/doc/rag
   SEED_DATA_PATH: /workspace/backend/seed/operational_seed.json
   ESTIMATED_SERVICE_MINUTES: ${ESTIMATED_SERVICE_MINUTES:-8}
-  CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-3000}
+  CORS_ORIGINS: ${KIOSK_FRONTEND_ORIGIN:-http://localhost:3000},${STAFF_FRONTEND_ORIGIN:-http://localhost:3001}
 
 x-backend-base: &backend-base
   image: sistema-orquestacion-backend:local
@@ -19,6 +19,30 @@ x-backend-base: &backend-base
   environment: *backend-environment
   volumes:
     - knowledge_data:/workspace/data/knowledge
+
+x-frontend-environment: &frontend-environment
+  BACKEND_INTERNAL_URL: http://backend:8000
+  HOSTNAME: 0.0.0.0
+  PORT: 3000
+
+x-frontend-base: &frontend-base
+  image: sistema-orquestacion-frontend:local
+  pull_policy: never
+  restart: "no"
+  environment: *frontend-environment
+  depends_on:
+    backend:
+      condition: service_healthy
+  healthcheck:
+    test:
+      - CMD
+      - node
+      - -e
+      - "fetch('http://127.0.0.1:3000/').then(response => { if (!response.ok) process.exit(1) }).catch(() => process.exit(1))"
+    interval: 10s
+    timeout: 5s
+    retries: 12
+    start_period: 10s
 
 services:
   postgres:
@@ -91,20 +115,25 @@ services:
       retries: 12
       start_period: 10s
 
-  frontend:
+  frontend-kiosk:
+    <<: *frontend-base
+    # Este servicio construye la imagen compartida; frontend-staff reutiliza la misma.
     build:
       context: frontend
       dockerfile: Dockerfile
-    restart: "no"
     environment:
-      BACKEND_INTERNAL_URL: http://backend:8000
-      HOSTNAME: 0.0.0.0
-      PORT: 3000
-    depends_on:
-      backend:
-        condition: service_healthy
+      <<: *frontend-environment
+      APP_SURFACE: kiosk
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${KIOSK_FRONTEND_PORT:-3000}:3000"
+
+  frontend-staff:
+    <<: *frontend-base
+    environment:
+      <<: *frontend-environment
+      APP_SURFACE: staff
+    ports:
+      - "${STAFF_FRONTEND_PORT:-3001}:3000"
 
 volumes:
   postgres_data:

@@ -1,4 +1,5 @@
 import type { NextRequest } from "next/server"
+import { isBackendPathAllowed, parseAppSurface } from "@/lib/app-surface"
 
 export const dynamic = "force-dynamic"
 
@@ -6,6 +7,22 @@ type RouteContext = { params: Promise<{ path: string[] }> }
 
 async function proxy(request: NextRequest, context: RouteContext): Promise<Response> {
   const { path } = await context.params
+  const surface = parseAppSurface(process.env.APP_SURFACE)
+  if (!surface) {
+    return Response.json(
+      { code: "FRONTEND_CONFIG_ERROR", message: "APP_SURFACE no está configurada" },
+      { status: 503 },
+    )
+  }
+
+  const apiPath = `/${path.join("/")}`
+  if (!isBackendPathAllowed(surface, apiPath)) {
+    return Response.json(
+      { code: "FRONTEND_ROUTE_NOT_AVAILABLE", message: "Recurso no disponible" },
+      { status: 404 },
+    )
+  }
+
   const backend = process.env.BACKEND_INTERNAL_URL
   if (!backend) {
     return Response.json(
