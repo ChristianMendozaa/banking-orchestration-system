@@ -62,6 +62,19 @@ class TicketStatus(StrEnum):
     CERRADO = "CERRADO"
 
 
+class ResolutionOutcome(StrEnum):
+    RESUELTO = "RESUELTO"
+    DERIVADO = "DERIVADO"
+    PENDIENTE_DOCUMENTACION = "PENDIENTE_DOCUMENTACION"
+    CLIENTE_DESISTIO = "CLIENTE_DESISTIO"
+    NO_RESUELTO = "NO_RESUELTO"
+
+
+class ConversationRole(StrEnum):
+    CUSTOMER = "CUSTOMER"
+    ASSISTANT = "ASSISTANT"
+
+
 class ExecutiveStatus(StrEnum):
     DISPONIBLE = "DISPONIBLE"
     OCUPADO = "OCUPADO"

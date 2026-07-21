@@ -1,3 +1,4 @@
+import asyncio
 import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
@@ -12,6 +13,7 @@ from sqlalchemy.engine import make_url
 from app.api import auth, health, kiosk, knowledge, management, system, tickets
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
+from app.services.retention import conversation_retention_loop
 
 settings = get_settings()
 structlog.configure(
@@ -33,7 +35,11 @@ async def lifespan(_: FastAPI):
             "supabase_not_connected",
             detail="SUPABASE_URL existe, pero DATABASE_URL continua apuntando a la base local",
         )
+    retention_stop = asyncio.Event()
+    retention_task = asyncio.create_task(conversation_retention_loop(settings, retention_stop))
     yield
+    retention_stop.set()
+    await retention_task
     logger.info("application_stopped")
 
 

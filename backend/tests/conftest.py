@@ -34,7 +34,7 @@ from app.domain.enums import (  # noqa: E402
 )
 from app.domain.schemas import GroundedAnswerDecision  # noqa: E402
 from app.knowledge.service import KnowledgeService  # noqa: E402
-from app.main import app  # noqa: E402
+from app.main import _rate_windows, app  # noqa: E402
 from app.services.agents import (  # noqa: E402
     ClassificationAgent,
     DerivationAgent,
@@ -111,6 +111,7 @@ app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
 
 @pytest_asyncio.fixture(autouse=True)
 async def database() -> AsyncIterator[None]:
+    _rate_windows.clear()
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
     async with TestSession() as session:

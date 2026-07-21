@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.core.security import hash_identifier, mask_identifier
+from app.core.security import encrypt_identifier, hash_identifier, mask_identifier
 from app.db.models import (
     CaseRecord,
     ClientReference,
@@ -417,12 +417,20 @@ class OrchestratorService:
         status = (
             IdentificationStatus.IDENTIFICADO if client_reference else IdentificationStatus.FALLIDO
         )
+        ciphertext, nonce, key_id = encrypt_identifier(
+            payload.identifier,
+            str(case.id),
+            self.settings,
+        )
         if case.identification:
             case.identification.client_reference_id = (
                 client_reference.id if client_reference else None
             )
             case.identification.identifier_hash = identifier_hash
             case.identification.masked_identifier = mask_identifier(payload.identifier)
+            case.identification.identifier_ciphertext = ciphertext
+            case.identification.identifier_nonce = nonce
+            case.identification.identifier_key_id = key_id
             case.identification.status = status
         else:
             db.add(
@@ -431,6 +439,9 @@ class OrchestratorService:
                     client_reference_id=client_reference.id if client_reference else None,
                     identifier_hash=identifier_hash,
                     masked_identifier=mask_identifier(payload.identifier),
+                    identifier_ciphertext=ciphertext,
+                    identifier_nonce=nonce,
+                    identifier_key_id=key_id,
                     status=status,
                 )
             )

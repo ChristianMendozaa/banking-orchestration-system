@@ -51,10 +51,14 @@ Los agentes tienen responsabilidades separadas:
 - `InitialAttentionAgent`: respuesta solo para nivel general, con evidencia RAG.
 - `DerivationAgent`: habilidad exacta, similitud semántica, experiencia y carga.
 
-El audio y la transcripción original no se persisten. La base guarda únicamente el
-texto enmascarado. Realtime mantiene la conversación speech-to-speech, pero las tools
-delegan clasificación, confirmación, RAG, identificación y tickets al backend; sus
-resultados saneados son la única fuente para lo que la asistente comunica.
+El audio y la transcripción original no se persisten. Realtime mantiene la conversación
+speech-to-speech y el navegador sincroniza únicamente mensajes completados; el backend
+los vuelve a enmascarar antes de guardarlos y los purga según la retención configurada.
+Las tools delegan clasificación, confirmación, RAG, identificación y tickets al backend.
+
+El CI conserva el HMAC y sufijo enmascarado para comparación y listados. Adicionalmente,
+se cifra con AES-256-GCM para que solo el ejecutivo asignado pueda revelarlo durante la
+atención; la consulta queda auditada y gerencia recibe siempre el valor enmascarado.
 
 ## Base de conocimiento
 

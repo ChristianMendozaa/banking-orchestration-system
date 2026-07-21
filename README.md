@@ -245,15 +245,15 @@ Managers can list, upload, update, version, download, reindex, and archive knowl
 The implementation applies defense-in-depth controls appropriate to the project scope:
 
 - Raw audio is handled by the realtime channel and is not persisted by the application.
-- The original transcript is not stored; only masked text and PII type/count metadata enter the database.
+- Original audio and unmasked transcripts are not stored. Completed dialogue messages are masked again by the backend, retained for 90 configurable days, and then purged automatically.
 - PINs, CVVs, passwords, credentials, and complete financial data are explicitly prohibited in realtime and grounded-answer instructions.
 - The regular OpenAI API key never reaches the browser. The browser receives only a short-lived realtime client secret tied to the kiosk session.
 - Kiosk access uses a high-entropy opaque token; only its SHA-256 hash is stored, and every protected kiosk route validates expiry.
-- Customer identity-card numbers (CI) are normalized and stored as an HMAC-SHA-256 digest with a server-side pepper, plus a masked suffix for operations.
+- Customer identity-card numbers (CI) keep the HMAC-SHA-256 digest and masked suffix, plus an AES-256-GCM encrypted value protected by a versioned key. Only the assigned executive can reveal it, and every reveal is audited.
 - Staff passwords use the recommended Argon2 password hash.
 - Staff access uses short-lived HS256 JWTs. Opaque refresh tokens are stored as hashes, rotated on use, revocable, and delivered through `HttpOnly`, `SameSite=Lax` cookies (`Secure` in production).
-- RBAC separates `EXECUTIVE` and `MANAGER`. Executives can access only their assigned tickets; managers receive reporting and knowledge-management permissions.
-- Ticket transitions are allowlisted and guarded by optimistic concurrency.
+- RBAC separates `EXECUTIVE` and `MANAGER`. Executives can access only their assigned tickets and reveal only those identifiers; managers receive masked, read-only case files, reporting, and knowledge-management permissions.
+- Ticket transitions are allowlisted and guarded by optimistic concurrency. A partial unique constraint permits only one active attendance per executive, and closing requires a structured outcome and protected note.
 - API errors share a stable contract with `code`, `message`, `details`, and `trace_id`; structured request logs include the same trace correlation header.
 - Login, kiosk-session creation, and realtime-token creation have basic per-process rate limits.
 - Application settings validate secret length, CORS origins, vector dimensions, retrieval limits, and mandatory AI configuration in production.
@@ -267,9 +267,9 @@ All versioned endpoints are exposed under `/api/v1`. Interactive OpenAPI documen
 | Health | `GET /health/live`, `GET /health/ready` | Public |
 | Public configuration | `GET /system/public-config` | Public |
 | Staff authentication | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` | Credentials, refresh cookie, or bearer token |
-| Kiosk workflow | `POST /kiosk/sessions`, `POST /kiosk/sessions/{id}/turns`, `POST /kiosk/sessions/{id}/confirmation`, `POST /kiosk/sessions/{id}/identification`, `GET /kiosk/sessions/{id}` | Opaque `X-Session-Token` after creation |
+| Kiosk workflow | `POST /kiosk/sessions`, turns, confirmation, identification, conversation-message synchronization, and session status | Opaque `X-Session-Token` after creation |
 | Realtime voice | `POST /kiosk/sessions/{id}/realtime-token` | Opaque `X-Session-Token` |
-| Executive operations | `GET /executive/tickets`, `GET /tickets/{id}`, `PATCH /tickets/{id}/status` | Executive bearer token; managers have read-only ticket-detail access |
+| Executive operations | Filtered `GET /executive/tickets`, `GET /tickets/{id}`, status transitions, and identifier reveal | Executive bearer token; managers have masked read-only ticket-detail access |
 | Management reporting | `GET /management/metrics`, `GET /management/cases` | Manager bearer token |
 | Knowledge governance | `/management/knowledge/documents` and document version, reindex, download, and archive operations | Manager bearer token |
 
@@ -285,6 +285,7 @@ erDiagram
     EXECUTIVE ||--o{ TICKET : receives
 
     KIOSK_SESSION ||--o{ REQUIREMENT : captures
+    KIOSK_SESSION ||--o{ CONVERSATION_MESSAGE : retains_masked
     KIOSK_SESSION ||--o| CASE_RECORD : creates
     REQUIREMENT ||--o| CASE_RECORD : confirms
     CASE_RECORD ||--o| IDENTIFICATION : verifies
@@ -318,6 +319,7 @@ erDiagram
         integer number PK
         uuid public_id
         enum status
+        enum resolution_outcome
         integer version
     }
     KNOWLEDGE_DOCUMENT {
@@ -335,7 +337,7 @@ erDiagram
     }
 ```
 
-Schema evolution is managed by five explicit Alembic revisions covering the operational model, pgvector knowledge schema, production hardening fields, the customer/operational registry, and the natural kiosk flow.
+Schema evolution is managed by six explicit Alembic revisions covering the operational model, pgvector knowledge schema, production hardening fields, the customer/operational registry, the natural kiosk flow, and the protected staff case file.
 
 ## Technology stack
 

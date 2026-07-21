@@ -155,6 +155,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const requestedTransitionsRef = useRef(new Set<string>())
   const completedTransitionsRef = useRef(new Set<string>())
   const turnIdsRef = useRef(new Map<string, string>())
+  const syncedConversationItemsRef = useRef(new Set<string>())
   const confirmationPromisesRef = useRef(
     new Map<string, { promise: Promise<FlowResult>; revision: number }>(),
   )
@@ -245,6 +246,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     postInterruptionResponseIdRef.current = null
     inputSpeechActiveRef.current = false
     turnIdsRef.current.clear()
+    syncedConversationItemsRef.current.clear()
     confirmationPromisesRef.current.clear()
     identificationPromiseRef.current = null
     reconciliationPromiseRef.current = null
@@ -476,6 +478,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       clearTimers()
       disposeRealtime()
       setCaptions([])
+      syncedConversationItemsRef.current.clear()
       setVoiceError(null)
       setVoiceState("idle")
       setCompletionSeconds(null)
@@ -998,7 +1001,27 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
 
         realtime.on("history_updated", (history) => {
           if (!isCurrentRealtime()) return
-          setCaptions(captionsFromHistory(history))
+          const nextCaptions = captionsFromHistory(history)
+          setCaptions(nextCaptions)
+          const session = stateRef.current.session
+          const pending = nextCaptions.filter(
+            (caption) =>
+              caption.completed && !syncedConversationItemsRef.current.has(caption.id),
+          )
+          if (!session || pending.length === 0) return
+          pending.forEach((caption) => syncedConversationItemsRef.current.add(caption.id))
+          void kioskSessionRequest(session, "/conversation/messages", {
+            method: "POST",
+            body: JSON.stringify({
+              messages: pending.map((caption) => ({
+                item_id: caption.id,
+                role: caption.role === "user" ? "CUSTOMER" : "ASSISTANT",
+                text: caption.text,
+              })),
+            }),
+          }).catch(() => {
+            pending.forEach((caption) => syncedConversationItemsRef.current.delete(caption.id))
+          })
         })
         realtime.on("agent_tool_start", (_context, _agent, _tool, details) => {
           if (!isCurrentRealtime()) return

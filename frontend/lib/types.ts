@@ -7,6 +7,13 @@ export type Category =
   | "BANCA_DIGITAL"
 export type Priority = "CRITICO" | "ALTO" | "MEDIO" | "BAJO"
 export type TicketStatus = "PENDIENTE" | "EN_ATENCION" | "CERRADO"
+export type ExecutiveStatus = "DISPONIBLE" | "OCUPADO" | "INACTIVO"
+export type ResolutionOutcome =
+  | "RESUELTO"
+  | "DERIVADO"
+  | "PENDIENTE_DOCUMENTACION"
+  | "CLIENTE_DESISTIO"
+  | "NO_RESUELTO"
 export type SessionStatus =
   | "CREATED"
   | "LISTENING"
@@ -133,6 +140,11 @@ export interface TicketListItem {
   estimated_wait_minutes: number | null
   identification_status: string
   preferential_attention: boolean
+  client_display_name: string | null
+  masked_identifier: string | null
+  started_at: string | null
+  closed_at: string | null
+  resolution_outcome: ResolutionOutcome | null
   version: number
 }
 
@@ -141,6 +153,7 @@ export interface TicketPage {
   page: number
   page_size: number
   total: number
+  status_counts: Record<TicketStatus, number>
 }
 
 export interface TraceEvent {
@@ -153,7 +166,20 @@ export interface TraceEvent {
 
 export interface TicketDetail extends TicketListItem {
   consultation_level: ConsultationLevel
+  identity: {
+    status: string
+    display_name: string | null
+    masked_identifier: string | null
+    reveal_available: boolean
+  }
+  conversation: {
+    id: string
+    role: "CUSTOMER" | "ASSISTANT"
+    text: string
+    created_at: string
+  }[]
   events: TraceEvent[]
+  resolution_note: string | null
 }
 
 export interface MetricSlice {
@@ -164,20 +190,39 @@ export interface MetricSlice {
 export interface ManagementMetrics {
   total_cases: number
   active_cases: number
+  pending_cases: number
+  in_attention_cases: number
+  closed_cases: number
   average_wait_minutes: number
+  average_attention_minutes: number
   critical_pending: number
   by_category: MetricSlice[]
   by_priority: MetricSlice[]
   hourly: { hour: string; cases: number }[]
+  executives: ExecutiveWorkload[]
+}
+
+export interface ExecutiveWorkload {
+  id: string
+  name: string
+  title: string
+  status: ExecutiveStatus
+  pending: number
+  in_attention: number
+  closed: number
 }
 
 export interface ManagerialCase {
+  id: string
   ticket: string
+  summary: string
   category: Category
   priority: Priority
   executive: string | null
   status: TicketStatus
   attention_time_min: number | null
+  wait_time_min: number
+  resolution_outcome: ResolutionOutcome | null
   created_at: string
 }
 

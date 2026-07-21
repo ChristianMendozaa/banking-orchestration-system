@@ -137,9 +137,9 @@ humana.
 | RNF-10 | Pendiente de certificación | Voz, subtítulos, etiquetas, campo escrito y atributos ARIA están presentes; falta auditoría WCAG 2.2 AA. |
 | RNF-11 | Cumple | El alcance operativo está delimitado y no se ejecutan movimientos financieros desde el kiosco. |
 | RNF-12 | Cumple | Métricas, trazas, matriz RF/RNF, evaluación RAG y reporte reproducible. |
-| RNF-13 | Cumple | Código HMAC, valor parcialmente oculto y ausencia de audio o transcripción original en base. |
+| RNF-13 | Cumple | Código HMAC, valor enmascarado, cifrado AES-GCM recuperable solo por el ejecutivo asignado y ausencia de audio o transcripción original en base. |
 | RNF-14 | Cumple | La verificación escrita usa un control separado de la conversación y no solicita secretos financieros. |
-| RNF-15 | Cumple | Cada ejecutivo ve sus tickets; gerencia ve agregados sin identificadores ni PII. |
+| RNF-15 | Cumple | Cada ejecutivo ve sus tickets y puede revelar el CI con auditoría; gerencia accede a expedientes de solo lectura con conversación y CI enmascarados. |
 
 ## Persistencia y contratos
 
@@ -157,6 +157,10 @@ La migración `20260720_0005` añade a `requirements`:
 - `confirmation_decision`, con backfill desde los casos ya creados y los requerimientos
   descartados.
 
+La migración `20260721_0006` añade conversación enmascarada con retención, cifrado
+versionado del CI, resultado y nota de cierre, y una restricción de un único ticket
+`EN_ATENCION` por ejecutivo.
+
 `TicketResult`, `TicketListItem` y los endpoints de tickets exponen la espera
 estimada. `FlowResult` conserva también el resumen conversacional y la prioridad para
 recuperar identificación y cierre sin reactivar una confirmación histórica. La traza
@@ -168,8 +172,10 @@ disponibilidad, carga activa y tiempo calculado para auditoría.
 - La API key del servidor no llega al navegador; Realtime recibe un secreto efímero.
 - El CI del cliente se escribe fuera del canal de voz.
 - No se solicitan PIN, CVV, contraseñas, tokens ni números financieros completos.
-- El identificador se normaliza y verifica con HMAC; su valor completo no se guarda.
-- El audio y la transcripción original no se persisten.
+- El identificador se normaliza y verifica con HMAC; el valor recuperable se cifra con
+  AES-256-GCM y solo se entrega temporalmente al ejecutivo asignado con evento de auditoría.
+- El audio y la transcripción original no se persisten; el diálogo completado se
+  enmascara nuevamente, se limita por rol y se purga según una retención configurable.
 - El frontend mantiene el access token en memoria y rota un refresh `HttpOnly`.
 - Los roles limitan tickets, métricas y administración documental.
 - Las cargas PDF validan firma, MIME, tamaño, páginas, texto y URL de fuente.
@@ -187,6 +193,10 @@ cobertura backend añadida verifica:
 - serialización por sesión y desactivación de requisitos sustituidos tras aclaraciones;
 - creación del ticket con verificación manual cuando el código no coincide;
 - sustitución de lenguaje interno o formal emitido por el clasificador.
+- sincronización idempotente y enmascaramiento de la conversación;
+- cifrado, revelado temporal, permisos por rol y auditoría del CI;
+- exclusión de atenciones simultáneas, cierre con resultado y nota protegida;
+- purga de mensajes que superan la retención configurada.
 
 La cobertura frontend añadida verifica resultados Realtime en segundo plano, metadata
 de transición con herramientas deshabilitadas, claves estables por requerimiento o
@@ -194,7 +204,7 @@ ticket, protección ante respuestas de negocio fuera de orden, política de rein
 de locuciones interrumpidas y la función pura que deriva la ruta para voz,
 identificación, ticket y respuesta automática.
 
-En este corte pasan 37 pruebas backend y 28 frontend, además de Ruff, ESLint,
+En este corte pasan 50 pruebas backend y 33 frontend, además de Ruff, ESLint,
 verificación de tipos, SQL offline de Alembic y el build de producción de Next.js.
 
 Para las vistas modificadas se ejecutó

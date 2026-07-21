@@ -38,7 +38,9 @@ function ManagerShell({ children }: { children: React.ReactNode }) {
         <nav className="order-3 flex w-full gap-1 border-t border-white/10 pt-2 sm:order-none sm:w-auto sm:border-0 sm:pt-0">
           {nav.map((item) => {
             const active =
-              item.href === "/gerencial" ? path === item.href : path.startsWith(item.href)
+              item.href === "/gerencial"
+                ? path === item.href || path.startsWith("/gerencial/casos/")
+                : path.startsWith(item.href)
             const Icon = item.icon
             return (
               <Link

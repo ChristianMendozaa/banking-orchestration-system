@@ -9,11 +9,14 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from app.domain.enums import (
     Category,
     ConsultationLevel,
+    ConversationRole,
+    ExecutiveStatus,
     GroundingStatus,
     IdentificationStatus,
     KnowledgeIndexStatus,
     KnowledgeSourceType,
     Priority,
+    ResolutionOutcome,
     ResolutionType,
     SessionStatus,
     TicketStatus,
@@ -109,6 +112,25 @@ class IdentificationRequest(BaseModel):
         return normalized
 
 
+class ConversationMessageInput(BaseModel):
+    item_id: str = Field(min_length=1, max_length=160)
+    role: ConversationRole
+    text: str = Field(min_length=1, max_length=4000)
+
+    @field_validator("text")
+    @classmethod
+    def clean_text(cls, value: str) -> str:
+        return " ".join(value.split())
+
+
+class ConversationSyncRequest(BaseModel):
+    messages: list[ConversationMessageInput] = Field(min_length=1, max_length=100)
+
+
+class ConversationSyncResponse(BaseModel):
+    accepted: int
+
+
 class ExecutiveAssignment(BaseModel):
     id: UUID
     name: str
@@ -192,6 +214,20 @@ class TraceEventOut(ORMModel):
     created_at: datetime
 
 
+class ConversationMessageOut(ORMModel):
+    id: UUID
+    role: ConversationRole
+    text: str = Field(validation_alias="masked_text")
+    created_at: datetime
+
+
+class ProtectedIdentity(BaseModel):
+    status: IdentificationStatus
+    display_name: str | None = None
+    masked_identifier: str | None = None
+    reveal_available: bool = False
+
+
 class TicketListItem(BaseModel):
     id: UUID
     number: str
@@ -209,6 +245,11 @@ class TicketListItem(BaseModel):
     estimated_wait_minutes: int | None
     identification_status: IdentificationStatus
     preferential_attention: bool
+    client_display_name: str | None = None
+    masked_identifier: str | None = None
+    started_at: datetime | None = None
+    closed_at: datetime | None = None
+    resolution_outcome: ResolutionOutcome | None = None
     version: int
 
 
@@ -217,25 +258,45 @@ class TicketPage(BaseModel):
     page: int
     page_size: int
     total: int
+    status_counts: dict[TicketStatus, int]
 
 
 class TicketDetail(TicketListItem):
     consultation_level: ConsultationLevel
+    identity: ProtectedIdentity
+    conversation: list[ConversationMessageOut]
     events: list[TraceEventOut]
+    resolution_note: str | None = None
 
 
 class TicketStatusUpdate(BaseModel):
     status: TicketStatus
     expected_version: int = Field(ge=1)
+    resolution_outcome: ResolutionOutcome | None = None
+    resolution_note: str | None = Field(default=None, min_length=10, max_length=1000)
+
+    @field_validator("resolution_note")
+    @classmethod
+    def clean_resolution_note(cls, value: str | None) -> str | None:
+        return " ".join(value.split()) if value is not None else None
+
+
+class IdentifierRevealResponse(BaseModel):
+    identifier: str
+    reveal_seconds: int = 30
 
 
 class ManagerialCase(BaseModel):
+    id: UUID
     ticket: str
+    summary: str
     category: Category
     priority: Priority
     executive: str | None
     status: TicketStatus
     attention_time_min: int | None
+    wait_time_min: int
+    resolution_outcome: ResolutionOutcome | None
     created_at: datetime
 
 
@@ -252,11 +313,26 @@ class HourlyMetric(BaseModel):
 class ManagementMetrics(BaseModel):
     total_cases: int
     active_cases: int
+    pending_cases: int
+    in_attention_cases: int
+    closed_cases: int
     average_wait_minutes: float
+    average_attention_minutes: float
     critical_pending: int
     by_category: list[MetricSlice]
     by_priority: list[MetricSlice]
     hourly: list[HourlyMetric]
+    executives: list["ExecutiveWorkload"]
+
+
+class ExecutiveWorkload(BaseModel):
+    id: UUID
+    name: str
+    title: str
+    status: ExecutiveStatus
+    pending: int
+    in_attention: int
+    closed: int
 
 
 class ManagementCasesResponse(BaseModel):

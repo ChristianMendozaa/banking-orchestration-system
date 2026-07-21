@@ -1,3 +1,4 @@
+import base64
 import hashlib
 import hmac
 import secrets
@@ -5,6 +6,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import jwt
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from pwdlib import PasswordHash
 
 from app.core.config import Settings
@@ -64,3 +67,40 @@ def mask_identifier(identifier: str) -> str:
     normalized = "".join(identifier.split())
     suffix = normalized[-4:] if len(normalized) >= 4 else normalized[-1:]
     return f"****{suffix}"
+
+
+def encrypt_identifier(identifier: str, case_id: str, settings: Settings) -> tuple[str, str, str]:
+    key_id = settings.identifier_active_key_id
+    key = base64.b64decode(settings.identifier_encryption_keys[key_id])
+    nonce = secrets.token_bytes(12)
+    normalized = "".join(identifier.upper().split()).encode()
+    ciphertext = AESGCM(key).encrypt(nonce, normalized, case_id.encode())
+    return (
+        base64.b64encode(ciphertext).decode(),
+        base64.b64encode(nonce).decode(),
+        key_id,
+    )
+
+
+def decrypt_identifier(
+    ciphertext: str,
+    nonce: str,
+    key_id: str,
+    case_id: str,
+    settings: Settings,
+) -> str:
+    encoded_key = settings.identifier_encryption_keys.get(key_id)
+    if not encoded_key:
+        raise AppError(
+            "IDENTIFIER_KEY_UNAVAILABLE",
+            "La clave del identificador no esta disponible",
+            409,
+        )
+    try:
+        return AESGCM(base64.b64decode(encoded_key)).decrypt(
+            base64.b64decode(nonce),
+            base64.b64decode(ciphertext),
+            case_id.encode(),
+        ).decode()
+    except (InvalidTag, ValueError, UnicodeDecodeError) as exc:
+        raise AppError("IDENTIFIER_DECRYPTION_FAILED", "No fue posible revelar el CI", 409) from exc

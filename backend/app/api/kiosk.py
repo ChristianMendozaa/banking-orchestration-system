@@ -1,17 +1,20 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_kiosk_session, get_openai_provider, get_orchestrator
 from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.security import hash_token, new_opaque_token
-from app.db.models import KioskSession
+from app.db.models import ConversationMessage, KioskSession
 from app.db.session import get_db
 from app.domain.enums import SessionStatus
 from app.domain.schemas import (
     ConfirmationRequest,
+    ConversationSyncRequest,
+    ConversationSyncResponse,
     FlowResult,
     IdentificationRequest,
     RealtimeTokenResponse,
@@ -23,6 +26,7 @@ from app.domain.schemas import (
 )
 from app.services.openai_provider import OpenAIProvider
 from app.services.orchestrator import OrchestratorService
+from app.services.pii import PIIMaskingService
 
 router = APIRouter(prefix="/kiosk", tags=["Kiosco"])
 
@@ -88,6 +92,44 @@ async def analyze_turn(
     response = await orchestrator.analyze_turn(db, kiosk_session, payload)
     await db.commit()
     return response
+
+
+@router.post(
+    "/sessions/{session_id}/conversation/messages",
+    response_model=ConversationSyncResponse,
+)
+async def sync_conversation(
+    payload: ConversationSyncRequest,
+    kiosk_session: KioskSession = Depends(get_kiosk_session),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationSyncResponse:
+    item_ids = [message.item_id for message in payload.messages]
+    existing = set(
+        (
+            await db.scalars(
+                select(ConversationMessage.external_item_id).where(
+                    ConversationMessage.session_id == kiosk_session.id,
+                    ConversationMessage.external_item_id.in_(item_ids),
+                )
+            )
+        ).all()
+    )
+    pii = PIIMaskingService()
+    created = 0
+    for message in payload.messages:
+        if message.item_id in existing:
+            continue
+        db.add(
+            ConversationMessage(
+                session_id=kiosk_session.id,
+                external_item_id=message.item_id,
+                role=message.role,
+                masked_text=pii.mask(message.text).masked_text,
+            )
+        )
+        created += 1
+    await db.commit()
+    return ConversationSyncResponse(accepted=created)
 
 
 @router.post("/sessions/{session_id}/confirmation", response_model=FlowResult)

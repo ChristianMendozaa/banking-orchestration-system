@@ -1,3 +1,5 @@
+import base64
+import json
 from functools import lru_cache
 from typing import Annotated, Literal
 
@@ -37,6 +39,12 @@ class Settings(BaseSettings):
 
     jwt_secret: SecretStr
     identifier_pepper: SecretStr
+    identifier_encryption_keys: Annotated[dict[str, str], NoDecode] = {
+        "development-v1": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    }
+    identifier_active_key_id: str = "development-v1"
+    conversation_retention_days: int = 90
+    conversation_cleanup_hours: int = 24
     cors_origins: Annotated[list[str], NoDecode]
     access_token_minutes: int = 30
     refresh_token_hours: int = 8
@@ -82,6 +90,10 @@ class Settings(BaseSettings):
             raise ValueError("DASHBOARD_REFRESH_MS debe ser al menos 1000")
         if self.estimated_service_minutes <= 0:
             raise ValueError("ESTIMATED_SERVICE_MINUTES debe ser positivo")
+        if self.conversation_retention_days <= 0:
+            raise ValueError("CONVERSATION_RETENTION_DAYS debe ser positivo")
+        if self.conversation_cleanup_hours <= 0:
+            raise ValueError("CONVERSATION_CLEANUP_HOURS debe ser positivo")
         return self
 
     @field_validator("cors_origins", mode="before")
@@ -90,6 +102,14 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("identifier_encryption_keys", mode="before")
+    @classmethod
+    def parse_identifier_keys(cls, value: str | dict[str, str]) -> dict[str, str]:
+        parsed = json.loads(value) if isinstance(value, str) else value
+        if not isinstance(parsed, dict) or not parsed:
+            raise ValueError("IDENTIFIER_ENCRYPTION_KEYS debe ser un objeto JSON no vacio")
+        return {str(key): str(secret) for key, secret in parsed.items()}
 
     @model_validator(mode="after")
     def validate_security_secrets(self) -> "Settings":
@@ -103,6 +123,17 @@ class Settings(BaseSettings):
             raise ValueError(
                 "IDENTIFIER_PEPPER debe ser un secreto aleatorio de al menos 32 caracteres"
             )
+        if self.identifier_active_key_id not in self.identifier_encryption_keys:
+            raise ValueError("IDENTIFIER_ACTIVE_KEY_ID no existe en IDENTIFIER_ENCRYPTION_KEYS")
+        for key_id, encoded in self.identifier_encryption_keys.items():
+            try:
+                decoded = base64.b64decode(encoded, validate=True)
+            except ValueError as exc:
+                raise ValueError(f"Clave de cifrado invalida: {key_id}") from exc
+            if len(decoded) != 32:
+                raise ValueError(f"La clave de cifrado {key_id} debe contener 32 bytes")
+        if self.app_env == "production" and "development-v1" in self.identifier_encryption_keys:
+            raise ValueError("Configure un llavero de identificadores exclusivo para produccion")
         if len(executive_password) < 12 or len(manager_password) < 12:
             raise ValueError("Las contrasenas de semilla deben tener al menos 12 caracteres")
         if self.app_env == "production" and not self.openai_enabled:

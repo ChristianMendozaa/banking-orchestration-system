@@ -9,6 +9,7 @@ x-backend-environment: &backend-environment
   RAG_CORPUS_DIR: /workspace/doc/rag
   SEED_DATA_PATH: /workspace/backend/seed/operational_seed.json
   ESTIMATED_SERVICE_MINUTES: ${ESTIMATED_SERVICE_MINUTES:-8}
+  CONVERSATION_RETENTION_DAYS: ${CONVERSATION_RETENTION_DAYS:-90}
   CORS_ORIGINS: ${KIOSK_FRONTEND_ORIGIN:-http://localhost:3000},${STAFF_FRONTEND_ORIGIN:-http://localhost:3001}
 
 x-backend-base: &backend-base

@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -23,12 +24,14 @@ from app.domain.enums import (
     CaseStatus,
     Category,
     ConsultationLevel,
+    ConversationRole,
     ExecutiveStatus,
     GroundingStatus,
     IdentificationStatus,
     KnowledgeIndexStatus,
     KnowledgeSourceType,
     Priority,
+    ResolutionOutcome,
     ResolutionType,
     SessionStatus,
     TicketStatus,
@@ -126,6 +129,27 @@ class KioskSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     case: Mapped["CaseRecord | None"] = relationship(
         back_populates="session", cascade="all, delete-orphan", uselist=False
     )
+    conversation_messages: Mapped[list["ConversationMessage"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="ConversationMessage.created_at",
+    )
+
+
+class ConversationMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "conversation_messages"
+    __table_args__ = (
+        UniqueConstraint("session_id", "external_item_id"),
+        Index("ix_conversation_messages_created_at", "created_at"),
+    )
+
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("kiosk_sessions.id", ondelete="CASCADE"), index=True
+    )
+    external_item_id: Mapped[str] = mapped_column(String(160))
+    role: Mapped[ConversationRole] = mapped_column(string_enum(ConversationRole), index=True)
+    masked_text: Mapped[str] = mapped_column(Text)
+    session: Mapped[KioskSession] = relationship(back_populates="conversation_messages")
 
 
 class Requirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -206,12 +230,25 @@ class Identification(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     identifier_hash: Mapped[str] = mapped_column(String(64))
     masked_identifier: Mapped[str] = mapped_column(String(32))
+    identifier_ciphertext: Mapped[str | None] = mapped_column(Text, nullable=True)
+    identifier_nonce: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    identifier_key_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     status: Mapped[IdentificationStatus] = mapped_column(string_enum(IdentificationStatus))
     case: Mapped[CaseRecord] = relationship(back_populates="identification")
+    client_reference: Mapped[ClientReference | None] = relationship()
 
 
 class Ticket(TimestampMixin, Base):
     __tablename__ = "tickets"
+    __table_args__ = (
+        Index(
+            "uq_tickets_one_active_per_executive",
+            "executive_id",
+            unique=True,
+            postgresql_where=text("status = 'EN_ATENCION'"),
+            sqlite_where=text("status = 'EN_ATENCION'"),
+        ),
+    )
 
     number: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     public_id: Mapped[UUID] = mapped_column(unique=True, index=True)
@@ -229,6 +266,10 @@ class Ticket(TimestampMixin, Base):
     estimated_wait_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    resolution_outcome: Mapped[ResolutionOutcome | None] = mapped_column(
+        string_enum(ResolutionOutcome), nullable=True
+    )
+    resolution_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     case: Mapped[CaseRecord] = relationship(back_populates="ticket")
     executive: Mapped[Executive | None] = relationship()
