@@ -239,7 +239,7 @@ class OrchestratorService:
             priority=requirement.proposed_priority,
             identification_status=case.identification_status,
             speech_text=(
-                "Para continuar, escribe tu código de cliente en el campo protegido. "
+                "Para continuar, escribe tu CI en el campo protegido. "
                 "No escribas contraseñas, PIN ni datos financieros."
             ),
         )
@@ -392,7 +392,7 @@ class OrchestratorService:
         if kiosk_session.status != SessionStatus.AWAITING_IDENTIFICATION:
             raise AppError(
                 "INVALID_SESSION_STATE",
-                "La sesión no espera un código de cliente",
+                "La sesión no espera un CI",
                 409,
                 {"status": kiosk_session.status.value},
             )

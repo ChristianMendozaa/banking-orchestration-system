@@ -64,8 +64,7 @@ export default function IdentificationPage() {
           </div>
           <h1 className="mt-5 text-3xl font-semibold">Confirma tu identidad</h1>
           <p className="mt-3 text-white/55">
-            Ingresa tu código de cliente en este campo protegido para asociarlo con la
-            solicitud.
+            Ingresa tu CI en este campo protegido para asociarlo con la solicitud.
           </p>
         </div>
 
@@ -98,17 +97,20 @@ export default function IdentificationPage() {
 
         <form aria-busy={submitting} className="space-y-4" onSubmit={identify}>
           <label className="block text-sm font-medium text-white/70">
-            Código de cliente
+            CI del cliente
             <input
               aria-describedby="identifier-security-note identifier-next-step"
+              autoCapitalize="characters"
               autoComplete="off"
               className="mt-2 w-full rounded-xl border border-white/15 bg-[#071426] px-4 py-4 text-lg uppercase outline-none focus:border-[#23A2D9]"
               disabled={submitting}
-              maxLength={40}
+              maxLength={16}
               minLength={4}
-              onChange={(event) => setIdentifier(event.target.value)}
-              placeholder="Ej.: CLI-1001"
+              onChange={(event) => setIdentifier(event.target.value.toUpperCase())}
+              pattern="[0-9]{4,12}(-[A-Za-z]{1,3})?"
+              placeholder="Ej.: 6735666 o 6735666-SC"
               required
+              title="Ingresa entre 4 y 12 dígitos y, opcionalmente, una extensión como -SC"
               value={identifier}
             />
           </label>
@@ -119,10 +121,10 @@ export default function IdentificationPage() {
           )}
           <Button className="w-full" disabled={submitting} size="lg" type="submit">
             <BadgeCheck className="h-5 w-5" />
-            {submitting ? "Estoy validando tu código…" : "Validar mi código y continuar"}
+            {submitting ? "Estoy validando tu CI…" : "Validar mi CI y continuar"}
           </Button>
           <p className="text-center text-sm text-white/50" id="identifier-next-step">
-            Después de validar el código, verás tu número de ticket y los datos para
+            Después de validar el CI, verás tu número de ticket y los datos para
             continuar.
           </p>
         </form>

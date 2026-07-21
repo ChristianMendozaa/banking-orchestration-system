@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -92,7 +93,20 @@ class ConfirmationRequest(BaseModel):
 
 
 class IdentificationRequest(BaseModel):
-    identifier: str = Field(min_length=4, max_length=40)
+    identifier: str = Field(min_length=4, max_length=16)
+
+    @field_validator("identifier", mode="before")
+    @classmethod
+    def validate_ci(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return value
+        normalized = value.strip().upper()
+        if not re.fullmatch(r"\d{4,12}(?:-[A-Z]{1,3})?", normalized):
+            raise ValueError(
+                "El CI debe tener entre 4 y 12 dígitos y una extensión opcional, "
+                "por ejemplo 6735666-SC"
+            )
+        return normalized
 
 
 class ExecutiveAssignment(BaseModel):

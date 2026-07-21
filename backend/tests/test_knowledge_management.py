@@ -20,7 +20,7 @@ async def manager_headers(client: AsyncClient) -> dict[str, str]:
     response = await client.post(
         "/api/v1/auth/login",
         json={
-            "email": "gerencia@personal.bmsc.com.bo",
+            "email": "gerencia@bmsc.com.bo",
             "password": settings_for_tests.seed_manager_password.get_secret_value(),
         },
     )
@@ -191,7 +191,7 @@ async def test_knowledge_management_rejects_non_pdf_and_wrong_role(
         executive = await client.post(
             "/api/v1/auth/login",
             json={
-                "email": "maria.fernandez@personal.bmsc.com.bo",
+                "email": "maria.fernandez@bmsc.com.bo",
                 "password": settings_for_tests.seed_executive_password.get_secret_value(),
             },
         )

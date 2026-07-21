@@ -39,7 +39,7 @@ No publique `OPENAI_API_KEY`.
    idempotente.
 5. El flujo responde `CLARIFY` o `CONFIRM`.
 6. `POST .../confirmation` permite corrección o crea el caso.
-7. Los niveles `PERSONALIZADA` y `SENSIBLE` solicitan el código de cliente mediante
+7. Los niveles `PERSONALIZADA` y `SENSIBLE` solicitan el CI del cliente mediante
    un campo protegido.
 8. Las consultas `GENERAL` intentan RAG; cualquier falta de evidencia deriva a una
    persona.

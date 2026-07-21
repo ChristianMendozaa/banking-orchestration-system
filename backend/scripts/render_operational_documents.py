@@ -194,7 +194,7 @@ def render_rag_documents() -> None:
                 "Atención en sucursal",
                 "El asistente no solicita PIN, contraseña, código de verificación, token ni "
                 "número completo de tarjeta. Los problemas de acceso propios requieren el "
-                "código de cliente en el campo protegido y, cuando no exista orientación "
+                "CI del cliente en el campo protegido y, cuando no exista orientación "
                 "pública suficiente, se asignan a un ejecutivo de banca digital.",
             ),
         ],
@@ -263,7 +263,7 @@ def render_rag_documents() -> None:
             (
                 "Verificación protegida",
                 "Las consultas generales pueden procesarse sin identificación. Las consultas "
-                "personalizadas o sensibles solicitan un código de cliente escrito en el campo "
+                "personalizadas o sensibles solicitan el CI del cliente escrito en el campo "
                 "protegido. El valor se verifica mediante una huella criptográfica, se muestra "
                 "parcialmente oculto y no se conserva de forma completa.",
             ),

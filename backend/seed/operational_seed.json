@@ -14,7 +14,7 @@
       "name": "Maria Fernandez",
       "title": "Tarjetas y Seguridad",
       "window": "Ventanilla 3",
-      "email": "maria.fernandez@personal.bmsc.com.bo",
+      "email": "maria.fernandez@bmsc.com.bo",
       "skills": {
         "BLOQUEO_TARJETA": {
           "level": 5,
@@ -30,7 +30,7 @@
       "name": "Carlos Mamani",
       "title": "Prevencion de Fraudes",
       "window": "Ventanilla 1",
-      "email": "carlos.mamani@personal.bmsc.com.bo",
+      "email": "carlos.mamani@bmsc.com.bo",
       "skills": {
         "REPORTE_FRAUDE": {
           "level": 5,
@@ -46,7 +46,7 @@
       "name": "Patricia Quispe",
       "title": "Banca Digital",
       "window": "Ventanilla 5",
-      "email": "patricia.quispe@personal.bmsc.com.bo",
+      "email": "patricia.quispe@bmsc.com.bo",
       "skills": {
         "BANCA_DIGITAL": {
           "level": 5,
@@ -62,7 +62,7 @@
       "name": "Roberto Torrez",
       "title": "Creditos y Atencion al Cliente",
       "window": "Ventanilla 4",
-      "email": "roberto.torrez@personal.bmsc.com.bo",
+      "email": "roberto.torrez@bmsc.com.bo",
       "skills": {
         "SOLICITUD_CREDITO": {
           "level": 5,
@@ -76,15 +76,15 @@
     }
   ],
   "manager": {
-    "email": "gerencia@personal.bmsc.com.bo"
+    "email": "gerencia@bmsc.com.bo"
   },
   "client_references": [
     {
-      "identifier": "CLI-1001",
-      "name": "Cliente Uno"
+      "identifier": "6735666",
+      "name": "Christian Mendoza"
     },
     {
-      "identifier": "CLI-1002",
+      "identifier": "7842193",
       "name": "Cliente Dos"
     }
   ]

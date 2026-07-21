@@ -55,7 +55,7 @@ un timeout de recuperación si el audio no finaliza correctamente.
 5. La asistente se dirige de tú, resume lo entendido y pide confirmación por voz.
 6. La confirmación queda asociada al requerimiento; una corrección vuelve a captura y
    una aceptación crea o recupera el mismo caso.
-7. Los casos personalizados o sensibles solicitan el código de cliente en un campo
+7. Los casos personalizados o sensibles solicitan el CI del cliente en un campo
    escrito protegido.
 8. Una consulta general con evidencia vigente recibe respuesta RAG y ticket cerrado.
 9. Los demás casos se asignan a un perfil compatible y generan ticket pendiente.
@@ -166,7 +166,7 @@ disponibilidad, carga activa y tiempo calculado para auditoría.
 ## Seguridad y privacidad
 
 - La API key del servidor no llega al navegador; Realtime recibe un secreto efímero.
-- El código de cliente se escribe fuera del canal de voz.
+- El CI del cliente se escribe fuera del canal de voz.
 - No se solicitan PIN, CVV, contraseñas, tokens ni números financieros completos.
 - El identificador se normaliza y verifica con HMAC; su valor completo no se guarda.
 - El audio y la transcripción original no se persisten.

@@ -270,12 +270,12 @@ async def test_confirmation_and_identification_retries_return_one_ticket(
     first_identification = await client.post(
         f"/api/v1/kiosk/sessions/{session_id}/identification",
         headers=headers,
-        json={"identifier": "CLI-1001"},
+        json={"identifier": "6735666"},
     )
     repeated_identification = await client.post(
         f"/api/v1/kiosk/sessions/{session_id}/identification",
         headers=headers,
-        json={"identifier": "CLI-1001"},
+        json={"identifier": "6735666"},
     )
     assert first_identification.status_code == 200, first_identification.text
     assert repeated_identification.status_code == 200, repeated_identification.text
@@ -465,10 +465,18 @@ async def test_unknown_identifier_still_creates_ticket_for_manual_verification(
     )
     assert confirmation.status_code == 200, confirmation.text
 
+    invalid_identification = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/identification",
+        headers=headers,
+        json={"identifier": "CLI-1001"},
+    )
+    assert invalid_identification.status_code == 422, invalid_identification.text
+    assert invalid_identification.json()["code"] == "VALIDATION_ERROR"
+
     identification = await client.post(
         f"/api/v1/kiosk/sessions/{session_id}/identification",
         headers=headers,
-        json={"identifier": "CODIGO-DESCONOCIDO"},
+        json={"identifier": "9999999"},
     )
     assert identification.status_code == 200, identification.text
     result = identification.json()
