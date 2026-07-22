@@ -89,8 +89,10 @@ def ticket_item(ticket: Ticket, *, include_client_name: bool) -> TicketListItem:
 
 
 def _identity_option():
-    return selectinload(Ticket.case).selectinload(CaseRecord.identification).selectinload(
-        Identification.client_reference
+    return (
+        selectinload(Ticket.case)
+        .selectinload(CaseRecord.identification)
+        .selectinload(Identification.client_reference)
     )
 
 
@@ -203,9 +205,7 @@ async def _authorized_ticket(
     for_update: bool = False,
 ) -> Ticket:
     statement = (
-        select(Ticket)
-        .where(Ticket.public_id == public_id)
-        .options(*_ticket_detail_options())
+        select(Ticket).where(Ticket.public_id == public_id).options(*_ticket_detail_options())
     )
     if for_update and db.get_bind().dialect.name == "postgresql":
         statement = statement.with_for_update()

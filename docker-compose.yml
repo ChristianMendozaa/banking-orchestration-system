@@ -5,7 +5,6 @@ x-backend-environment: &backend-environment
   DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:?Defina POSTGRES_USER}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:?Defina POSTGRES_DB}
   DATABASE_MIGRATION_URL: postgresql+psycopg://${POSTGRES_USER:?Defina POSTGRES_USER}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:?Defina POSTGRES_DB}
   KNOWLEDGE_STORAGE_DIR: /workspace/data/knowledge
-  KNOWLEDGE_SEED_DIR: /workspace/doc/rag
   RAG_CORPUS_DIR: /workspace/doc/rag
   SEED_DATA_PATH: /workspace/backend/seed/operational_seed.json
   ESTIMATED_SERVICE_MINUTES: ${ESTIMATED_SERVICE_MINUTES:-8}

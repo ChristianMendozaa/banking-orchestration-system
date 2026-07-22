@@ -20,7 +20,6 @@ class Settings(BaseSettings):
     database_url: str
     database_migration_url: str | None = None
     supabase_url: str | None = None
-    supabase_service_role_key: SecretStr = SecretStr("")
 
     openai_api_key: SecretStr = SecretStr("")
     voice_model: str = "gpt-realtime-2.1-mini"
@@ -55,7 +54,6 @@ class Settings(BaseSettings):
     dashboard_refresh_ms: int = 10_000
 
     knowledge_storage_dir: str = "../data/knowledge"
-    knowledge_seed_dir: str = "../doc/rag"
     knowledge_max_upload_mb: int = 20
     knowledge_max_pages: int = 300
 

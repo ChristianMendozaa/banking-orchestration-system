@@ -97,10 +97,14 @@ def decrypt_identifier(
             409,
         )
     try:
-        return AESGCM(base64.b64decode(encoded_key)).decrypt(
-            base64.b64decode(nonce),
-            base64.b64decode(ciphertext),
-            case_id.encode(),
-        ).decode()
+        return (
+            AESGCM(base64.b64decode(encoded_key))
+            .decrypt(
+                base64.b64decode(nonce),
+                base64.b64decode(ciphertext),
+                case_id.encode(),
+            )
+            .decode()
+        )
     except (InvalidTag, ValueError, UnicodeDecodeError) as exc:
         raise AppError("IDENTIFIER_DECRYPTION_FAILED", "No fue posible revelar el CI", 409) from exc

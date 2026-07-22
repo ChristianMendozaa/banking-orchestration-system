@@ -28,6 +28,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
   const tokenRef = useRef<string | null>(null)
+  const refreshPromiseRef = useRef<Promise<TokenResponse> | null>(null)
   const initialized = useRef(false)
 
   const applySession = useCallback((session: TokenResponse | null) => {
@@ -36,9 +37,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const refresh = useCallback(async (): Promise<TokenResponse> => {
-    const session = await apiRequest<TokenResponse>("/auth/refresh", { method: "POST" })
-    applySession(session)
-    return session
+    if (refreshPromiseRef.current) return refreshPromiseRef.current
+    const pending = apiRequest<TokenResponse>("/auth/refresh", { method: "POST" }).then(
+      (session) => {
+        applySession(session)
+        return session
+      },
+    )
+    refreshPromiseRef.current = pending
+    try {
+      return await pending
+    } finally {
+      if (refreshPromiseRef.current === pending) refreshPromiseRef.current = null
+    }
   }, [applySession])
 
   useEffect(() => {

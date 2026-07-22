@@ -262,6 +262,10 @@ The implementation applies defense-in-depth controls appropriate to the project 
 
 All versioned endpoints are exposed under `/api/v1`. Interactive OpenAPI documentation is available at `http://localhost:8000/docs`.
 
+Existing endpoints are treated as compatibility contracts even when the bundled frontend does
+not call them. Removal requires observed usage data, an OpenAPI deprecation marker, documented
+notice, and a compatibility window; repository search alone is never sufficient evidence.
+
 | Area | Representative endpoints | Access model |
 | --- | --- | --- |
 | Health | `GET /health/live`, `GET /health/ready` | Public |
@@ -486,18 +490,24 @@ Run backend validation from `backend/`:
 ```bash
 uv run ruff format --check .
 uv run ruff check .
-uv run pytest -q
+uv run coverage run -m pytest -q
+uv run coverage report
 uv run --with pip-audit pip-audit
 ```
 
 Run frontend validation from `frontend/`:
 
 ```bash
+pnpm generate:api
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm test:coverage
 pnpm build
 ```
+
+`generate:api` exports FastAPI's OpenAPI schema and regenerates the TypeScript contracts used by
+the frontend. CI rejects drift in either generated artifact.
 
 The test environment uses an isolated ephemeral SQLite schema and deterministic AI doubles; automated tests do not call OpenAI.
 
@@ -518,6 +528,4 @@ When OpenAI is intentionally absent in development, deterministic classification
 ## Additional documentation
 
 - [Backend implementation guide](backend/README.md)
-- [Implementation audit](doc/AUDITORIA_IMPLEMENTACION.md)
-- [Backend architecture audit (PDF)](doc/auditoria_backend_arquitectura.pdf)
 - [Governed RAG manifest](doc/rag/manifest.json)

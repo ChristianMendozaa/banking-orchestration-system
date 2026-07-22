@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { errorMessage } from "@/lib/api"
 import { formatDateTime, resolutionLabels, statusLabels } from "@/lib/labels"
-import type { TicketDetail } from "@/lib/types"
+import { useTicketDetail } from "@/lib/use-ticket-detail"
 import {
   Activity,
   ArrowLeft,
@@ -20,26 +20,14 @@ import {
   UserRound,
 } from "lucide-react"
 import Link from "next/link"
-import { use, useCallback, useEffect, useState } from "react"
+import { use, useEffect, useState } from "react"
 
 export default function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const { request } = useAuth()
-  const [ticket, setTicket] = useState<TicketDetail | null>(null)
+  const { ticket, setTicket, error, setError, reload } = useTicketDetail(id)
   const [revealedCi, setRevealedCi] = useState<string | null>(null)
   const [revealing, setRevealing] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    try {
-      setTicket(await request<TicketDetail>(`/tickets/${encodeURIComponent(id)}`))
-      setError(null)
-    } catch (reason) {
-      setError(errorMessage(reason))
-    }
-  }, [id, request])
-
-  useEffect(() => { queueMicrotask(() => void load()) }, [load])
   useEffect(() => {
     if (!revealedCi) return
     const timer = window.setTimeout(() => setRevealedCi(null), 30_000)
@@ -52,7 +40,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
     try {
       const response = await request<{ identifier: string }>(`/tickets/${id}/identifier/reveal`, { method: "POST" })
       setRevealedCi(response.identifier)
-      await load()
+      await reload()
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {

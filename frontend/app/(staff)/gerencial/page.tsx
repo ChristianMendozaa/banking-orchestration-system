@@ -12,6 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { errorMessage } from "@/lib/api"
 import { categoryLabels, priorityLabels, statusLabels } from "@/lib/labels"
 import type { Category, ManagementCasesPage, ManagementMetrics, Priority, TicketStatus } from "@/lib/types"
+import { useIntervalRefresh } from "@/lib/use-interval-refresh"
 import { AlertTriangle, CheckCircle2, Clock3, Hourglass, RefreshCw, Search, UserRoundCheck } from "lucide-react"
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
 
@@ -83,11 +84,7 @@ export default function ManagerDashboardPage() {
   }, [casesQuery, request, sharedQuery])
 
   useEffect(() => { queueMicrotask(() => void load()) }, [load])
-  useEffect(() => {
-    if (!config) return
-    const timer = window.setInterval(() => void load(), config.dashboard_refresh_ms)
-    return () => window.clearInterval(timer)
-  }, [config, load])
+  useIntervalRefresh(() => void load(), config?.dashboard_refresh_ms)
 
   function applyDays(days: number) {
     setDateFrom(shiftDate(today, -(days - 1))); setDateTo(today); setPage(1)

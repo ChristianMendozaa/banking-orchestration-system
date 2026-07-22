@@ -47,14 +47,20 @@ async def require_document(db: AsyncSession, document_id: UUID) -> KnowledgeDocu
 
 
 async def document_summary(
-    db: AsyncSession, document: KnowledgeDocument
+    db: AsyncSession,
+    document: KnowledgeDocument,
+    *,
+    chunk_count: int | None = None,
 ) -> KnowledgeDocumentSummary:
-    chunk_count = (
-        await db.scalar(
-            select(func.count(KnowledgeChunk.id)).where(KnowledgeChunk.document_id == document.id)
+    if chunk_count is None:
+        chunk_count = (
+            await db.scalar(
+                select(func.count(KnowledgeChunk.id)).where(
+                    KnowledgeChunk.document_id == document.id
+                )
+            )
+            or 0
         )
-        or 0
-    )
     categories = [Category(value) for value in document.metadata_json.get("categories", [])]
     return KnowledgeDocumentSummary(
         id=document.id,
@@ -128,19 +134,33 @@ async def list_documents(
     if index_status:
         filters.append(KnowledgeDocument.index_status == index_status)
     total = await db.scalar(select(func.count(KnowledgeDocument.id)).where(*filters)) or 0
-    documents = list(
-        (
-            await db.scalars(
-                select(KnowledgeDocument)
-                .where(*filters)
-                .order_by(KnowledgeDocument.slug, KnowledgeDocument.created_at.desc())
-                .offset((page - 1) * page_size)
-                .limit(page_size)
-            )
-        ).all()
+    chunk_counts = (
+        select(
+            KnowledgeChunk.document_id.label("document_id"),
+            func.count(KnowledgeChunk.id).label("chunk_count"),
+        )
+        .group_by(KnowledgeChunk.document_id)
+        .subquery()
     )
+    rows = (
+        await db.execute(
+            select(
+                KnowledgeDocument,
+                func.coalesce(chunk_counts.c.chunk_count, 0),
+            )
+            .outerjoin(chunk_counts, chunk_counts.c.document_id == KnowledgeDocument.id)
+            .where(*filters)
+            .order_by(KnowledgeDocument.slug, KnowledgeDocument.created_at.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    ).all()
+    summaries = [
+        await document_summary(db, document, chunk_count=int(chunk_count))
+        for document, chunk_count in rows
+    ]
     return KnowledgeDocumentPage(
-        items=[await document_summary(db, document) for document in documents],
+        items=summaries,
         page=page,
         page_size=page_size,
         total=total,

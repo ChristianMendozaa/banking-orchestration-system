@@ -1,31 +1,16 @@
 "use client"
 
-import { useAuth } from "@/components/providers/auth-provider"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { errorMessage } from "@/lib/api"
 import { formatDateTime, resolutionLabels, statusLabels } from "@/lib/labels"
-import type { TicketDetail } from "@/lib/types"
+import { useTicketDetail } from "@/lib/use-ticket-detail"
 import { Activity, ArrowLeft, Clock3, IdCard, MessageSquareText, ShieldCheck, UserRound } from "lucide-react"
 import Link from "next/link"
-import { use, useCallback, useEffect, useState } from "react"
+import { use } from "react"
 
 export default function ManagerCasePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { request } = useAuth()
-  const [ticket, setTicket] = useState<TicketDetail | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    try {
-      setTicket(await request<TicketDetail>(`/tickets/${encodeURIComponent(id)}`))
-      setError(null)
-    } catch (reason) {
-      setError(errorMessage(reason))
-    }
-  }, [id, request])
-
-  useEffect(() => { queueMicrotask(() => void load()) }, [load])
+  const { ticket, error } = useTicketDetail(id)
 
   if (error && !ticket) return <div className="mx-auto max-w-5xl"><Link className="text-sm text-[#1168BD]" href="/gerencial">← Volver al panel</Link><p className="mt-5 rounded-xl bg-red-50 p-4 text-red-700">{error}</p></div>
   if (!ticket) return <div className="mx-auto h-80 max-w-5xl animate-pulse rounded-2xl bg-white" aria-label="Cargando expediente" />

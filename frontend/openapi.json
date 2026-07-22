@@ -1,0 +1,3875 @@
+{
+  "components": {
+    "schemas": {
+      "Body_create_document_api_v1_management_knowledge_documents_post": {
+        "properties": {
+          "categories": {
+            "title": "Categories",
+            "type": "string"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "review_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review After"
+          },
+          "slug": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Slug",
+            "type": "string"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/KnowledgeSourceType"
+          },
+          "source_urls": {
+            "default": "[]",
+            "title": "Source Urls",
+            "type": "string"
+          },
+          "title": {
+            "maxLength": 240,
+            "minLength": 3,
+            "title": "Title",
+            "type": "string"
+          },
+          "verified_at": {
+            "format": "date-time",
+            "title": "Verified At",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "slug",
+          "title",
+          "version",
+          "source_type",
+          "categories",
+          "verified_at"
+        ],
+        "title": "Body_create_document_api_v1_management_knowledge_documents_post",
+        "type": "object"
+      },
+      "Body_create_document_version_api_v1_management_knowledge_documents__document_id__versions_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          },
+          "review_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review After"
+          },
+          "verified_at": {
+            "format": "date-time",
+            "title": "Verified At",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "version",
+          "verified_at"
+        ],
+        "title": "Body_create_document_version_api_v1_management_knowledge_documents__document_id__versions_post",
+        "type": "object"
+      },
+      "Category": {
+        "enum": [
+          "BLOQUEO_TARJETA",
+          "REPORTE_FRAUDE",
+          "CONSULTA_GENERAL",
+          "SOLICITUD_CREDITO",
+          "BANCA_DIGITAL"
+        ],
+        "title": "Category",
+        "type": "string"
+      },
+      "ConfirmationRequest": {
+        "properties": {
+          "confirmed": {
+            "title": "Confirmed",
+            "type": "boolean"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "confirmed"
+        ],
+        "title": "ConfirmationRequest",
+        "type": "object"
+      },
+      "ConsultationLevel": {
+        "enum": [
+          "GENERAL",
+          "PERSONALIZADA",
+          "SENSIBLE"
+        ],
+        "title": "ConsultationLevel",
+        "type": "string"
+      },
+      "ConversationMessageInput": {
+        "properties": {
+          "item_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Item Id",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ConversationRole"
+          },
+          "text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "role",
+          "text"
+        ],
+        "title": "ConversationMessageInput",
+        "type": "object"
+      },
+      "ConversationMessageOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ConversationRole"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "text",
+          "created_at"
+        ],
+        "title": "ConversationMessageOut",
+        "type": "object"
+      },
+      "ConversationRole": {
+        "enum": [
+          "CUSTOMER",
+          "ASSISTANT"
+        ],
+        "title": "ConversationRole",
+        "type": "string"
+      },
+      "ConversationSyncRequest": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessageInput"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Messages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "title": "ConversationSyncRequest",
+        "type": "object"
+      },
+      "ConversationSyncResponse": {
+        "properties": {
+          "accepted": {
+            "title": "Accepted",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "title": "ConversationSyncResponse",
+        "type": "object"
+      },
+      "ExecutiveAssignment": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "window_number": {
+            "title": "Window Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "title",
+          "window_number"
+        ],
+        "title": "ExecutiveAssignment",
+        "type": "object"
+      },
+      "ExecutiveStatus": {
+        "enum": [
+          "DISPONIBLE",
+          "OCUPADO",
+          "INACTIVO"
+        ],
+        "title": "ExecutiveStatus",
+        "type": "string"
+      },
+      "ExecutiveWorkload": {
+        "properties": {
+          "closed": {
+            "title": "Closed",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "in_attention": {
+            "title": "In Attention",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pending": {
+            "title": "Pending",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ExecutiveStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "title",
+          "status",
+          "pending",
+          "in_attention",
+          "closed"
+        ],
+        "title": "ExecutiveWorkload",
+        "type": "object"
+      },
+      "FlowResult": {
+        "properties": {
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeCitation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "customer_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customer Summary"
+          },
+          "executive": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutiveAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grounding_status": {
+            "$ref": "#/components/schemas/GroundingStatus",
+            "default": "NOT_APPLICABLE"
+          },
+          "identification_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentificationStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_action": {
+            "enum": [
+              "CAPTURE",
+              "IDENTIFY",
+              "COMPLETE"
+            ],
+            "title": "Next Action",
+            "type": "string"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Priority"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "resolution_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolutionType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "response": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "speech_text": {
+            "title": "Speech Text",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          },
+          "ticket": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TicketResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tracking_information": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tracking Information"
+          }
+        },
+        "required": [
+          "session_id",
+          "requirement_id",
+          "status",
+          "next_action",
+          "speech_text"
+        ],
+        "title": "FlowResult",
+        "type": "object"
+      },
+      "GroundingStatus": {
+        "enum": [
+          "GROUNDED",
+          "NO_EVIDENCE",
+          "NOT_APPLICABLE"
+        ],
+        "title": "GroundingStatus",
+        "type": "string"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HourlyMetric": {
+        "properties": {
+          "cases": {
+            "title": "Cases",
+            "type": "integer"
+          },
+          "hour": {
+            "title": "Hour",
+            "type": "string"
+          }
+        },
+        "required": [
+          "hour",
+          "cases"
+        ],
+        "title": "HourlyMetric",
+        "type": "object"
+      },
+      "IdentificationRequest": {
+        "properties": {
+          "identifier": {
+            "maxLength": 16,
+            "minLength": 4,
+            "title": "Identifier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "identifier"
+        ],
+        "title": "IdentificationRequest",
+        "type": "object"
+      },
+      "IdentificationStatus": {
+        "enum": [
+          "ANONIMO",
+          "PENDIENTE",
+          "IDENTIFICADO",
+          "FALLIDO",
+          "VERIFICACION_MANUAL"
+        ],
+        "title": "IdentificationStatus",
+        "type": "string"
+      },
+      "IdentifierRevealResponse": {
+        "properties": {
+          "identifier": {
+            "title": "Identifier",
+            "type": "string"
+          },
+          "reveal_seconds": {
+            "default": 30,
+            "title": "Reveal Seconds",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "identifier"
+        ],
+        "title": "IdentifierRevealResponse",
+        "type": "object"
+      },
+      "KnowledgeCitation": {
+        "properties": {
+          "chunk_id": {
+            "format": "uuid",
+            "title": "Chunk Id",
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "score": {
+            "maximum": 1.0,
+            "minimum": -1.0,
+            "title": "Score",
+            "type": "number"
+          },
+          "section": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Section"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "chunk_id",
+          "title",
+          "page",
+          "score"
+        ],
+        "title": "KnowledgeCitation",
+        "type": "object"
+      },
+      "KnowledgeDocumentPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeDocumentSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "title": "KnowledgeDocumentPage",
+        "type": "object"
+      },
+      "KnowledgeDocumentSummary": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/Category"
+            },
+            "title": "Categories",
+            "type": "array"
+          },
+          "chunk_count": {
+            "title": "Chunk Count",
+            "type": "integer"
+          },
+          "content_sha256": {
+            "title": "Content Sha256",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "index_error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index Error"
+          },
+          "index_status": {
+            "$ref": "#/components/schemas/KnowledgeIndexStatus"
+          },
+          "indexed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed At"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "page_count": {
+            "title": "Page Count",
+            "type": "integer"
+          },
+          "review_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review After"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/KnowledgeSourceType"
+          },
+          "source_urls": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Urls",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "verified_at": {
+            "format": "date-time",
+            "title": "Verified At",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "slug",
+          "title",
+          "version",
+          "source_type",
+          "categories",
+          "source_urls",
+          "verified_at",
+          "review_after",
+          "file_name",
+          "mime_type",
+          "byte_size",
+          "page_count",
+          "content_sha256",
+          "index_status",
+          "indexed_at",
+          "index_error",
+          "active",
+          "chunk_count",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "KnowledgeDocumentSummary",
+        "type": "object"
+      },
+      "KnowledgeDocumentUpdate": {
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "categories": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/Category"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categories"
+          },
+          "review_after": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review After"
+          },
+          "source_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/KnowledgeSourceType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_urls": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Urls"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 240,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "verified_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Verified At"
+          }
+        },
+        "title": "KnowledgeDocumentUpdate",
+        "type": "object"
+      },
+      "KnowledgeIndexStatus": {
+        "enum": [
+          "PENDING",
+          "INDEXING",
+          "READY",
+          "FAILED",
+          "ARCHIVED"
+        ],
+        "title": "KnowledgeIndexStatus",
+        "type": "string"
+      },
+      "KnowledgeOperationResult": {
+        "properties": {
+          "document": {
+            "$ref": "#/components/schemas/KnowledgeDocumentSummary"
+          },
+          "indexed_chunks": {
+            "title": "Indexed Chunks",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "document",
+          "indexed_chunks"
+        ],
+        "title": "KnowledgeOperationResult",
+        "type": "object"
+      },
+      "KnowledgeSourceType": {
+        "enum": [
+          "OFFICIAL",
+          "REGULATORY",
+          "INTERNAL",
+          "HYBRID"
+        ],
+        "title": "KnowledgeSourceType",
+        "type": "string"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "ManagementCasesResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManagerialCase"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total"
+        ],
+        "title": "ManagementCasesResponse",
+        "type": "object"
+      },
+      "ManagementMetrics": {
+        "properties": {
+          "active_cases": {
+            "title": "Active Cases",
+            "type": "integer"
+          },
+          "average_attention_minutes": {
+            "title": "Average Attention Minutes",
+            "type": "number"
+          },
+          "average_wait_minutes": {
+            "title": "Average Wait Minutes",
+            "type": "number"
+          },
+          "by_category": {
+            "items": {
+              "$ref": "#/components/schemas/MetricSlice"
+            },
+            "title": "By Category",
+            "type": "array"
+          },
+          "by_priority": {
+            "items": {
+              "$ref": "#/components/schemas/MetricSlice"
+            },
+            "title": "By Priority",
+            "type": "array"
+          },
+          "closed_cases": {
+            "title": "Closed Cases",
+            "type": "integer"
+          },
+          "critical_pending": {
+            "title": "Critical Pending",
+            "type": "integer"
+          },
+          "executives": {
+            "items": {
+              "$ref": "#/components/schemas/ExecutiveWorkload"
+            },
+            "title": "Executives",
+            "type": "array"
+          },
+          "hourly": {
+            "items": {
+              "$ref": "#/components/schemas/HourlyMetric"
+            },
+            "title": "Hourly",
+            "type": "array"
+          },
+          "in_attention_cases": {
+            "title": "In Attention Cases",
+            "type": "integer"
+          },
+          "pending_cases": {
+            "title": "Pending Cases",
+            "type": "integer"
+          },
+          "total_cases": {
+            "title": "Total Cases",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "total_cases",
+          "active_cases",
+          "pending_cases",
+          "in_attention_cases",
+          "closed_cases",
+          "average_wait_minutes",
+          "average_attention_minutes",
+          "critical_pending",
+          "by_category",
+          "by_priority",
+          "hourly",
+          "executives"
+        ],
+        "title": "ManagementMetrics",
+        "type": "object"
+      },
+      "ManagerialCase": {
+        "properties": {
+          "attention_time_min": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attention Time Min"
+          },
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "executive": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "resolution_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolutionOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "ticket": {
+            "title": "Ticket",
+            "type": "string"
+          },
+          "wait_time_min": {
+            "title": "Wait Time Min",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "ticket",
+          "summary",
+          "category",
+          "priority",
+          "executive",
+          "status",
+          "attention_time_min",
+          "wait_time_min",
+          "resolution_outcome",
+          "created_at"
+        ],
+        "title": "ManagerialCase",
+        "type": "object"
+      },
+      "MetricSlice": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "value"
+        ],
+        "title": "MetricSlice",
+        "type": "object"
+      },
+      "Priority": {
+        "enum": [
+          "CRITICO",
+          "ALTO",
+          "MEDIO",
+          "BAJO"
+        ],
+        "title": "Priority",
+        "type": "string"
+      },
+      "ProtectedIdentity": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "masked_identifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Identifier"
+          },
+          "reveal_available": {
+            "default": false,
+            "title": "Reveal Available",
+            "type": "boolean"
+          },
+          "status": {
+            "$ref": "#/components/schemas/IdentificationStatus"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ProtectedIdentity",
+        "type": "object"
+      },
+      "PublicSystemConfig": {
+        "properties": {
+          "app_name": {
+            "title": "App Name",
+            "type": "string"
+          },
+          "bank_name": {
+            "title": "Bank Name",
+            "type": "string"
+          },
+          "branch_name": {
+            "title": "Branch Name",
+            "type": "string"
+          },
+          "dashboard_refresh_ms": {
+            "title": "Dashboard Refresh Ms",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "app_name",
+          "bank_name",
+          "branch_name",
+          "dashboard_refresh_ms"
+        ],
+        "title": "PublicSystemConfig",
+        "type": "object"
+      },
+      "RealtimeTokenResponse": {
+        "properties": {
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "session": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "RealtimeTokenResponse",
+        "type": "object"
+      },
+      "ResolutionOutcome": {
+        "enum": [
+          "RESUELTO",
+          "DERIVADO",
+          "PENDIENTE_DOCUMENTACION",
+          "CLIENTE_DESISTIO",
+          "NO_RESUELTO"
+        ],
+        "title": "ResolutionOutcome",
+        "type": "string"
+      },
+      "ResolutionType": {
+        "enum": [
+          "AUTOMATIC",
+          "HUMAN"
+        ],
+        "title": "ResolutionType",
+        "type": "string"
+      },
+      "SessionCreateRequest": {
+        "properties": {
+          "preferential_attention": {
+            "default": false,
+            "title": "Preferential Attention",
+            "type": "boolean"
+          }
+        },
+        "title": "SessionCreateRequest",
+        "type": "object"
+      },
+      "SessionCreatedResponse": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "session_token": {
+            "title": "Session Token",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          }
+        },
+        "required": [
+          "session_id",
+          "session_token",
+          "status",
+          "expires_at"
+        ],
+        "title": "SessionCreatedResponse",
+        "type": "object"
+      },
+      "SessionStatus": {
+        "enum": [
+          "CREATED",
+          "LISTENING",
+          "NEEDS_CLARIFICATION",
+          "AWAITING_CONFIRMATION",
+          "AWAITING_IDENTIFICATION",
+          "ORCHESTRATING",
+          "RESOLVED_AUTOMATIC",
+          "ASSIGNED",
+          "FAILED"
+        ],
+        "title": "SessionStatus",
+        "type": "string"
+      },
+      "SessionStatusResponse": {
+        "properties": {
+          "analysis": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TurnAnalysisResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "final_response": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Response"
+          },
+          "resolution_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolutionType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlowResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          }
+        },
+        "required": [
+          "session_id",
+          "status"
+        ],
+        "title": "SessionStatusResponse",
+        "type": "object"
+      },
+      "TicketDetail": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "client_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Display Name"
+          },
+          "client_session_id": {
+            "title": "Client Session Id",
+            "type": "string"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "consultation_level": {
+            "$ref": "#/components/schemas/ConsultationLevel"
+          },
+          "conversation": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationMessageOut"
+            },
+            "title": "Conversation",
+            "type": "array"
+          },
+          "estimated_wait_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Wait Minutes"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/TraceEventOut"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "executive_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Name"
+          },
+          "executive_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Title"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "identification_status": {
+            "$ref": "#/components/schemas/IdentificationStatus"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/ProtectedIdentity"
+          },
+          "masked_identifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Identifier"
+          },
+          "minutes_elapsed": {
+            "title": "Minutes Elapsed",
+            "type": "integer"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "preferential_attention": {
+            "title": "Preferential Attention",
+            "type": "boolean"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "resolution_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Note"
+          },
+          "resolution_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolutionOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "time_assigned": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Assigned"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "wait_time_min": {
+            "title": "Wait Time Min",
+            "type": "integer"
+          },
+          "window_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Number"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "category",
+          "priority",
+          "summary",
+          "time_assigned",
+          "minutes_elapsed",
+          "executive_name",
+          "executive_title",
+          "window_number",
+          "status",
+          "client_session_id",
+          "wait_time_min",
+          "estimated_wait_minutes",
+          "identification_status",
+          "preferential_attention",
+          "version",
+          "consultation_level",
+          "identity",
+          "conversation",
+          "events"
+        ],
+        "title": "TicketDetail",
+        "type": "object"
+      },
+      "TicketListItem": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "client_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Client Display Name"
+          },
+          "client_session_id": {
+            "title": "Client Session Id",
+            "type": "string"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "estimated_wait_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Wait Minutes"
+          },
+          "executive_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Name"
+          },
+          "executive_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Title"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "identification_status": {
+            "$ref": "#/components/schemas/IdentificationStatus"
+          },
+          "masked_identifier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Masked Identifier"
+          },
+          "minutes_elapsed": {
+            "title": "Minutes Elapsed",
+            "type": "integer"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "preferential_attention": {
+            "title": "Preferential Attention",
+            "type": "boolean"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "resolution_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolutionOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "time_assigned": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Assigned"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "wait_time_min": {
+            "title": "Wait Time Min",
+            "type": "integer"
+          },
+          "window_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Number"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "category",
+          "priority",
+          "summary",
+          "time_assigned",
+          "minutes_elapsed",
+          "executive_name",
+          "executive_title",
+          "window_number",
+          "status",
+          "client_session_id",
+          "wait_time_min",
+          "estimated_wait_minutes",
+          "identification_status",
+          "preferential_attention",
+          "version"
+        ],
+        "title": "TicketListItem",
+        "type": "object"
+      },
+      "TicketPage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TicketListItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "status_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/TicketStatus"
+            },
+            "title": "Status Counts",
+            "type": "object"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "page",
+          "page_size",
+          "total",
+          "status_counts"
+        ],
+        "title": "TicketPage",
+        "type": "object"
+      },
+      "TicketResult": {
+        "properties": {
+          "estimated_wait_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Wait Minutes"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "status"
+        ],
+        "title": "TicketResult",
+        "type": "object"
+      },
+      "TicketStatus": {
+        "enum": [
+          "PENDIENTE",
+          "EN_ATENCION",
+          "CERRADO"
+        ],
+        "title": "TicketStatus",
+        "type": "string"
+      },
+      "TicketStatusUpdate": {
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "resolution_note": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "minLength": 10,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Note"
+          },
+          "resolution_outcome": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResolutionOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          }
+        },
+        "required": [
+          "status",
+          "expected_version"
+        ],
+        "title": "TicketStatusUpdate",
+        "type": "object"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "token_type": {
+            "const": "bearer",
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserSummary"
+          }
+        },
+        "required": [
+          "access_token",
+          "expires_in",
+          "user"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "TraceEventOut": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "event_type": {
+            "title": "Event Type",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "event_type",
+          "description",
+          "created_at"
+        ],
+        "title": "TraceEventOut",
+        "type": "object"
+      },
+      "TurnAnalysisResponse": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "clarification_question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clarification Question"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "consultation_level": {
+            "$ref": "#/components/schemas/ConsultationLevel"
+          },
+          "customer_summary": {
+            "title": "Customer Summary",
+            "type": "string"
+          },
+          "next_action": {
+            "enum": [
+              "CLARIFY",
+              "CONFIRM"
+            ],
+            "title": "Next Action",
+            "type": "string"
+          },
+          "pii_types": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pii Types",
+            "type": "array"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "speech_text": {
+            "title": "Speech Text",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "status",
+          "summary",
+          "customer_summary",
+          "category",
+          "priority",
+          "consultation_level",
+          "confidence",
+          "next_action",
+          "speech_text"
+        ],
+        "title": "TurnAnalysisResponse",
+        "type": "object"
+      },
+      "TurnRequest": {
+        "properties": {
+          "is_clarification": {
+            "default": false,
+            "title": "Is Clarification",
+            "type": "boolean"
+          },
+          "transcript": {
+            "maxLength": 4000,
+            "minLength": 2,
+            "title": "Transcript",
+            "type": "string"
+          },
+          "turn_id": {
+            "format": "uuid",
+            "title": "Turn Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "turn_id",
+          "transcript"
+        ],
+        "title": "TurnRequest",
+        "type": "object"
+      },
+      "UserRole": {
+        "enum": [
+          "EXECUTIVE",
+          "MANAGER"
+        ],
+        "title": "UserRole",
+        "type": "string"
+      },
+      "UserSummary": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "executive_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "role"
+        ],
+        "title": "UserSummary",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "API del sistema de orquestacion de atencion bancaria",
+    "title": "Sistema de Orquestacion Bancaria",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login",
+        "tags": [
+          "Autenticacion"
+        ]
+      }
+    },
+    "/api/v1/auth/logout": {
+      "post": {
+        "operationId": "logout_api_v1_auth_logout_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "orquestacion_refresh",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Orquestacion Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logout",
+        "tags": [
+          "Autenticacion"
+        ]
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Me",
+        "tags": [
+          "Autenticacion"
+        ]
+      }
+    },
+    "/api/v1/auth/refresh": {
+      "post": {
+        "operationId": "refresh_api_v1_auth_refresh_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "orquestacion_refresh",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Orquestacion Refresh"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Refresh",
+        "tags": [
+          "Autenticacion"
+        ]
+      }
+    },
+    "/api/v1/executive/tickets": {
+      "get": {
+        "operationId": "executive_tickets_api_v1_executive_tickets_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TicketStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Category"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "priority",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Priority"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Priority"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "priority",
+              "enum": [
+                "priority",
+                "oldest",
+                "newest"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Executive Tickets",
+        "tags": [
+          "Operacion ejecutiva"
+        ]
+      }
+    },
+    "/api/v1/health/live": {
+      "get": {
+        "operationId": "live_api_v1_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Live Api V1 Health Live Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Live",
+        "tags": [
+          "Salud"
+        ]
+      }
+    },
+    "/api/v1/health/ready": {
+      "get": {
+        "operationId": "ready_api_v1_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Ready Api V1 Health Ready Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Ready",
+        "tags": [
+          "Salud"
+        ]
+      }
+    },
+    "/api/v1/kiosk/sessions": {
+      "post": {
+        "operationId": "create_session_api_v1_kiosk_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCreatedResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Session",
+        "tags": [
+          "Kiosco"
+        ]
+      }
+    },
+    "/api/v1/kiosk/sessions/{session_id}": {
+      "get": {
+        "operationId": "get_session_status_api_v1_kiosk_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Status",
+        "tags": [
+          "Kiosco"
+        ]
+      }
+    },
+    "/api/v1/kiosk/sessions/{session_id}/confirmation": {
+      "post": {
+        "operationId": "confirm_api_v1_kiosk_sessions__session_id__confirmation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Confirm",
+        "tags": [
+          "Kiosco"
+        ]
+      }
+    },
+    "/api/v1/kiosk/sessions/{session_id}/conversation/messages": {
+      "post": {
+        "operationId": "sync_conversation_api_v1_kiosk_sessions__session_id__conversation_messages_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConversationSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationSyncResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Sync Conversation",
+        "tags": [
+          "Kiosco"
+        ]
+      }
+    },
+    "/api/v1/kiosk/sessions/{session_id}/identification": {
+      "post": {
+        "operationId": "identify_api_v1_kiosk_sessions__session_id__identification_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentificationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlowResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Identify",
+        "tags": [
+          "Kiosco"
+        ]
+      }
+    },
+    "/api/v1/kiosk/sessions/{session_id}/realtime-token": {
+      "post": {
+        "operationId": "realtime_token_api_v1_kiosk_sessions__session_id__realtime_token_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RealtimeTokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Realtime Token",
+        "tags": [
+          "Kiosco"
+        ]
+      }
+    },
+    "/api/v1/kiosk/sessions/{session_id}/turns": {
+      "post": {
+        "operationId": "analyze_turn_api_v1_kiosk_sessions__session_id__turns_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analyze Turn",
+        "tags": [
+          "Kiosco"
+        ]
+      }
+    },
+    "/api/v1/management/cases": {
+      "get": {
+        "operationId": "cases_api_v1_management_cases_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Category"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "priority",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Priority"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Priority"
+            }
+          },
+          {
+            "in": "query",
+            "name": "executive_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Executive Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TicketStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagementCasesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cases",
+        "tags": [
+          "Gestion gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/knowledge/documents": {
+      "get": {
+        "operationId": "list_documents_api_v1_management_knowledge_documents_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 120,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "in": "query",
+            "name": "active",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Active"
+            }
+          },
+          {
+            "in": "query",
+            "name": "index_status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/KnowledgeIndexStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Index Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "Page",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_size",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Page Size",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Documents",
+        "tags": [
+          "Conocimiento gerencial"
+        ]
+      },
+      "post": {
+        "operationId": "create_document_api_v1_management_knowledge_documents_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_document_api_v1_management_knowledge_documents_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeOperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Document",
+        "tags": [
+          "Conocimiento gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/knowledge/documents/{document_id}": {
+      "delete": {
+        "operationId": "archive_document_api_v1_management_knowledge_documents__document_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Archive Document",
+        "tags": [
+          "Conocimiento gerencial"
+        ]
+      },
+      "get": {
+        "operationId": "get_document_api_v1_management_knowledge_documents__document_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Document",
+        "tags": [
+          "Conocimiento gerencial"
+        ]
+      },
+      "patch": {
+        "operationId": "update_document_api_v1_management_knowledge_documents__document_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/KnowledgeDocumentUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeDocumentSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Document",
+        "tags": [
+          "Conocimiento gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/knowledge/documents/{document_id}/download": {
+      "get": {
+        "operationId": "download_document_api_v1_management_knowledge_documents__document_id__download_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Download Document",
+        "tags": [
+          "Conocimiento gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/knowledge/documents/{document_id}/reindex": {
+      "post": {
+        "operationId": "reindex_document_api_v1_management_knowledge_documents__document_id__reindex_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeOperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reindex Document",
+        "tags": [
+          "Conocimiento gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/knowledge/documents/{document_id}/versions": {
+      "post": {
+        "operationId": "create_document_version_api_v1_management_knowledge_documents__document_id__versions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Document Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_create_document_version_api_v1_management_knowledge_documents__document_id__versions_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeOperationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Document Version",
+        "tags": [
+          "Conocimiento gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/metrics": {
+      "get": {
+        "operationId": "metrics_api_v1_management_metrics_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "date_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date From"
+            }
+          },
+          {
+            "in": "query",
+            "name": "date_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Date To"
+            }
+          },
+          {
+            "in": "query",
+            "name": "category",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Category"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "in": "query",
+            "name": "priority",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/Priority"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Priority"
+            }
+          },
+          {
+            "in": "query",
+            "name": "executive_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Executive Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagementMetrics"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Metrics",
+        "tags": [
+          "Gestion gerencial"
+        ]
+      }
+    },
+    "/api/v1/system/public-config": {
+      "get": {
+        "operationId": "public_config_api_v1_system_public_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicSystemConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Public Config",
+        "tags": [
+          "Configuracion publica"
+        ]
+      }
+    },
+    "/api/v1/tickets/{ticket_id}": {
+      "get": {
+        "operationId": "ticket_detail_api_v1_tickets__ticket_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Ticket Detail",
+        "tags": [
+          "Operacion ejecutiva"
+        ]
+      }
+    },
+    "/api/v1/tickets/{ticket_id}/identifier/reveal": {
+      "post": {
+        "operationId": "reveal_identifier_api_v1_tickets__ticket_id__identifier_reveal_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentifierRevealResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Reveal Identifier",
+        "tags": [
+          "Operacion ejecutiva"
+        ]
+      }
+    },
+    "/api/v1/tickets/{ticket_id}/status": {
+      "patch": {
+        "operationId": "update_ticket_status_api_v1_tickets__ticket_id__status_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketStatusUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Ticket Status",
+        "tags": [
+          "Operacion ejecutiva"
+        ]
+      }
+    }
+  }
+}

@@ -196,9 +196,7 @@ async def cases(
         closed = ensure_aware(ticket.closed_at) if ticket.closed_at else None
         wait = max(0, int(((started or now) - created).total_seconds() // 60))
         attention = (
-            max(0, int(((closed or now) - started).total_seconds() // 60))
-            if started
-            else None
+            max(0, int(((closed or now) - started).total_seconds() // 60)) if started else None
         )
         items.append(
             ManagerialCase(

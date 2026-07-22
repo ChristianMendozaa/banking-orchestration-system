@@ -5,7 +5,10 @@ export const dynamic = "force-dynamic"
 
 type RouteContext = { params: Promise<{ path: string[] }> }
 
-async function proxy(request: NextRequest, context: RouteContext): Promise<Response> {
+export async function proxyBackendRequest(
+  request: NextRequest,
+  context: RouteContext,
+): Promise<Response> {
   const { path } = await context.params
   const surface = parseAppSurface(process.env.APP_SURFACE)
   if (!surface) {
@@ -64,9 +67,9 @@ async function proxy(request: NextRequest, context: RouteContext): Promise<Respo
   }
 }
 
-export const GET = proxy
-export const POST = proxy
-export const PUT = proxy
-export const PATCH = proxy
-export const DELETE = proxy
-export const OPTIONS = proxy
+export const GET = proxyBackendRequest
+export const POST = proxyBackendRequest
+export const PUT = proxyBackendRequest
+export const PATCH = proxyBackendRequest
+export const DELETE = proxyBackendRequest
+export const OPTIONS = proxyBackendRequest

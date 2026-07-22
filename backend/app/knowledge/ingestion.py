@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.db.models import ExecutiveSkill, KnowledgeChunk, KnowledgeDocument
 from app.domain.enums import Category, KnowledgeIndexStatus, KnowledgeSourceType
-from app.knowledge.chunking import chunk_pdf
+from app.knowledge.indexing import index_document
 from app.knowledge.repository import KnowledgeRepository
 from app.services.openai_provider import OpenAIProvider
 
@@ -180,40 +180,22 @@ class KnowledgeIngestionService:
         document.index_status = KnowledgeIndexStatus.INDEXING
         document.index_error = None
         await db.flush()
-        text_chunks = chunk_pdf(
-            path,
-            model=self.settings.embedding_model,
-            chunk_tokens=self.settings.rag_chunk_tokens,
-            overlap_tokens=self.settings.rag_chunk_overlap,
+        count = await index_document(
+            db,
+            document=document,
+            path=path,
+            categories=categories,
+            settings=self.settings,
+            provider=self.provider,
+            repository=self.repository,
             known_headings=set(sections),
         )
-        if not text_chunks:
-            raise ValueError(f"El PDF no produjo texto indexable: {path}")
-        embeddings = await self.provider.embeddings([chunk.content for chunk in text_chunks])
-        if len(embeddings) != len(text_chunks):
-            raise ValueError("La API devolvio una cantidad inesperada de embeddings")
-        rows = [
-            KnowledgeChunk(
-                document_id=document.id,
-                ordinal=chunk.ordinal,
-                page=chunk.page,
-                section=chunk.section,
-                content=chunk.content,
-                token_count=chunk.token_count,
-                categories=[category.value for category in categories],
-                content_sha256=chunk.content_sha256,
-                embedding_model=self.settings.embedding_model,
-                embedding=embedding,
-            )
-            for chunk, embedding in zip(text_chunks, embeddings, strict=True)
-        ]
-        await self.repository.replace_chunks(db, document, rows)
         await self.repository.deactivate_other_versions(db, document.slug, document.id)
         document.active = True
         document.index_status = KnowledgeIndexStatus.READY
         document.indexed_at = datetime.now(UTC)
         await db.flush()
-        return len(rows)
+        return count
 
     async def _retire_replaced_corpus_versions(
         self, db: AsyncSession, specifications: list[dict]

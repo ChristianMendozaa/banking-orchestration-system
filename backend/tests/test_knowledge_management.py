@@ -2,10 +2,11 @@ from io import BytesIO
 
 from httpx import AsyncClient
 from reportlab.pdfgen import canvas
+from sqlalchemy import event
 
 from app.api.deps import get_openai_provider
 from app.main import app
-from tests.conftest import fake_provider, settings_for_tests
+from tests.conftest import engine, fake_provider, settings_for_tests
 
 
 def pdf_bytes(text: str) -> bytes:
@@ -203,3 +204,25 @@ async def test_knowledge_management_rejects_non_pdf_and_wrong_role(
         assert forbidden.status_code == 403
     finally:
         app.dependency_overrides.pop(get_openai_provider, None)
+
+
+async def test_document_listing_uses_constant_query_count(client: AsyncClient) -> None:
+    headers = await manager_headers(client)
+    statements = 0
+
+    def count_statement(*_args) -> None:
+        nonlocal statements
+        statements += 1
+
+    event.listen(engine.sync_engine, "before_cursor_execute", count_statement)
+    try:
+        response = await client.get(
+            "/api/v1/management/knowledge/documents?page_size=100",
+            headers=headers,
+        )
+    finally:
+        event.remove(engine.sync_engine, "before_cursor_execute", count_statement)
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["chunk_count"] == 1
+    assert statements == 3  # usuario autenticado, total y página con conteos agregados

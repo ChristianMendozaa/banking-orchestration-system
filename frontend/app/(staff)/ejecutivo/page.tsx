@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { errorMessage } from "@/lib/api"
 import { categoryLabels, priorityLabels, statusLabels } from "@/lib/labels"
 import type { Category, Priority, TicketPage, TicketStatus } from "@/lib/types"
+import { useIntervalRefresh } from "@/lib/use-interval-refresh"
 import { RefreshCw, Search, SlidersHorizontal } from "lucide-react"
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
 
@@ -57,11 +58,7 @@ export default function ExecutivePage() {
     queueMicrotask(() => void load())
   }, [load])
 
-  useEffect(() => {
-    if (!config) return
-    const timer = window.setInterval(() => void load(), config.dashboard_refresh_ms)
-    return () => window.clearInterval(timer)
-  }, [config, load])
+  useIntervalRefresh(() => void load(), config?.dashboard_refresh_ms)
 
   function submitSearch(event: FormEvent) {
     event.preventDefault()

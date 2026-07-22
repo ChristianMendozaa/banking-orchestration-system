@@ -18,7 +18,11 @@ from app.domain.enums import (
     KnowledgeSourceType,
 )
 from app.domain.schemas import KnowledgeDocumentUpdate
-from app.knowledge.chunking import chunk_pdf
+from app.knowledge.indexing import (
+    EmbeddingCountMismatchError,
+    NoIndexableTextError,
+    index_document,
+)
 from app.knowledge.repository import KnowledgeRepository
 from app.services.openai_provider import OpenAIProvider
 
@@ -257,44 +261,28 @@ class KnowledgeManagementService:
                 "OpenAI es necesario para generar embeddings",
                 503,
             )
-        text_chunks = chunk_pdf(
-            path,
-            model=self.settings.embedding_model,
-            chunk_tokens=self.settings.rag_chunk_tokens,
-            overlap_tokens=self.settings.rag_chunk_overlap,
-        )
-        if not text_chunks:
+        try:
+            return await index_document(
+                db,
+                document=document,
+                path=path,
+                categories=categories,
+                settings=self.settings,
+                provider=self.provider,
+                repository=self.repository,
+            )
+        except NoIndexableTextError as exc:
             raise AppError(
                 "PDF_WITHOUT_INDEXABLE_TEXT",
                 "El PDF no produjo fragmentos indexables",
                 422,
-            )
-        embeddings = await self.provider.embeddings([chunk.content for chunk in text_chunks])
-        if len(embeddings) != len(text_chunks):
+            ) from exc
+        except EmbeddingCountMismatchError as exc:
             raise AppError(
                 "EMBEDDING_COUNT_MISMATCH",
                 "La cantidad de embeddings no coincide con los fragmentos",
                 502,
-            )
-        category_values = [category.value for category in categories]
-        rows = [
-            KnowledgeChunk(
-                document_id=document.id,
-                ordinal=chunk.ordinal,
-                page=chunk.page,
-                section=chunk.section,
-                content=chunk.content,
-                token_count=chunk.token_count,
-                categories=category_values,
-                content_sha256=chunk.content_sha256,
-                embedding_model=self.settings.embedding_model,
-                embedding=embedding,
-            )
-            for chunk, embedding in zip(text_chunks, embeddings, strict=True)
-        ]
-        await self.repository.replace_chunks(db, document, rows)
-        await db.flush()
-        return len(rows)
+            ) from exc
 
 
 def parse_json_list(raw: str, field_name: str) -> list[str]:

@@ -99,6 +99,8 @@ Las migraciones son explícitas y congeladas:
 - `20260716_0002`: pgvector, documentos, fragmentos e interacciones RAG;
 - `20260716_0003`: expiración, prioridad propuesta y ciclo documental.
 - `20260717_0004`: registro de clientes, fuentes internas y espera estimada.
+- `20260720_0005`: flujo natural, confirmación idempotente y estado recuperable.
+- `20260721_0006`: expediente operativo, conversación retenida y cierre estructurado.
 
 No se usa `Base.metadata.create_all()` en migraciones. Los tests sí crean un esquema
 SQLite efímero de forma aislada.
@@ -117,19 +119,14 @@ SQLite efímero de forma aislada.
 ```bash
 uv run ruff format --check .
 uv run ruff check .
-uv run pytest -q
+uv run coverage run -m pytest -q
+uv run coverage report
 uv run --with pip-audit pip-audit
 ```
 
 Las pruebas no consumen OpenAI y cubren flujo general, aclaración, corrección,
 identificación, prioridad, privacidad, RAG, caducidad, roles, refresh, concurrencia y
 ciclo documental.
-
-Para regenerar el PDF de auditoría desde su única fuente Markdown:
-
-```bash
-uv run python scripts/render_audit_pdf.py
-```
 
 Para regenerar el catálogo de ejecutivos y los documentos operativos administrados:
 

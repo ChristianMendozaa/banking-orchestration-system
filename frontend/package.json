@@ -9,7 +9,9 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "typecheck": "next typegen && tsc --noEmit"
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "next typegen && tsc --noEmit",
+    "generate:api": "(cd ../backend && PYTHONPATH=. .venv/bin/python scripts/export_openapi.py ../frontend/openapi.json) && openapi-typescript openapi.json -o lib/generated-api.ts"
   },
   "dependencies": {
     "@openai/agents": "0.13.4",
@@ -24,11 +26,15 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "jsdom": "^29.1.1",
+    "openapi-typescript": "^7.13.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.10"

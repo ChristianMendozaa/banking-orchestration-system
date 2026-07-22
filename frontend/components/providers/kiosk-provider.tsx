@@ -12,7 +12,12 @@ import {
   useState,
 } from "react"
 
-import { ApiError, apiRequest, errorMessage } from "@/lib/api"
+import { ApiError, errorMessage } from "@/lib/api"
+import {
+  createKioskSession,
+  kioskSessionRequest,
+  type RealtimeSecret,
+} from "@/lib/kiosk-api"
 import {
   analysisTransitionKey,
   businessTransitionKey,
@@ -57,13 +62,6 @@ export type VoiceState =
   | "error"
   | "closed"
 
-interface RealtimeSecret {
-  value: string
-  session?: {
-    model?: string
-  } | null
-}
-
 interface TransitionRequest {
   transition: ControlledTransition
   revision: number
@@ -97,19 +95,6 @@ interface KioskContextValue extends KioskState {
 }
 
 const KioskContext = createContext<KioskContextValue | null>(null)
-
-async function kioskSessionRequest<T>(
-  session: KioskSession,
-  path: string,
-  init: RequestInit = {},
-): Promise<T> {
-  const headers = new Headers(init.headers)
-  headers.set("X-Session-Token", session.session_token)
-  return apiRequest<T>(`/kiosk/sessions/${session.session_id}${path}`, {
-    ...init,
-    headers,
-  })
-}
 
 function toolCallKey(toolCall: unknown, fallback: string): string {
   if (toolCall && typeof toolCall === "object") {
@@ -226,9 +211,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     audioDoneTransitionKeyRef.current = null
   }, [])
 
-  const reset = useCallback(() => {
-    clearTimers()
-    disposeRealtime()
+  const clearFlowTracking = useCallback(() => {
     clarificationRef.current = false
     terminalTransitionKeyRef.current = null
     activeTransitionKeyRef.current = null
@@ -250,12 +233,18 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     confirmationPromisesRef.current.clear()
     identificationPromiseRef.current = null
     reconciliationPromiseRef.current = null
+  }, [])
+
+  const reset = useCallback(() => {
+    clearTimers()
+    disposeRealtime()
+    clearFlowTracking()
     setCaptions([])
     setVoiceError(null)
     setVoiceState("idle")
     setCompletionSeconds(null)
     updateState(() => emptyState)
-  }, [clearTimers, disposeRealtime, updateState])
+  }, [clearFlowTracking, clearTimers, disposeRealtime, updateState])
 
   const startCompletionCountdown = useCallback(() => {
     if (completionIntervalRef.current !== null) return
@@ -477,39 +466,16 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     async (preferentialAttention: boolean) => {
       clearTimers()
       disposeRealtime()
+      clearFlowTracking()
       setCaptions([])
-      syncedConversationItemsRef.current.clear()
       setVoiceError(null)
       setVoiceState("idle")
       setCompletionSeconds(null)
-      clarificationRef.current = false
-      terminalTransitionKeyRef.current = null
-      activeTransitionKeyRef.current = null
-      audioDoneTransitionKeyRef.current = null
-      requestedTransitionsRef.current.clear()
-      completedTransitionsRef.current.clear()
-      responseTransitionsRef.current.clear()
-      activeToolCallsRef.current.clear()
-      toolCallRevisionsRef.current.clear()
-      pendingToolTransitionRef.current = null
-      transitionRequestsRef.current.clear()
-      audioProducedTransitionsRef.current.clear()
-      replayAttemptsRef.current.clear()
-      interruptedReplayRef.current = null
-      postInterruptionResponseIdRef.current = null
-      inputSpeechActiveRef.current = false
-      turnIdsRef.current.clear()
-      confirmationPromisesRef.current.clear()
-      identificationPromiseRef.current = null
-      reconciliationPromiseRef.current = null
       updateState(() => emptyState)
-      const session = await apiRequest<KioskSession>("/kiosk/sessions", {
-        method: "POST",
-        body: JSON.stringify({ preferential_attention: preferentialAttention }),
-      })
+      const session = await createKioskSession(preferentialAttention)
       updateState(() => ({ ...emptyState, session }))
     },
-    [clearTimers, disposeRealtime, updateState],
+    [clearFlowTracking, clearTimers, disposeRealtime, updateState],
   )
 
   const handleExpiredSession = useCallback(() => {
