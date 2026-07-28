@@ -30,7 +30,8 @@ jobs:
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --locked
+      - run: uv python install 3.14
+      - run: uv sync --locked --python 3.14
       - run: uv run ruff format --check .
       - run: uv run ruff check .
       - run: uv run coverage run -m pytest -q
@@ -63,7 +64,8 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: frontend/pnpm-lock.yaml
-      - run: uv sync --locked
+      - run: uv python install 3.14
+      - run: uv sync --locked --python 3.14
         working-directory: backend
       - run: pnpm install --frozen-lockfile
         working-directory: frontend

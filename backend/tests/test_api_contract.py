@@ -2,6 +2,7 @@ from httpx import AsyncClient
 from pydantic import SecretStr
 
 from app.main import app
+from scripts.export_openapi import CANONICAL_OPENAPI_TITLE, canonical_openapi_schema
 from tests.conftest import settings_for_tests
 
 EXPECTED_OPERATIONS = {
@@ -50,6 +51,15 @@ def test_openapi_operation_contract_is_stable() -> None:
         if method in {"get", "post", "put", "patch", "delete"}
     }
     assert operations == EXPECTED_OPERATIONS
+
+
+def test_exported_openapi_metadata_is_environment_independent() -> None:
+    runtime_schema = app.openapi()
+    exported_schema = canonical_openapi_schema()
+
+    assert runtime_schema["info"]["title"] == settings_for_tests.app_name
+    assert exported_schema["info"]["title"] == CANONICAL_OPENAPI_TITLE
+    assert exported_schema is not runtime_schema
 
 
 async def _manager_session(client: AsyncClient) -> tuple[str, str]:
