@@ -23,18 +23,25 @@ export default function IdentificationPage() {
     retryVoice,
     reset,
     submitIdentification,
+    interactionMode,
   } = useKiosk()
   const [identifier, setIdentifier] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (hydrated && session && result?.next_action === "IDENTIFY" && voiceState === "idle") {
+    if (
+      interactionMode === "voice" &&
+      hydrated &&
+      session &&
+      result?.next_action === "IDENTIFY" &&
+      voiceState === "idle"
+    ) {
       void connectVoice().catch(() => {
         // La identificación escrita puede continuar aunque falle la voz.
       })
     }
-  }, [connectVoice, hydrated, result, session, voiceState])
+  }, [connectVoice, hydrated, interactionMode, result, session, voiceState])
 
   async function identify(event: FormEvent) {
     event.preventDefault()
@@ -63,7 +70,7 @@ export default function IdentificationPage() {
             <IdCard className="h-9 w-9 text-[#23A2D9]" />
           </div>
           <h1 className="mt-5 text-3xl font-semibold">Confirma tu identidad</h1>
-          <p className="mt-3 text-white/55">
+          <p className="mt-3 text-white/75">
             Ingresa tu CI en este campo protegido para asociarlo con la solicitud.
           </p>
         </div>
@@ -123,7 +130,7 @@ export default function IdentificationPage() {
             <BadgeCheck className="h-5 w-5" />
             {submitting ? "Estoy validando tu CI…" : "Validar mi CI y continuar"}
           </Button>
-          <p className="text-center text-sm text-white/50" id="identifier-next-step">
+          <p className="text-center text-sm text-white/70" id="identifier-next-step">
             Después de validar el CI, verás tu número de ticket y los datos para
             continuar.
           </p>

@@ -2,12 +2,13 @@
 
 import { apiRequest, errorMessage } from "@/lib/api"
 import type { PublicSystemConfig } from "@/lib/types"
-import { createContext, useContext, useEffect, useState } from "react"
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react"
 
 interface SystemConfigContextValue {
   config: PublicSystemConfig | null
   loading: boolean
   error: string | null
+  reload: () => Promise<void>
 }
 
 const SystemConfigContext = createContext<SystemConfigContextValue | null>(null)
@@ -17,15 +18,28 @@ export function SystemConfigProvider({ children }: { children: React.ReactNode }
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    void apiRequest<PublicSystemConfig>("/system/public-config")
-      .then(setConfig)
-      .catch((reason) => setError(errorMessage(reason)))
-      .finally(() => setLoading(false))
+  const reload = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setConfig(await apiRequest<PublicSystemConfig>("/system/public-config"))
+    } catch (reason) {
+      setError(errorMessage(reason))
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
+  useEffect(() => {
+    queueMicrotask(() => void reload())
+  }, [reload])
+
+  const value = useMemo(
+    () => ({ config, loading, error, reload }),
+    [config, error, loading, reload],
+  )
   return (
-    <SystemConfigContext.Provider value={{ config, loading, error }}>
+    <SystemConfigContext.Provider value={value}>
       {children}
     </SystemConfigContext.Provider>
   )

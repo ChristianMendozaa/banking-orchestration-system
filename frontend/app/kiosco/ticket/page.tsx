@@ -19,7 +19,7 @@ export default function TicketPage() {
           <div className="mx-auto mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-[#1168BD]/25">
             <TicketCheck className="h-9 w-9 text-[#23A2D9]" />
           </div>
-          <p className="text-sm uppercase tracking-widest text-white/45">
+          <p className="text-sm uppercase tracking-widest text-white/70">
             Tu número de atención
           </p>
           <p className="mt-2 text-7xl font-bold tabular-nums sm:text-8xl">
@@ -42,7 +42,7 @@ export default function TicketPage() {
                 </div>
                 <div>
                   <p className="text-xl font-semibold">{result.executive.name}</p>
-                  <p className="mt-1 flex items-center gap-2 text-white/50">
+                  <p className="mt-1 flex items-center gap-2 text-white/70">
                     <Shield className="h-4 w-4" />
                     {result.executive.title}
                   </p>
@@ -55,7 +55,7 @@ export default function TicketPage() {
                 <MapPin className="h-5 w-5" />
                 {result.executive.window_number}
               </p>
-              <p className="flex items-center gap-2 text-white/45">
+              <p className="flex items-center gap-2 text-white/70">
                 <Clock className="h-5 w-5" />
                 {result.ticket.estimated_wait_minutes !== null
                   ? `Espera estimada: ${result.ticket.estimated_wait_minutes} min`
@@ -71,7 +71,7 @@ export default function TicketPage() {
 
         {customerSummary && (
           <section className="w-full rounded-2xl border border-white/10 bg-white/[.04] p-5">
-            <p className="text-xs uppercase tracking-widest text-white/35">Lo que necesitas</p>
+            <p className="text-xs uppercase tracking-widest text-white/70">Lo que necesitas</p>
             <p className="mt-2 text-white/80">{customerSummary}</p>
           </section>
         )}
@@ -82,7 +82,7 @@ export default function TicketPage() {
           </p>
         )}
         {result.tracking_information && (
-          <p className="max-w-2xl text-center text-sm text-white/45">
+          <p className="max-w-2xl text-center text-sm text-white/70">
             {result.tracking_information}
           </p>
         )}

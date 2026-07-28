@@ -259,6 +259,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/management/executives/{executive_id}/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Executive Status */
+        patch: operations["update_executive_status_api_v1_management_executives__executive_id__status_patch"];
+        trace?: never;
+    };
     "/api/v1/management/knowledge/documents": {
         parameters: {
             query?: never;
@@ -271,6 +288,40 @@ export interface paths {
         put?: never;
         /** Create Document */
         post: operations["create_document_api_v1_management_knowledge_documents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/management/knowledge/documents/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Job */
+        get: operations["get_job_api_v1_management_knowledge_documents_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/management/knowledge/documents/jobs/{job_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Job */
+        post: operations["retry_job_api_v1_management_knowledge_documents_jobs__job_id__retry_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -362,6 +413,40 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/api/v1/management/tickets/{ticket_id}/assignment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update Ticket Assignment */
+        patch: operations["update_ticket_assignment_api_v1_management_tickets__ticket_id__assignment_patch"];
+        trace?: never;
+    };
+    "/api/v1/management/tickets/{ticket_id}/priority": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Raise Ticket Priority */
+        patch: operations["raise_ticket_priority_api_v1_management_tickets__ticket_id__priority_patch"];
         trace?: never;
     };
     "/api/v1/system/public-config": {
@@ -554,6 +639,28 @@ export interface components {
          * @enum {string}
          */
         ExecutiveStatus: "DISPONIBLE" | "OCUPADO" | "INACTIVO";
+        /** ExecutiveStatusResult */
+        ExecutiveStatusResult: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            status: components["schemas"]["ExecutiveStatus"];
+            /**
+             * Unassigned Tickets
+             * @default 0
+             */
+            unassigned_tickets: number;
+            /** Version */
+            version: number;
+        };
+        /** ExecutiveStatusUpdate */
+        ExecutiveStatusUpdate: {
+            /** Expected Version */
+            expected_version: number;
+            status: components["schemas"]["ExecutiveStatus"];
+        };
         /** ExecutiveWorkload */
         ExecutiveWorkload: {
             /** Closed */
@@ -572,6 +679,8 @@ export interface components {
             status: components["schemas"]["ExecutiveStatus"];
             /** Title */
             title: string;
+            /** Version */
+            version: number;
         };
         /** FlowResult */
         FlowResult: {
@@ -756,11 +865,57 @@ export interface components {
          * @enum {string}
          */
         KnowledgeIndexStatus: "PENDING" | "INDEXING" | "READY" | "FAILED" | "ARCHIVED";
-        /** KnowledgeOperationResult */
-        KnowledgeOperationResult: {
+        /**
+         * KnowledgeJobOperation
+         * @enum {string}
+         */
+        KnowledgeJobOperation: "CREATE" | "VERSION" | "REINDEX";
+        /** KnowledgeJobResponse */
+        KnowledgeJobResponse: {
             document: components["schemas"]["KnowledgeDocumentSummary"];
-            /** Indexed Chunks */
-            indexed_chunks: number;
+            job: components["schemas"]["KnowledgeJobSummary"];
+        };
+        /**
+         * KnowledgeJobStatus
+         * @enum {string}
+         */
+        KnowledgeJobStatus: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED";
+        /** KnowledgeJobSummary */
+        KnowledgeJobSummary: {
+            /** Attempts */
+            attempts: number;
+            /** Completed At */
+            completed_at: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Document Id
+             * Format: uuid
+             */
+            document_id: string;
+            /** Error Code */
+            error_code: string | null;
+            /** Error Message */
+            error_message: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Max Attempts */
+            max_attempts: number;
+            operation: components["schemas"]["KnowledgeJobOperation"];
+            /** Started At */
+            started_at: string | null;
+            status: components["schemas"]["KnowledgeJobStatus"];
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
         };
         /**
          * KnowledgeSourceType
@@ -792,6 +947,10 @@ export interface components {
         ManagementMetrics: {
             /** Active Cases */
             active_cases: number;
+            /** Automatic Resolution Rate */
+            automatic_resolution_rate: number;
+            /** Automatic Resolved */
+            automatic_resolved: number;
             /** Average Attention Minutes */
             average_attention_minutes: number;
             /** Average Wait Minutes */
@@ -808,12 +967,38 @@ export interface components {
             executives: components["schemas"]["ExecutiveWorkload"][];
             /** Hourly */
             hourly: components["schemas"]["HourlyMetric"][];
+            /** Human Routed */
+            human_routed: number;
             /** In Attention Cases */
             in_attention_cases: number;
+            /** Oldest Pending Minutes */
+            oldest_pending_minutes: number;
             /** Pending Cases */
             pending_cases: number;
             /** Total Cases */
             total_cases: number;
+            /** Unassigned Cases */
+            unassigned_cases: number;
+            /** Wait P50 Minutes */
+            wait_p50_minutes: number;
+            /** Wait P95 Minutes */
+            wait_p95_minutes: number;
+        };
+        /** ManagementTicketMutation */
+        ManagementTicketMutation: {
+            /** Executive Id */
+            executive_id: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Number */
+            number: string;
+            priority: components["schemas"]["Priority"];
+            status: components["schemas"]["TicketStatus"];
+            /** Version */
+            version: number;
         };
         /** ManagerialCase */
         ManagerialCase: {
@@ -827,6 +1012,8 @@ export interface components {
             created_at: string;
             /** Executive */
             executive: string | null;
+            /** Executive Id */
+            executive_id: string | null;
             /**
              * Id
              * Format: uuid
@@ -839,6 +1026,8 @@ export interface components {
             summary: string;
             /** Ticket */
             ticket: string;
+            /** Version */
+            version: number;
             /** Wait Time Min */
             wait_time_min: number;
         };
@@ -875,6 +1064,8 @@ export interface components {
             bank_name: string;
             /** Branch Name */
             branch_name: string;
+            /** Conversation Retention Days */
+            conversation_retention_days: number;
             /** Dashboard Refresh Ms */
             dashboard_refresh_ms: number;
         };
@@ -941,6 +1132,15 @@ export interface components {
              */
             session_id: string;
             status: components["schemas"]["SessionStatus"];
+        };
+        /** TicketAssignmentUpdate */
+        TicketAssignmentUpdate: {
+            /** Executive Id */
+            executive_id: string | null;
+            /** Expected Version */
+            expected_version: number;
+            /** Reason */
+            reason: string;
         };
         /** TicketDetail */
         TicketDetail: {
@@ -1054,6 +1254,14 @@ export interface components {
             };
             /** Total */
             total: number;
+        };
+        /** TicketPriorityUpdate */
+        TicketPriorityUpdate: {
+            /** Expected Version */
+            expected_version: number;
+            priority: components["schemas"]["Priority"];
+            /** Reason */
+            reason: string;
         };
         /** TicketResult */
         TicketResult: {
@@ -1653,6 +1861,7 @@ export interface operations {
                 category?: components["schemas"]["Category"] | null;
                 priority?: components["schemas"]["Priority"] | null;
                 executive_id?: string | null;
+                unassigned?: boolean | null;
                 status?: components["schemas"]["TicketStatus"] | null;
                 q?: string | null;
                 page?: number;
@@ -1671,6 +1880,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ManagementCasesResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_executive_status_api_v1_management_executives__executive_id__status_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                executive_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecutiveStatusUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ExecutiveStatusResult"];
                 };
             };
             /** @description Validation Error */
@@ -1733,12 +1977,74 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            201: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgeOperationResult"];
+                    "application/json": components["schemas"]["KnowledgeJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_job_api_v1_management_knowledge_documents_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeJobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    retry_job_api_v1_management_knowledge_documents_jobs__job_id__retry_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeJobResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1888,12 +2194,12 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Successful Response */
-            200: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgeOperationResult"];
+                    "application/json": components["schemas"]["KnowledgeJobResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1923,12 +2229,12 @@ export interface operations {
         };
         responses: {
             /** @description Successful Response */
-            201: {
+            202: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["KnowledgeOperationResult"];
+                    "application/json": components["schemas"]["KnowledgeJobResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1964,6 +2270,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ManagementMetrics"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_ticket_assignment_api_v1_management_tickets__ticket_id__assignment_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketAssignmentUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManagementTicketMutation"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    raise_ticket_priority_api_v1_management_tickets__ticket_id__priority_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketPriorityUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManagementTicketMutation"];
                 };
             };
             /** @description Validation Error */

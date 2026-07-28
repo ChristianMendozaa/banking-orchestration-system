@@ -8,7 +8,6 @@ import {
   canReplayControlledSpeech,
   captionsFromHistory,
   controlledTransitionFromToolResult,
-  createKioskRealtimeAgent,
   explicitConfirmation,
   flowTransitionKey,
   requestControlledResponse,
@@ -16,6 +15,7 @@ import {
   shouldApplyFlowResponse,
   shouldReplayControlledTransition,
 } from "../lib/kiosk-realtime"
+import { createKioskRealtimeAgent } from "../lib/kiosk-realtime-agent"
 import type { FlowResult, TurnAnalysis } from "../lib/types"
 
 const analysis: TurnAnalysis = {

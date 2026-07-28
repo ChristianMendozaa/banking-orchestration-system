@@ -58,7 +58,8 @@ Las tools delegan clasificación, confirmación, RAG, identificación y tickets 
 
 El CI conserva el HMAC y sufijo enmascarado para comparación y listados. Adicionalmente,
 se cifra con AES-256-GCM para que solo el ejecutivo asignado pueda revelarlo durante la
-atención; la consulta queda auditada y gerencia recibe siempre el valor enmascarado.
+atención activa. Al cerrar se purga el valor recuperable; la consulta y la purga quedan
+auditadas y gerencia recibe siempre el valor enmascarado.
 
 ## Base de conocimiento
 
@@ -77,7 +78,9 @@ uv run python -m app.knowledge.cli evaluate
   prohíbe respuesta automática.
 
 La API gerencial bajo `/api/v1/management/knowledge/documents` permite listar,
-cargar, editar, versionar, descargar, reindexar y archivar. Valida firma PDF, MIME,
+cargar, editar, versionar, descargar, reindexar y archivar. Las indexaciones se
+encolan y `python -m app.knowledge.worker` las procesa con reintentos recuperables.
+Antes de almacenar, ClamAV valida el archivo; además se verifican firma PDF, MIME,
 tamaño, páginas, texto extraíble, categorías y URL HTTP(S). Los archivos se almacenan
 con claves UUID; el nombre original es solo metadato.
 
@@ -101,6 +104,7 @@ Las migraciones son explícitas y congeladas:
 - `20260717_0004`: registro de clientes, fuentes internas y espera estimada.
 - `20260720_0005`: flujo natural, confirmación idempotente y estado recuperable.
 - `20260721_0006`: expediente operativo, conversación retenida y cierre estructurado.
+- `20260728_0007`: cola documental, control gerencial y privacidad de cierre.
 
 No se usa `Base.metadata.create_all()` en migraciones. Los tests sí crean un esquema
 SQLite efímero de forma aislada.

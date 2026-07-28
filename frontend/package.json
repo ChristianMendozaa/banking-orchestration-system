@@ -14,12 +14,12 @@
     "generate:api": "(cd ../backend && PYTHONPATH=. .venv/bin/python scripts/export_openapi.py ../frontend/openapi.json) && openapi-typescript openapi.json -o lib/generated-api.ts"
   },
   "dependencies": {
-    "@openai/agents": "0.13.4",
+    "@openai/agents": "0.13.5",
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",
-    "next": "16.2.6",
-    "react": "19.2.4",
-    "react-dom": "19.2.4",
+    "next": "16.2.12",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "recharts": "^3.8.1",
     "tailwind-merge": "^3.5.0",
     "zod": "^4.4.3"
@@ -32,7 +32,7 @@
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^9",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.2.12",
     "jsdom": "^29.1.1",
     "openapi-typescript": "^7.13.0",
     "tailwindcss": "^4",

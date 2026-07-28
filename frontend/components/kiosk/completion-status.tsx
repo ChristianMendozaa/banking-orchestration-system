@@ -22,7 +22,7 @@ export function CompletionStatus({
   return (
     <p
       className={`flex items-center gap-2 text-sm ${
-        voiceError ? "text-yellow-200/80" : "text-white/45"
+        voiceError ? "text-yellow-200/80" : "text-white/70"
       }`}
       role="status"
     >

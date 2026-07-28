@@ -1,6 +1,15 @@
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
+from dataclasses import dataclass
+
+from redis.asyncio import Redis
+
+
+@dataclass(frozen=True, slots=True)
+class RateLimitDecision:
+    allowed: bool
+    retry_after: int = 0
 
 
 class InMemoryRateLimiter:
@@ -32,6 +41,14 @@ class InMemoryRateLimiter:
         window.append(now)
         return True
 
+    def check(self, key: str, limit: int) -> RateLimitDecision:
+        allowed = self.allow(key, limit)
+        if allowed:
+            return RateLimitDecision(True)
+        window = self.windows[key]
+        retry_after = max(1, int(self.window_seconds - (self.clock() - window[0])) + 1)
+        return RateLimitDecision(False, retry_after)
+
     def clear(self) -> None:
         self.windows.clear()
         self._checks = 0
@@ -48,3 +65,33 @@ class InMemoryRateLimiter:
                 stale.append(key)
         for key in stale:
             self.windows.pop(key, None)
+
+
+class RedisRateLimiter:
+    """Ventana fija compartida y atómica para despliegues con más de un proceso."""
+
+    _SCRIPT = """
+local current = redis.call('INCR', KEYS[1])
+if current == 1 then
+  redis.call('EXPIRE', KEYS[1], ARGV[1])
+end
+local ttl = redis.call('TTL', KEYS[1])
+return {current, ttl}
+"""
+
+    def __init__(self, url: str, *, window_seconds: int = 60) -> None:
+        self.redis = Redis.from_url(url, encoding="utf-8", decode_responses=True)
+        self.window_seconds = window_seconds
+
+    async def check(self, key: str, limit: int) -> RateLimitDecision:
+        current, ttl = await self.redis.eval(
+            self._SCRIPT,
+            1,
+            f"orquestacion:rate:{key}",
+            self.window_seconds,
+        )
+        allowed = int(current) <= limit
+        return RateLimitDecision(allowed, 0 if allowed else max(1, int(ttl)))
+
+    async def close(self) -> None:
+        await self.redis.aclose()

@@ -278,6 +278,52 @@
         "title": "ExecutiveStatus",
         "type": "string"
       },
+      "ExecutiveStatusResult": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ExecutiveStatus"
+          },
+          "unassigned_tickets": {
+            "default": 0,
+            "title": "Unassigned Tickets",
+            "type": "integer"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "version"
+        ],
+        "title": "ExecutiveStatusResult",
+        "type": "object"
+      },
+      "ExecutiveStatusUpdate": {
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ExecutiveStatus"
+          }
+        },
+        "required": [
+          "status",
+          "expected_version"
+        ],
+        "title": "ExecutiveStatusUpdate",
+        "type": "object"
+      },
       "ExecutiveWorkload": {
         "properties": {
           "closed": {
@@ -307,6 +353,10 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
           }
         },
         "required": [
@@ -314,6 +364,7 @@
           "name",
           "title",
           "status",
+          "version",
           "pending",
           "in_attention",
           "closed"
@@ -875,21 +926,139 @@
         "title": "KnowledgeIndexStatus",
         "type": "string"
       },
-      "KnowledgeOperationResult": {
+      "KnowledgeJobOperation": {
+        "enum": [
+          "CREATE",
+          "VERSION",
+          "REINDEX"
+        ],
+        "title": "KnowledgeJobOperation",
+        "type": "string"
+      },
+      "KnowledgeJobResponse": {
         "properties": {
           "document": {
             "$ref": "#/components/schemas/KnowledgeDocumentSummary"
           },
-          "indexed_chunks": {
-            "title": "Indexed Chunks",
-            "type": "integer"
+          "job": {
+            "$ref": "#/components/schemas/KnowledgeJobSummary"
           }
         },
         "required": [
-          "document",
-          "indexed_chunks"
+          "job",
+          "document"
         ],
-        "title": "KnowledgeOperationResult",
+        "title": "KnowledgeJobResponse",
+        "type": "object"
+      },
+      "KnowledgeJobStatus": {
+        "enum": [
+          "QUEUED",
+          "RUNNING",
+          "SUCCEEDED",
+          "FAILED"
+        ],
+        "title": "KnowledgeJobStatus",
+        "type": "string"
+      },
+      "KnowledgeJobSummary": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "document_id": {
+            "format": "uuid",
+            "title": "Document Id",
+            "type": "string"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "max_attempts": {
+            "title": "Max Attempts",
+            "type": "integer"
+          },
+          "operation": {
+            "$ref": "#/components/schemas/KnowledgeJobOperation"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/KnowledgeJobStatus"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "document_id",
+          "operation",
+          "status",
+          "attempts",
+          "max_attempts",
+          "error_code",
+          "error_message",
+          "started_at",
+          "completed_at",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "KnowledgeJobSummary",
         "type": "object"
       },
       "KnowledgeSourceType": {
@@ -960,6 +1129,14 @@
             "title": "Active Cases",
             "type": "integer"
           },
+          "automatic_resolution_rate": {
+            "title": "Automatic Resolution Rate",
+            "type": "number"
+          },
+          "automatic_resolved": {
+            "title": "Automatic Resolved",
+            "type": "integer"
+          },
           "average_attention_minutes": {
             "title": "Average Attention Minutes",
             "type": "number"
@@ -1004,8 +1181,16 @@
             "title": "Hourly",
             "type": "array"
           },
+          "human_routed": {
+            "title": "Human Routed",
+            "type": "integer"
+          },
           "in_attention_cases": {
             "title": "In Attention Cases",
+            "type": "integer"
+          },
+          "oldest_pending_minutes": {
+            "title": "Oldest Pending Minutes",
             "type": "integer"
           },
           "pending_cases": {
@@ -1015,6 +1200,18 @@
           "total_cases": {
             "title": "Total Cases",
             "type": "integer"
+          },
+          "unassigned_cases": {
+            "title": "Unassigned Cases",
+            "type": "integer"
+          },
+          "wait_p50_minutes": {
+            "title": "Wait P50 Minutes",
+            "type": "number"
+          },
+          "wait_p95_minutes": {
+            "title": "Wait P95 Minutes",
+            "type": "number"
           }
         },
         "required": [
@@ -1026,12 +1223,64 @@
           "average_wait_minutes",
           "average_attention_minutes",
           "critical_pending",
+          "unassigned_cases",
+          "automatic_resolved",
+          "human_routed",
+          "automatic_resolution_rate",
+          "wait_p50_minutes",
+          "wait_p95_minutes",
+          "oldest_pending_minutes",
           "by_category",
           "by_priority",
           "hourly",
           "executives"
         ],
         "title": "ManagementMetrics",
+        "type": "object"
+      },
+      "ManagementTicketMutation": {
+        "properties": {
+          "executive_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Id"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "executive_id",
+          "priority",
+          "status",
+          "version"
+        ],
+        "title": "ManagementTicketMutation",
         "type": "object"
       },
       "ManagerialCase": {
@@ -1066,6 +1315,18 @@
             ],
             "title": "Executive"
           },
+          "executive_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Id"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -1095,6 +1356,10 @@
             "title": "Ticket",
             "type": "string"
           },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
           "wait_time_min": {
             "title": "Wait Time Min",
             "type": "integer"
@@ -1106,12 +1371,14 @@
           "summary",
           "category",
           "priority",
+          "executive_id",
           "executive",
           "status",
           "attention_time_min",
           "wait_time_min",
           "resolution_outcome",
-          "created_at"
+          "created_at",
+          "version"
         ],
         "title": "ManagerialCase",
         "type": "object"
@@ -1197,6 +1464,10 @@
             "title": "Branch Name",
             "type": "string"
           },
+          "conversation_retention_days": {
+            "title": "Conversation Retention Days",
+            "type": "integer"
+          },
           "dashboard_refresh_ms": {
             "title": "Dashboard Refresh Ms",
             "type": "integer"
@@ -1206,7 +1477,8 @@
           "app_name",
           "bank_name",
           "branch_name",
-          "dashboard_refresh_ms"
+          "dashboard_refresh_ms",
+          "conversation_retention_days"
         ],
         "title": "PublicSystemConfig",
         "type": "object"
@@ -1378,6 +1650,40 @@
           "status"
         ],
         "title": "SessionStatusResponse",
+        "type": "object"
+      },
+      "TicketAssignmentUpdate": {
+        "properties": {
+          "executive_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Id"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "executive_id",
+          "expected_version",
+          "reason"
+        ],
+        "title": "TicketAssignmentUpdate",
         "type": "object"
       },
       "TicketDetail": {
@@ -1819,6 +2125,31 @@
           "status_counts"
         ],
         "title": "TicketPage",
+        "type": "object"
+      },
+      "TicketPriorityUpdate": {
+        "properties": {
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/Priority"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 10,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "priority",
+          "expected_version",
+          "reason"
+        ],
+        "title": "TicketPriorityUpdate",
         "type": "object"
       },
       "TicketResult": {
@@ -3043,6 +3374,22 @@
           },
           {
             "in": "query",
+            "name": "unassigned",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Unassigned"
+            }
+          },
+          {
+            "in": "query",
             "name": "status",
             "required": false,
             "schema": {
@@ -3126,6 +3473,64 @@
           }
         ],
         "summary": "Cases",
+        "tags": [
+          "Gestion gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/executives/{executive_id}/status": {
+      "patch": {
+        "operationId": "update_executive_status_api_v1_management_executives__executive_id__status_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "executive_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Executive Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutiveStatusUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutiveStatusResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Executive Status",
         "tags": [
           "Gestion gerencial"
         ]
@@ -3253,11 +3658,11 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KnowledgeOperationResult"
+                  "$ref": "#/components/schemas/KnowledgeJobResponse"
                 }
               }
             },
@@ -3280,6 +3685,102 @@
           }
         ],
         "summary": "Create Document",
+        "tags": [
+          "Conocimiento gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/knowledge/documents/jobs/{job_id}": {
+      "get": {
+        "operationId": "get_job_api_v1_management_knowledge_documents_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Job",
+        "tags": [
+          "Conocimiento gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/knowledge/documents/jobs/{job_id}/retry": {
+      "post": {
+        "operationId": "retry_job_api_v1_management_knowledge_documents_jobs__job_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KnowledgeJobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Retry Job",
         "tags": [
           "Conocimiento gerencial"
         ]
@@ -3485,11 +3986,11 @@
           }
         ],
         "responses": {
-          "200": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KnowledgeOperationResult"
+                  "$ref": "#/components/schemas/KnowledgeJobResponse"
                 }
               }
             },
@@ -3543,11 +4044,11 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/KnowledgeOperationResult"
+                  "$ref": "#/components/schemas/KnowledgeJobResponse"
                 }
               }
             },
@@ -3691,6 +4192,122 @@
           }
         ],
         "summary": "Metrics",
+        "tags": [
+          "Gestion gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/tickets/{ticket_id}/assignment": {
+      "patch": {
+        "operationId": "update_ticket_assignment_api_v1_management_tickets__ticket_id__assignment_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketAssignmentUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagementTicketMutation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Ticket Assignment",
+        "tags": [
+          "Gestion gerencial"
+        ]
+      }
+    },
+    "/api/v1/management/tickets/{ticket_id}/priority": {
+      "patch": {
+        "operationId": "raise_ticket_priority_api_v1_management_tickets__ticket_id__priority_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketPriorityUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagementTicketMutation"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Raise Ticket Priority",
         "tags": [
           "Gestion gerencial"
         ]

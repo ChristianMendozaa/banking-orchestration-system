@@ -112,7 +112,7 @@ class OrchestratorService:
                 context = f"{previous.masked_text}\nAclaracion: {masked.masked_text}"
                 previous.active = False
 
-        decision = await self.classifier.run(context)
+        decision, classification_source = await self.classifier.run_with_source(context)
         force_human = False
         needs_clarification = (
             decision.ambiguous
@@ -159,6 +159,7 @@ class OrchestratorService:
             proposed_priority=proposed_priority,
             consultation_level=decision.consultation_level,
             confidence=decision.confidence,
+            classification_source=classification_source,
             ambiguous=kiosk_session.status == SessionStatus.NEEDS_CLARIFICATION,
             clarification_question=decision.clarification_question,
             force_human=force_human,
@@ -370,7 +371,10 @@ class OrchestratorService:
                         case_id=case.id,
                         event_type="CASE_CLASSIFIED",
                         description=f"Caso clasificado como {case.category.value}",
-                        metadata_json={"confidence": requirement.confidence},
+                        metadata_json={
+                            "confidence": requirement.confidence,
+                            "source": requirement.classification_source,
+                        },
                     ),
                 ]
             )
@@ -545,7 +549,7 @@ class OrchestratorService:
                 description = f"Caso derivado a {executive.display_name}"
             else:
                 description = "Caso pendiente de asignacion por falta de ejecutivo disponible"
-            case.status = CaseStatus.ASSIGNED
+            case.status = CaseStatus.ASSIGNED if executive else CaseStatus.QUEUED
             kiosk_session.status = SessionStatus.ASSIGNED
             kiosk_session.resolution_type = ResolutionType.HUMAN
             db.add(
@@ -663,9 +667,8 @@ class OrchestratorService:
             response=case.session.final_response,
             speech_text=speech,
             tracking_information=(
-                f"Conserva el ticket {ticket.number}. Para seguimiento o reclamos puedes "
-                "comunicarte a la Línea Móvil 788-12000, disponible las 24 horas, o a la "
-                "línea gratuita 800-17-0777 de lunes a sábado, de 09:00 a 18:00."
+                f"Conserva el ticket {ticket.number}. "
+                f"{self.settings.support_tracking_information.strip()}"
             ),
             grounding_status=case.session.grounding_status,
             citations=[

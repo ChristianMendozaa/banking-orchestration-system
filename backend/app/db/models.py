@@ -29,6 +29,8 @@ from app.domain.enums import (
     GroundingStatus,
     IdentificationStatus,
     KnowledgeIndexStatus,
+    KnowledgeJobOperation,
+    KnowledgeJobStatus,
     KnowledgeSourceType,
     Priority,
     ResolutionOutcome,
@@ -84,6 +86,7 @@ class Executive(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         string_enum(ExecutiveStatus), default=ExecutiveStatus.DISPONIBLE, index=True
     )
     last_assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    version: Mapped[int] = mapped_column(Integer, default=1)
     user: Mapped[User | None] = relationship(back_populates="executive", uselist=False)
     skills: Mapped[list["ExecutiveSkill"]] = relationship(
         back_populates="executive", cascade="all, delete-orphan"
@@ -174,6 +177,7 @@ class Requirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         string_enum(ConsultationLevel), index=True
     )
     confidence: Mapped[float] = mapped_column(Float)
+    classification_source: Mapped[str] = mapped_column(String(20), default="FALLBACK")
     ambiguous: Mapped[bool] = mapped_column(Boolean, default=False)
     clarification_question: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -285,6 +289,18 @@ class TraceEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     case: Mapped[CaseRecord] = relationship(back_populates="events")
 
 
+class OperationalAuditEvent(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "operational_audit_events"
+
+    actor_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    action: Mapped[str] = mapped_column(String(80), index=True)
+    target_type: Mapped[str] = mapped_column(String(40), index=True)
+    target_id: Mapped[str] = mapped_column(String(80), index=True)
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+
 class KnowledgeDocument(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "knowledge_documents"
     __table_args__ = (UniqueConstraint("slug", "version"),)
@@ -336,6 +352,30 @@ class KnowledgeChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     embedding_model: Mapped[str] = mapped_column(String(120))
     embedding: Mapped[list[float]] = mapped_column(Vector(1536))
     document: Mapped[KnowledgeDocument] = relationship(back_populates="chunks")
+
+
+class KnowledgeJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "knowledge_jobs"
+
+    document_id: Mapped[UUID] = mapped_column(
+        ForeignKey("knowledge_documents.id", ondelete="CASCADE"), index=True
+    )
+    operation: Mapped[KnowledgeJobOperation] = mapped_column(
+        string_enum(KnowledgeJobOperation), index=True
+    )
+    status: Mapped[KnowledgeJobStatus] = mapped_column(
+        string_enum(KnowledgeJobStatus), default=KnowledgeJobStatus.QUEUED, index=True
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    document: Mapped[KnowledgeDocument] = relationship()
 
 
 class RAGInteraction(UUIDPrimaryKeyMixin, TimestampMixin, Base):

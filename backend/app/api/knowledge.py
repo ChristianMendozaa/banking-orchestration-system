@@ -11,11 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_openai_provider, require_roles
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
-from app.db.models import KnowledgeChunk, KnowledgeDocument, User
+from app.db.models import KnowledgeChunk, KnowledgeDocument, KnowledgeJob, User
 from app.db.session import get_db
 from app.domain.enums import (
     Category,
     KnowledgeIndexStatus,
+    KnowledgeJobStatus,
     KnowledgeSourceType,
     UserRole,
 )
@@ -23,7 +24,8 @@ from app.domain.schemas import (
     KnowledgeDocumentPage,
     KnowledgeDocumentSummary,
     KnowledgeDocumentUpdate,
-    KnowledgeOperationResult,
+    KnowledgeJobResponse,
+    KnowledgeJobSummary,
 )
 from app.knowledge.management import KnowledgeManagementService, parse_json_list
 from app.services.openai_provider import OpenAIProvider
@@ -84,6 +86,17 @@ async def document_summary(
         chunk_count=chunk_count,
         created_at=document.created_at,
         updated_at=document.updated_at,
+    )
+
+
+async def job_response(
+    db: AsyncSession,
+    job: KnowledgeJob,
+    document: KnowledgeDocument,
+) -> KnowledgeJobResponse:
+    return KnowledgeJobResponse(
+        job=KnowledgeJobSummary.model_validate(job),
+        document=await document_summary(db, document),
     )
 
 
@@ -167,7 +180,7 @@ async def list_documents(
     )
 
 
-@router.post("", response_model=KnowledgeOperationResult, status_code=201)
+@router.post("", response_model=KnowledgeJobResponse, status_code=202)
 async def create_document(
     file: UploadFile = File(...),
     slug: str = Form(..., min_length=3, max_length=160),
@@ -181,7 +194,7 @@ async def create_document(
     user: User = Depends(require_roles(UserRole.MANAGER)),
     db: AsyncSession = Depends(get_db),
     service: KnowledgeManagementService = Depends(get_management_service),
-) -> KnowledgeOperationResult:
+) -> KnowledgeJobResponse:
     normalized_slug = slug.strip().lower()
     if not SLUG_PATTERN.fullmatch(normalized_slug):
         raise AppError(
@@ -189,7 +202,7 @@ async def create_document(
             "El slug solo admite minusculas, numeros y guiones simples",
             422,
         )
-    document, count = await service.create(
+    document, job = await service.enqueue_create(
         db,
         upload=file,
         slug=normalized_slug,
@@ -204,10 +217,55 @@ async def create_document(
     )
     await db.commit()
     await db.refresh(document)
-    return KnowledgeOperationResult(
-        document=await document_summary(db, document),
-        indexed_chunks=count,
-    )
+    await db.refresh(job)
+    return await job_response(db, job, document)
+
+
+@router.get("/jobs/{job_id}", response_model=KnowledgeJobResponse)
+async def get_job(
+    job_id: UUID,
+    _: User = Depends(require_roles(UserRole.MANAGER)),
+    db: AsyncSession = Depends(get_db),
+) -> KnowledgeJobResponse:
+    job = await db.get(KnowledgeJob, job_id)
+    if not job:
+        raise AppError("KNOWLEDGE_JOB_NOT_FOUND", "Trabajo documental inexistente", 404)
+    document = await require_document(db, job.document_id)
+    return await job_response(db, job, document)
+
+
+@router.post("/jobs/{job_id}/retry", response_model=KnowledgeJobResponse, status_code=202)
+async def retry_job(
+    job_id: UUID,
+    _: User = Depends(require_roles(UserRole.MANAGER)),
+    db: AsyncSession = Depends(get_db),
+) -> KnowledgeJobResponse:
+    job = await db.get(KnowledgeJob, job_id)
+    if not job:
+        raise AppError("KNOWLEDGE_JOB_NOT_FOUND", "Trabajo documental inexistente", 404)
+    if job.status != KnowledgeJobStatus.FAILED:
+        raise AppError(
+            "KNOWLEDGE_JOB_NOT_FAILED",
+            "Solo puede reintentarse un trabajo fallido",
+            409,
+        )
+    if job.attempts >= job.max_attempts:
+        raise AppError(
+            "KNOWLEDGE_JOB_EXHAUSTED",
+            "El trabajo agotó sus intentos; cree una nueva versión",
+            409,
+        )
+    document = await require_document(db, job.document_id)
+    job.status = KnowledgeJobStatus.QUEUED
+    job.error_code = None
+    job.error_message = None
+    job.started_at = None
+    job.completed_at = None
+    document.index_status = KnowledgeIndexStatus.INDEXING
+    await db.commit()
+    await db.refresh(job)
+    await db.refresh(document)
+    return await job_response(db, job, document)
 
 
 @router.get("/{document_id}", response_model=KnowledgeDocumentSummary)
@@ -245,7 +303,7 @@ async def archive_document(
     await db.commit()
 
 
-@router.post("/{document_id}/versions", response_model=KnowledgeOperationResult, status_code=201)
+@router.post("/{document_id}/versions", response_model=KnowledgeJobResponse, status_code=202)
 async def create_document_version(
     document_id: UUID,
     file: UploadFile = File(...),
@@ -255,9 +313,9 @@ async def create_document_version(
     user: User = Depends(require_roles(UserRole.MANAGER)),
     db: AsyncSession = Depends(get_db),
     service: KnowledgeManagementService = Depends(get_management_service),
-) -> KnowledgeOperationResult:
+) -> KnowledgeJobResponse:
     source = await require_document(db, document_id)
-    document, count = await service.create_version(
+    document, job = await service.enqueue_version(
         db,
         source=source,
         upload=file,
@@ -268,26 +326,23 @@ async def create_document_version(
     )
     await db.commit()
     await db.refresh(document)
-    return KnowledgeOperationResult(
-        document=await document_summary(db, document),
-        indexed_chunks=count,
-    )
+    await db.refresh(job)
+    return await job_response(db, job, document)
 
 
-@router.post("/{document_id}/reindex", response_model=KnowledgeOperationResult)
+@router.post("/{document_id}/reindex", response_model=KnowledgeJobResponse, status_code=202)
 async def reindex_document(
     document_id: UUID,
-    _: User = Depends(require_roles(UserRole.MANAGER)),
+    user: User = Depends(require_roles(UserRole.MANAGER)),
     db: AsyncSession = Depends(get_db),
     service: KnowledgeManagementService = Depends(get_management_service),
-) -> KnowledgeOperationResult:
-    document, count = await service.reindex(db, await require_document(db, document_id))
+) -> KnowledgeJobResponse:
+    document = await require_document(db, document_id)
+    job = await service.enqueue_reindex(db, document=document, user_id=user.id)
     await db.commit()
     await db.refresh(document)
-    return KnowledgeOperationResult(
-        document=await document_summary(db, document),
-        indexed_chunks=count,
-    )
+    await db.refresh(job)
+    return await job_response(db, job, document)
 
 
 @router.get("/{document_id}/download", response_class=FileResponse)

@@ -9,7 +9,7 @@ import type {
   Category,
   KnowledgeDocument,
   KnowledgeDocumentPage,
-  KnowledgeOperation,
+  KnowledgeJobResponse,
   KnowledgeSourceType,
 } from "@/lib/types"
 import {
@@ -101,6 +101,7 @@ export default function KnowledgeManagementPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [activeJob, setActiveJob] = useState<KnowledgeJobResponse | null>(null)
   const selected = useMemo(
     () => documents?.items.find((document) => document.id === selectedId) ?? null,
     [documents, selectedId],
@@ -129,6 +130,40 @@ export default function KnowledgeManagementPage() {
   useEffect(() => {
     queueMicrotask(() => void load())
   }, [load])
+
+  useEffect(() => {
+    if (!activeJob || !["QUEUED", "RUNNING"].includes(activeJob.job.status)) return
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      try {
+        const current = await request<KnowledgeJobResponse>(
+          `/management/knowledge/documents/jobs/${activeJob.job.id}`,
+        )
+        if (cancelled) return
+        setActiveJob(current)
+        if (current.job.status === "SUCCEEDED") {
+          setNotice("La indexación terminó correctamente.")
+          setActiveJob(null)
+          await load()
+        } else if (current.job.status === "FAILED") {
+          setError(current.job.error_message ?? "No fue posible completar la indexación.")
+          await load()
+        }
+      } catch (reason) {
+        if (!cancelled) setError(errorMessage(reason))
+      }
+    }, 2_000)
+    return () => {
+      cancelled = true
+      window.clearTimeout(timer)
+    }
+  }, [activeJob, load, request])
+
+  function queueJob(result: KnowledgeJobResponse) {
+    setSelectedId(result.document.id)
+    setActiveJob(result)
+    setNotice("Documento recibido. La indexación continuará en segundo plano.")
+  }
 
   async function run(action: () => Promise<void>) {
     setBusy(true)
@@ -196,22 +231,55 @@ export default function KnowledgeManagementPage() {
         </p>
       )}
       {notice && (
-        <p className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
+        <p
+          className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 p-4 text-sm text-green-700"
+          role="status"
+        >
           <CheckCircle2 className="h-4 w-4" />
           {notice}
         </p>
+      )}
+      {activeJob && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800"
+          role="status"
+        >
+          <span>
+            Trabajo {activeJob.job.status === "FAILED" ? "fallido" : "en proceso"} · intento{" "}
+            {activeJob.job.attempts}/{activeJob.job.max_attempts}
+          </span>
+          {activeJob.job.status === "FAILED" &&
+            activeJob.job.attempts < activeJob.job.max_attempts && (
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  run(async () => {
+                    const retried = await request<KnowledgeJobResponse>(
+                      `/management/knowledge/documents/jobs/${activeJob.job.id}/retry`,
+                      { method: "POST" },
+                    )
+                    setActiveJob(retried)
+                    setNotice("Reintento encolado.")
+                  })
+                }
+                size="sm"
+                variant="secondary"
+              >
+                Reintentar
+              </Button>
+            )}
+        </div>
       )}
 
       <CreateDocumentForm
         busy={busy}
         onCreate={(form) =>
           run(async () => {
-            const result = await request<KnowledgeOperation>(
+            const result = await request<KnowledgeJobResponse>(
               "/management/knowledge/documents",
               { method: "POST", body: form },
             )
-            setSelectedId(result.document.id)
-            setNotice(`Documento indexado en ${result.indexed_chunks} fragmentos.`)
+            queueJob(result)
           })
         }
       />
@@ -295,11 +363,11 @@ export default function KnowledgeManagementPage() {
             }
             onReindex={() =>
               run(async () => {
-                const result = await request<KnowledgeOperation>(
+                const result = await request<KnowledgeJobResponse>(
                   `/management/knowledge/documents/${selected.id}/reindex`,
                   { method: "POST" },
                 )
-                setNotice(`Reindexación completa: ${result.indexed_chunks} fragmentos.`)
+                queueJob(result)
               })
             }
             onSave={(payload) =>
@@ -313,12 +381,11 @@ export default function KnowledgeManagementPage() {
             }
             onVersion={(form) =>
               run(async () => {
-                const result = await request<KnowledgeOperation>(
+                const result = await request<KnowledgeJobResponse>(
                   `/management/knowledge/documents/${selected.id}/versions`,
                   { method: "POST", body: form },
                 )
-                setSelectedId(result.document.id)
-                setNotice(`Nueva versión indexada en ${result.indexed_chunks} fragmentos.`)
+                queueJob(result)
               })
             }
           />
@@ -398,7 +465,7 @@ function CreateDocumentForm({
             <label className="text-sm text-gray-700">URLs fuente, una por línea<textarea className="mt-1 block min-h-20 w-full rounded-xl border p-2" name="source_urls" /></label>
             <div className="md:col-span-2"><CategoryChecks onChange={setCategories} selected={categories} /></div>
             <Button className="md:col-span-2" disabled={busy || categories.length === 0} type="submit">
-              <FileUp className="h-4 w-4" />{busy ? "Indexando…" : "Subir e indexar"}
+              <FileUp className="h-4 w-4" />{busy ? "Enviando…" : "Subir e indexar"}
             </Button>
           </form>
         </CardContent>

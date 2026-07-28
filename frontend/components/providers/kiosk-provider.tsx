@@ -1,6 +1,6 @@
 "use client"
 
-import { RealtimeSession } from "@openai/agents/realtime"
+import type { RealtimeSession } from "@openai/agents/realtime"
 import { usePathname, useRouter } from "next/navigation"
 import {
   createContext,
@@ -25,7 +25,6 @@ import {
   captionsFromHistory,
   controlledSpeechInstructions,
   controlledTransitionFromToolResult,
-  createKioskRealtimeAgent,
   flowTransitionKey,
   kioskRouteForState,
   requestControlledResponse,
@@ -72,6 +71,7 @@ export interface KioskState {
   analysis: TurnAnalysis | null
   result: FlowResult | null
   isClarification: boolean
+  interactionMode: "voice" | "text"
 }
 
 const emptyState: KioskState = {
@@ -79,6 +79,7 @@ const emptyState: KioskState = {
   analysis: null,
   result: null,
   isClarification: false,
+  interactionMode: "voice",
 }
 
 interface KioskContextValue extends KioskState {
@@ -90,6 +91,9 @@ interface KioskContextValue extends KioskState {
   beginSession: (preferentialAttention: boolean) => Promise<void>
   connectVoice: () => Promise<void>
   retryVoice: () => Promise<void>
+  selectInteractionMode: (mode: "voice" | "text") => void
+  submitTextTurn: (transcript: string) => Promise<TurnAnalysis>
+  confirmText: (confirmed: boolean) => Promise<FlowResult>
   submitIdentification: (identifier: string) => Promise<FlowResult>
   reset: () => void
 }
@@ -328,6 +332,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
               ? stored.result
               : null
           return {
+            ...stored,
             session: stored.session
               ? { ...stored.session, status: snapshot.status }
               : stored.session,
@@ -386,6 +391,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
               restored.session &&
               new Date(restored.session.expires_at) > new Date()
             ) {
+              restored.interactionMode =
+                restored.interactionMode === "text" ? "text" : "voice"
               stateRef.current = restored
               clarificationRef.current = restored.isClarification
               setState(restored)
@@ -614,6 +621,13 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         )
         if (attemptId !== connectionAttemptRef.current) return
 
+        const [{ RealtimeSession: RealtimeSessionClass }, { createKioskRealtimeAgent }] =
+          await Promise.all([
+            import("@openai/agents/realtime"),
+            import("@/lib/kiosk-realtime-agent"),
+          ])
+        if (attemptId !== connectionAttemptRef.current) return
+
         let agentRequirementId =
           stateRef.current.analysis?.requirement_id ??
           stateRef.current.result?.requirement_id ??
@@ -805,7 +819,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           },
         })
 
-        const realtime = new RealtimeSession(agent, {
+        const realtime = new RealtimeSessionClass(agent, {
           model: secret.session?.model ?? "gpt-realtime-2.1-mini",
           historyStoreAudio: false,
           tracingDisabled: true,
@@ -1287,6 +1301,141 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     await connectVoice()
   }, [connectVoice, disposeRealtime])
 
+  const selectInteractionMode = useCallback(
+    (mode: "voice" | "text") => {
+      if (mode === "text") {
+        disposeRealtime()
+        setVoiceError(null)
+        setVoiceState("idle")
+      }
+      updateState((stored) => ({ ...stored, interactionMode: mode }))
+    },
+    [disposeRealtime, updateState],
+  )
+
+  const syncTextExchange = useCallback(
+    (
+      activeSession: KioskSession,
+      customerText: string,
+      assistantText: string,
+    ) => {
+      const messages = [
+        {
+          item_id: `text-customer-${crypto.randomUUID()}`,
+          role: "CUSTOMER",
+          text: customerText,
+        },
+        {
+          item_id: `text-assistant-${crypto.randomUUID()}`,
+          role: "ASSISTANT",
+          text: assistantText,
+        },
+      ]
+      void kioskSessionRequest(activeSession, "/conversation/messages", {
+        method: "POST",
+        body: JSON.stringify({ messages }),
+      }).catch(() => {
+        // El flujo de negocio ya fue confirmado; la sincronización podrá omitirse sin duplicarlo.
+      })
+    },
+    [],
+  )
+
+  const submitTextTurn = useCallback(
+    async (transcript: string): Promise<TurnAnalysis> => {
+      const activeSession = stateRef.current.session
+      if (!activeSession) throw new Error("No existe una sesión activa")
+      let response: TurnAnalysis
+      try {
+        response = await kioskSessionRequest<TurnAnalysis>(
+          activeSession,
+          "/turns",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              turn_id: crypto.randomUUID(),
+              transcript: transcript.trim(),
+              is_clarification: clarificationRef.current,
+            }),
+          },
+        )
+      } catch (reason) {
+        if (reason instanceof ApiError && reason.code === "SESSION_EXPIRED") {
+          handleExpiredSession()
+        }
+        throw reason
+      }
+      if (stateRef.current.session?.session_id !== activeSession.session_id) {
+        return response
+      }
+      const isClarification = response.next_action === "CLARIFY"
+      clarificationRef.current = isClarification
+      setVoiceError(null)
+      updateState((stored) => ({
+        ...stored,
+        session: stored.session
+          ? { ...stored.session, status: response.status }
+          : stored.session,
+        analysis: response,
+        result: null,
+        isClarification,
+      }))
+      syncTextExchange(activeSession, transcript.trim(), response.speech_text)
+      return response
+    },
+    [handleExpiredSession, syncTextExchange, updateState],
+  )
+
+  const confirmText = useCallback(
+    async (confirmed: boolean): Promise<FlowResult> => {
+      const activeSession = stateRef.current.session
+      const requirementId = stateRef.current.analysis?.requirement_id
+      if (!activeSession || !requirementId) {
+        throw new Error("No existe un requerimiento pendiente de confirmación")
+      }
+      let response: FlowResult
+      try {
+        response = await kioskSessionRequest<FlowResult>(
+          activeSession,
+          "/confirmation",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              requirement_id: requirementId,
+              confirmed,
+            }),
+          },
+        )
+      } catch (reason) {
+        if (reason instanceof ApiError && reason.code === "SESSION_EXPIRED") {
+          handleExpiredSession()
+        }
+        throw reason
+      }
+      if (stateRef.current.session?.session_id !== activeSession.session_id) {
+        return response
+      }
+      clarificationRef.current = false
+      setVoiceError(null)
+      updateState((stored) => ({
+        ...stored,
+        session: stored.session
+          ? { ...stored.session, status: response.status }
+          : stored.session,
+        analysis: null,
+        result: response,
+        isClarification: false,
+      }))
+      syncTextExchange(
+        activeSession,
+        confirmed ? "Sí, confirmo." : "No, quiero corregir.",
+        response.speech_text,
+      )
+      return response
+    },
+    [handleExpiredSession, syncTextExchange, updateState],
+  )
+
   const submitIdentification = useCallback(
     async (identifier: string) => {
       const activeSession = stateRef.current.session
@@ -1338,10 +1487,12 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             )
             startCompletionCountdown()
           }
-        } else {
+        } else if (stateRef.current.interactionMode === "voice") {
           setVoiceError(
             "La conexión de voz se cerró; el resultado permanece disponible en pantalla.",
           )
+          startCompletionCountdown()
+        } else {
           startCompletionCountdown()
         }
         return completed
@@ -1378,6 +1529,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       beginSession,
       connectVoice,
       retryVoice,
+      selectInteractionMode,
+      submitTextTurn,
+      confirmText,
       submitIdentification,
       reset,
     }),
@@ -1389,7 +1543,10 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       hydrated,
       reset,
       retryVoice,
+      selectInteractionMode,
       state,
+      submitTextTurn,
+      confirmText,
       submitIdentification,
       voiceError,
       voiceState,

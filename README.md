@@ -39,7 +39,7 @@ The kiosk and staff applications are built from the same Next.js image but run a
 
 ## Key capabilities
 
-- **Natural voice interaction** through OpenAI Realtime with Spanish transcription, semantic voice activity detection, interruptions, and short-lived browser credentials.
+- **Voice-first accessible interaction** through OpenAI Realtime, with Spanish transcription, interruptions, short-lived browser credentials, live captions, and an always-available text alternative.
 - **Privacy-first processing** that masks card numbers, account numbers, phone numbers, customer identifiers, monetary values, and names before classification or retrieval.
 - **Structured request understanding** across card blocking, fraud reporting, general inquiries, credit requests, and digital banking.
 - **Explicit human confirmation** before a case is created, including clarification and correction loops with idempotent turn handling.
@@ -48,7 +48,7 @@ The kiosk and staff applications are built from the same Next.js image but run a
 - **Evidence-grounded answers** for eligible general inquiries using versioned PDF documents, pgvector retrieval, score thresholds, bounded context, and validated citations.
 - **Human-in-the-loop fallback** whenever the request is sensitive, evidence is insufficient, grounding is invalid, the AI provider is unavailable, or classification remains ambiguous.
 - **Skill-based case routing** that combines semantic fit, experience level, active workload, and deterministic tie-breaking.
-- **Operational governance** through role-based access, ticket state transitions, optimistic concurrency, case trace events, management metrics, and document lifecycle controls.
+- **Operational governance** through role-based access, optimistic concurrency, audited assignment and priority controls, executive availability, queue and SLA metrics, and asynchronous document lifecycle controls.
 
 ## System architecture
 
@@ -75,7 +75,10 @@ flowchart LR
     Orchestrator --> PostgreSQL
     Operations --> PostgreSQL
     Knowledge --> PostgreSQL
-    Knowledge --> Documents[(Versioned PDF storage)]
+    Knowledge --> Queue[Document job worker]
+    Queue --> Documents[(Versioned PDF storage)]
+    Knowledge --> Scanner[ClamAV]
+    API --> Redis[(Redis rate limits)]
     Agents -->|Masked text only| OpenAI[OpenAI Responses<br/>and Embeddings]
 ```
 
@@ -86,8 +89,11 @@ Docker Compose defines an ordered startup pipeline. Migrations and deterministic
 ```mermaid
 flowchart LR
     DB[(PostgreSQL + pgvector)] -->|healthy| Migrate[Alembic migrations<br/>and operational seed]
+    Redis[(Redis)] --> API
+    Scanner[ClamAV] --> API
     Migrate -->|completed| Bootstrap[Knowledge bootstrap]
     Bootstrap -->|completed| API[FastAPI backend]
+    Bootstrap -->|completed| Worker[Knowledge worker]
     API -->|healthy| Kiosk[Kiosk frontend :3000]
     API -->|healthy| Staff[Staff frontend :3001]
     Bootstrap --> Volume[(Knowledge volume)]
@@ -454,6 +460,12 @@ uv run python -m app.knowledge.cli ingest
 uv run uvicorn app.main:app --reload
 ```
 
+In another terminal, start the document job processor:
+
+```bash
+uv run python -m app.knowledge.worker
+```
+
 The backend reads `backend/.env`. `DATABASE_URL` is used by the async application, while `DATABASE_MIGRATION_URL` can provide a separate migration connection.
 
 Knowledge-base operations:
@@ -504,6 +516,7 @@ pnpm typecheck
 pnpm test
 pnpm test:coverage
 pnpm build
+pnpm audit --prod --audit-level low
 ```
 
 `generate:api` exports FastAPI's OpenAPI schema and regenerates the TypeScript contracts used by
@@ -513,12 +526,13 @@ The test environment uses an isolated ephemeral SQLite schema and deterministic 
 
 ## Operational considerations
 
-The included Compose topology is designed for reproducible local evaluation. Before a production deployment:
+The included Compose topology provides PostgreSQL/pgvector, Redis, ClamAV, migrations,
+the document worker, API, and isolated web surfaces. Before a production deployment:
 
 - Terminate TLS at a trusted reverse proxy and configure the exact public CORS origins.
 - Store database credentials, `JWT_SECRET`, `IDENTIFIER_PEPPER`, seed passwords, and the OpenAI key in a managed secret store.
-- Replace the in-process rate limiter with a shared, distributed limiter when running multiple API replicas.
-- Add centralized log aggregation, metrics, alerting, retention rules, and trace propagation to downstream services.
+- Configure a random `METRICS_TOKEN`, scrape `/internal/metrics`, centralize JSON logs,
+  and apply the alert thresholds in the operational runbook.
 - Define PostgreSQL backup, restore, migration rollback, and knowledge-file durability procedures.
 - Review document approval and expiry policies, identity-verification rules, and data retention with the relevant security and compliance teams.
 - Run dependency auditing and all backend/frontend quality gates in CI.
@@ -528,4 +542,5 @@ When OpenAI is intentionally absent in development, deterministic classification
 ## Additional documentation
 
 - [Backend implementation guide](backend/README.md)
+- [Operations and recovery runbook](docs/operations.md)
 - [Governed RAG manifest](doc/rag/manifest.json)

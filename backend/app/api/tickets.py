@@ -269,6 +269,12 @@ async def reveal_identifier(
     settings: Settings = Depends(get_settings),
 ) -> IdentifierRevealResponse:
     ticket = await _authorized_ticket(db, ticket_id, user, for_update=True)
+    if ticket.status != TicketStatus.EN_ATENCION:
+        raise AppError(
+            "IDENTIFIER_REVEAL_NOT_ALLOWED",
+            "El CI completo solo puede revelarse durante la atención activa",
+            409,
+        )
     identification = _identity(ticket)
     if not identification or not all(
         (
@@ -358,6 +364,25 @@ async def update_ticket_status(
         ticket.resolution_outcome = payload.resolution_outcome
         ticket.resolution_note = masked_note
         ticket.case.status = CaseStatus.CLOSED
+        identification = _identity(ticket)
+        if identification and any(
+            (
+                identification.identifier_ciphertext,
+                identification.identifier_nonce,
+                identification.identifier_key_id,
+            )
+        ):
+            identification.identifier_ciphertext = None
+            identification.identifier_nonce = None
+            identification.identifier_key_id = None
+            db.add(
+                TraceEvent(
+                    case_id=ticket.case_id,
+                    event_type="CLIENT_IDENTIFIER_RECOVERY_PURGED",
+                    description="El CI recuperable fue eliminado al cerrar la atención",
+                    metadata_json={"user_id": str(user.id)},
+                )
+            )
         if ticket.executive and ticket.executive.status != ExecutiveStatus.INACTIVO:
             ticket.executive.status = ExecutiveStatus.DISPONIBLE
         metadata["resolution_outcome"] = payload.resolution_outcome.value

@@ -56,7 +56,7 @@ function ExecutiveShell({ children }: { children: React.ReactNode }) {
             </Link>
           </nav>
         </aside>
-        <main className="min-w-0 flex-1 p-4 sm:p-6">{children}</main>
+        <main className="min-w-0 flex-1 p-4 sm:p-6" id="main-content">{children}</main>
       </div>
     </div>
   )

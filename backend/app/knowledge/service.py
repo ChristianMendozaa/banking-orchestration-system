@@ -1,6 +1,7 @@
 import hashlib
 from uuid import UUID
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -11,6 +12,7 @@ from app.knowledge.repository import KnowledgeRepository
 from app.services.openai_provider import OpenAIProvider
 
 PROMPT_VERSION = "rag-v1"
+logger = structlog.get_logger()
 
 
 class KnowledgeService:
@@ -76,7 +78,12 @@ class KnowledgeService:
             citations = [allowed[chunk_id].citation() for chunk_id in cited]
             await self._log(db, case_id, masked_query, "GROUNDED", retrieved, decision.answer)
             return GroundedResponse(answer=decision.answer.strip(), citations=citations)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                "rag_provider_error",
+                case_id=str(case_id) if case_id else None,
+                error_type=type(exc).__name__,
+            )
             await self._log(db, case_id, masked_query, "PROVIDER_ERROR", [], None)
             return None
 

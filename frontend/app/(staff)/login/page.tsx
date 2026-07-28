@@ -37,7 +37,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="grid min-h-screen place-items-center bg-[#071426] p-6">
+    <main className="grid min-h-screen place-items-center bg-[#071426] p-6" id="main-content">
       <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white p-8 shadow-2xl">
         <div className="mb-8 flex items-center gap-3">
           <div className="grid h-11 w-11 place-items-center rounded-xl bg-[#1168BD]">

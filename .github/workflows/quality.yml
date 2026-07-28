@@ -1,0 +1,82 @@
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      APP_ENV: test
+      APP_NAME: Sistema de Orquestacion CI
+      BANK_NAME: Banco CI
+      BRANCH_NAME: Sucursal CI
+      DATABASE_URL: sqlite+aiosqlite://
+      CORS_ORIGINS: http://test
+      JWT_SECRET: ci-jwt-secret-with-more-than-thirty-two-characters
+      IDENTIFIER_PEPPER: ci-identifier-pepper-with-more-than-thirty-two-characters
+      SEED_EXECUTIVE_PASSWORD: ci-executive-password
+      SEED_MANAGER_PASSWORD: ci-manager-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+      - run: uv run coverage run -m pytest -q
+      - run: uv run coverage report
+      - run: uv run --with pip-audit pip-audit
+
+  frontend:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: test
+      APP_NAME: Sistema de Orquestacion CI
+      BANK_NAME: Banco CI
+      BRANCH_NAME: Sucursal CI
+      DATABASE_URL: sqlite+aiosqlite://
+      CORS_ORIGINS: http://test
+      JWT_SECRET: ci-jwt-secret-with-more-than-thirty-two-characters
+      IDENTIFIER_PEPPER: ci-identifier-pepper-with-more-than-thirty-two-characters
+      SEED_EXECUTIVE_PASSWORD: ci-executive-password
+      SEED_MANAGER_PASSWORD: ci-manager-password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.11.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: uv sync --locked
+        working-directory: backend
+      - run: pnpm install --frozen-lockfile
+        working-directory: frontend
+      - run: pnpm generate:api
+        working-directory: frontend
+      - run: git diff --exit-code -- frontend/openapi.json frontend/lib/generated-api.ts
+      - run: pnpm lint
+        working-directory: frontend
+      - run: pnpm typecheck
+        working-directory: frontend
+      - run: pnpm test:coverage
+        working-directory: frontend
+      - run: pnpm build
+        working-directory: frontend
+      - run: pnpm audit --prod --audit-level low
+        working-directory: frontend

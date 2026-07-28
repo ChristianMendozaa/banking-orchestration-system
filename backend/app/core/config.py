@@ -1,4 +1,5 @@
 import base64
+import ipaddress
 import json
 from functools import lru_cache
 from typing import Annotated, Literal
@@ -20,6 +21,9 @@ class Settings(BaseSettings):
     database_url: str
     database_migration_url: str | None = None
     supabase_url: str | None = None
+    redis_url: str | None = None
+    trusted_proxy_cidrs: Annotated[list[str], NoDecode] = []
+    metrics_token: SecretStr = SecretStr("")
 
     openai_api_key: SecretStr = SecretStr("")
     voice_model: str = "gpt-realtime-2.1-mini"
@@ -56,11 +60,18 @@ class Settings(BaseSettings):
     knowledge_storage_dir: str = "../data/knowledge"
     knowledge_max_upload_mb: int = 20
     knowledge_max_pages: int = 300
+    clamav_host: str | None = None
+    clamav_port: int = 3310
+    clamav_timeout_seconds: float = 15.0
 
     classification_confidence_threshold: float = 0.68
     max_clarifications: int = 2
     openai_timeout_seconds: float = 20.0
     estimated_service_minutes: int = 8
+    support_tracking_information: str = (
+        "Conserva tu número de ticket. Para seguimiento, utiliza los canales oficiales "
+        "de atención de la entidad."
+    )
 
     @model_validator(mode="after")
     def validate_rag_settings(self) -> "Settings":
@@ -84,6 +95,10 @@ class Settings(BaseSettings):
             raise ValueError("KNOWLEDGE_MAX_UPLOAD_MB debe ser positivo")
         if self.knowledge_max_pages <= 0:
             raise ValueError("KNOWLEDGE_MAX_PAGES debe ser positivo")
+        if not 1 <= self.clamav_port <= 65535:
+            raise ValueError("CLAMAV_PORT debe ser un puerto válido")
+        if self.clamav_timeout_seconds <= 0:
+            raise ValueError("CLAMAV_TIMEOUT_SECONDS debe ser positivo")
         if self.dashboard_refresh_ms < 1_000:
             raise ValueError("DASHBOARD_REFRESH_MS debe ser al menos 1000")
         if self.estimated_service_minutes <= 0:
@@ -92,6 +107,8 @@ class Settings(BaseSettings):
             raise ValueError("CONVERSATION_RETENTION_DAYS debe ser positivo")
         if self.conversation_cleanup_hours <= 0:
             raise ValueError("CONVERSATION_CLEANUP_HOURS debe ser positivo")
+        if not self.support_tracking_information.strip():
+            raise ValueError("SUPPORT_TRACKING_INFORMATION no puede estar vacío")
         return self
 
     @field_validator("cors_origins", mode="before")
@@ -100,6 +117,15 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @field_validator("trusted_proxy_cidrs", mode="before")
+    @classmethod
+    def parse_trusted_proxy_cidrs(cls, value: str | list[str]) -> list[str]:
+        parsed = [item.strip() for item in value.split(",")] if isinstance(value, str) else value
+        result = [item for item in parsed if item]
+        for item in result:
+            ipaddress.ip_network(item, strict=False)
+        return result
 
     @field_validator("identifier_encryption_keys", mode="before")
     @classmethod
@@ -136,6 +162,12 @@ class Settings(BaseSettings):
             raise ValueError("Las contrasenas de semilla deben tener al menos 12 caracteres")
         if self.app_env == "production" and not self.openai_enabled:
             raise ValueError("OPENAI_API_KEY es obligatorio en produccion")
+        if self.app_env == "production" and not self.redis_url:
+            raise ValueError("REDIS_URL es obligatorio en produccion")
+        if self.app_env == "production" and not self.clamav_host:
+            raise ValueError("CLAMAV_HOST es obligatorio en produccion")
+        if self.app_env == "production" and len(self.metrics_token.get_secret_value()) < 32:
+            raise ValueError("METRICS_TOKEN debe tener al menos 32 caracteres en produccion")
         return self
 
     @property

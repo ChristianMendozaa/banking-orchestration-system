@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.db.models import ConversationMessage, KioskSession, Ticket
+from app.db.models import ConversationMessage, Identification, KioskSession, Ticket
 from app.domain.enums import ConversationRole, SessionStatus
 from app.services.retention import purge_expired_conversations
 from tests.conftest import TestSession, settings_for_tests
@@ -94,6 +94,12 @@ async def test_conversation_and_identifier_are_exposed_by_role(client: AsyncClie
     assert len(body["conversation"]) == 2
     assert all("ana@example.com" not in message["text"] for message in body["conversation"])
 
+    started = await client.patch(
+        f"/api/v1/tickets/{ticket_id}/status",
+        headers={"Authorization": f"Bearer {executive_token}"},
+        json={"status": "EN_ATENCION", "expected_version": 1},
+    )
+    assert started.status_code == 200, started.text
     revealed = await client.post(
         f"/api/v1/tickets/{ticket_id}/identifier/reveal",
         headers={"Authorization": f"Bearer {executive_token}"},
@@ -175,6 +181,14 @@ async def test_single_active_case_and_documented_close(client: AsyncClient) -> N
     assert closed.status_code == 200, closed.text
     assert closed.json()["resolution_outcome"] == "RESUELTO"
     assert "ana@example.com" not in closed.json()["resolution_note"]
+    async with TestSession() as db:
+        identification = await db.scalar(
+            select(Identification).where(Identification.case_id == first_ticket.case_id)
+        )
+        assert identification
+        assert identification.identifier_ciphertext is None
+        assert identification.identifier_nonce is None
+        assert identification.identifier_key_id is None
 
     next_started = await client.patch(
         f"/api/v1/tickets/{second_id}/status",

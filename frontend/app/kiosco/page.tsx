@@ -5,21 +5,22 @@ import { useKiosk } from "@/components/providers/kiosk-provider"
 import { useSystemConfig } from "@/components/providers/system-config-provider"
 import { Button } from "@/components/ui/button"
 import { errorMessage } from "@/lib/api"
-import { Accessibility, ArrowRight, Building2, ShieldCheck } from "lucide-react"
+import { Accessibility, ArrowRight, Building2, Keyboard, ShieldCheck } from "lucide-react"
 import { useState } from "react"
 
 export default function KioskPage() {
   const { config } = useSystemConfig()
-  const { beginSession } = useKiosk()
+  const { beginSession, selectInteractionMode } = useKiosk()
   const [preferential, setPreferential] = useState(false)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function start() {
+  async function start(mode: "voice" | "text") {
     setStarting(true)
     setError(null)
     try {
       await beginSession(preferential)
+      selectInteractionMode(mode)
     } catch (reason) {
       setError(errorMessage(reason))
     } finally {
@@ -34,8 +35,8 @@ export default function KioskPage() {
           <Building2 className="h-10 w-10 text-[#23A2D9]" />
         </div>
         <div>
-          <p className="text-xl font-bold">{config?.bank_name ?? "Cargando…"}</p>
-          <p className="mt-1 text-sm text-white/45">{config?.branch_name}</p>
+          <p className="text-xl font-bold">{config?.bank_name ?? "Banco"}</p>
+          <p className="mt-1 text-sm text-white/70">{config?.branch_name}</p>
         </div>
       </div>
 
@@ -44,9 +45,8 @@ export default function KioskPage() {
           Bienvenido al sistema de
           <span className="mt-2 block font-bold text-[#23A2D9]">atención inteligente</span>
         </h1>
-        <p className="mt-5 text-lg text-white/60">
-          Habla con nuestra asistente en tiempo real, con la misma naturalidad que en una
-          conversación.
+        <p className="mt-5 text-lg text-white/75">
+          Habla con nuestra asistente en tiempo real o utiliza la alternativa escrita.
         </p>
 
         <label className="mx-auto mt-8 flex max-w-xl cursor-pointer items-start gap-4 rounded-2xl border border-white/15 bg-white/[.06] p-4 text-left">
@@ -61,29 +61,45 @@ export default function KioskPage() {
               <Accessibility className="h-5 w-5 text-[#23A2D9]" />
               Solicito atención preferente
             </span>
-            <span className="mt-1 block text-sm text-white/50">
+            <span className="mt-1 block text-sm text-white/70">
               Marca esta opción si te corresponde atención preferente.
             </span>
           </span>
         </label>
 
         {error && (
-          <p className="mx-auto mt-5 max-w-xl rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">
+          <p className="mx-auto mt-5 max-w-xl rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200" role="alert">
             {error}
           </p>
         )}
         <Button
           className="mt-8 gap-3 shadow-2xl shadow-[#1168BD]/30"
           disabled={starting}
-          onClick={start}
+          onClick={() => void start("voice")}
           size="xl"
         >
           {starting ? "Creando sesión…" : "Iniciar atención"}
           {!starting && <ArrowRight className="h-7 w-7" />}
         </Button>
-        <p className="mt-5 flex items-center justify-center gap-2 text-sm text-white/40">
+        <div>
+          <Button
+            className="mt-4"
+            disabled={starting}
+            onClick={() => void start("text")}
+            size="lg"
+            variant="ghost"
+          >
+            <Keyboard className="h-5 w-5" />
+            Prefiero escribir
+          </Button>
+        </div>
+        <p className="mt-5 flex items-center justify-center gap-2 text-sm text-white/70">
           <ShieldCheck className="h-4 w-4" />
-          La transcripción original y el audio no se almacenan.
+          El audio y la transcripción original no se almacenan. Los mensajes enmascarados
+          se conservan{" "}
+          {config?.conversation_retention_days
+            ? `${config.conversation_retention_days} días.`
+            : "durante el plazo configurado."}
         </p>
       </div>
 

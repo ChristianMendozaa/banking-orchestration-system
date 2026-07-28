@@ -68,7 +68,7 @@ function ManagerShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </header>
-      <main className="flex-1 p-4 sm:p-6">{children}</main>
+      <main className="flex-1 p-4 sm:p-6" id="main-content">{children}</main>
     </div>
   )
 }

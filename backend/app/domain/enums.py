@@ -52,6 +52,7 @@ class CaseStatus(StrEnum):
     CLASSIFIED = "CLASSIFIED"
     ORCHESTRATING = "ORCHESTRATING"
     RESOLVED = "RESOLVED"
+    QUEUED = "QUEUED"
     ASSIGNED = "ASSIGNED"
     CLOSED = "CLOSED"
 
@@ -105,3 +106,16 @@ class KnowledgeIndexStatus(StrEnum):
     READY = "READY"
     FAILED = "FAILED"
     ARCHIVED = "ARCHIVED"
+
+
+class KnowledgeJobOperation(StrEnum):
+    CREATE = "CREATE"
+    VERSION = "VERSION"
+    REINDEX = "REINDEX"
+
+
+class KnowledgeJobStatus(StrEnum):
+    QUEUED = "QUEUED"
+    RUNNING = "RUNNING"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -17,6 +18,8 @@ from app.domain.enums import (
 from app.domain.schemas import ClassificationDecision, GroundedResponse
 from app.knowledge.service import KnowledgeService
 from app.services.openai_provider import OpenAIProvider
+
+logger = structlog.get_logger()
 
 _CUSTOMER_SUMMARIES = {
     Category.BLOQUEO_TARJETA: "Necesitas bloquear una tarjeta.",
@@ -55,12 +58,22 @@ class ClassificationAgent:
         self.provider = provider
 
     async def run(self, masked_text: str) -> ClassificationDecision:
+        decision, _ = await self.run_with_source(masked_text)
+        return decision
+
+    async def run_with_source(self, masked_text: str) -> tuple[ClassificationDecision, str]:
         if self.provider:
             try:
-                return self._ensure_customer_language(await self.provider.classify(masked_text))
-            except Exception:
-                pass
-        return self._fallback(masked_text)
+                return (
+                    self._ensure_customer_language(await self.provider.classify(masked_text)),
+                    "MODEL",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "classification_provider_fallback",
+                    error_type=type(exc).__name__,
+                )
+        return self._fallback(masked_text), "FALLBACK"
 
     @staticmethod
     def _ensure_customer_language(decision: ClassificationDecision) -> ClassificationDecision:
@@ -263,7 +276,11 @@ class DerivationAgent:
         if self.provider:
             try:
                 case_embedding = await self.provider.embedding(summary)
-            except Exception:
+            except Exception as exc:
+                logger.warning(
+                    "routing_embedding_fallback",
+                    error_type=type(exc).__name__,
+                )
                 case_embedding = None
 
         ranked: list[tuple[float, datetime, str, DerivationDecision]] = []
@@ -282,8 +299,12 @@ class DerivationAgent:
                             0.0,
                             _cosine(case_embedding, list(best_skill.embedding)),
                         )
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning(
+                        "routing_skill_embedding_fallback",
+                        executive_id=str(executive.id),
+                        error_type=type(exc).__name__,
+                    )
             experience = min(max(best_skill.experience_level, 1), 5) / 5
             load_score = 1 - (loads[executive.id] / max_load)
             score = 0.70 * semantic + 0.20 * experience + 0.10 * load_score

@@ -3,7 +3,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import cast, delete, or_, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import KnowledgeChunk, KnowledgeDocument
@@ -86,9 +87,20 @@ class KnowledgeRepository:
                 await db.execute(
                     select(KnowledgeChunk, KnowledgeDocument, distance)
                     .join(KnowledgeChunk.document)
-                    .where(*base_filters)
+                    .where(
+                        *base_filters,
+                        or_(
+                            KnowledgeDocument.review_after.is_(None),
+                            KnowledgeDocument.review_after >= now,
+                        ),
+                        or_(
+                            cast(KnowledgeChunk.categories, JSONB) == [],
+                            cast(KnowledgeChunk.categories, JSONB).contains([category.value]),
+                        ),
+                        distance <= 1 - min_score,
+                    )
                     .order_by(distance)
-                    .limit(max(top_k * 8, 40))
+                    .limit(top_k)
                 )
             ).all()
             candidates = [

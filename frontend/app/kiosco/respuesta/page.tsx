@@ -19,7 +19,7 @@ export default function AutomaticResponsePage() {
           <h1 className="mt-4 text-3xl font-semibold text-green-300">
             Encontré una orientación para ti
           </h1>
-          <p className="mt-2 text-white/50">
+          <p className="mt-2 text-white/75">
             Consulté información vigente para responderte.
           </p>
         </div>
@@ -40,12 +40,12 @@ export default function AutomaticResponsePage() {
 
         {result.citations.length > 0 && (
           <section className="w-full rounded-2xl border border-white/10 bg-white/[.04] p-5">
-            <h2 className="text-sm font-semibold uppercase tracking-widest text-white/45">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-white/70">
               Información consultada
             </h2>
             <ul className="mt-3 space-y-2">
               {result.citations.map((citation) => (
-                <li className="text-sm text-white/65" key={citation.chunk_id}>
+                <li className="text-sm text-white/75" key={citation.chunk_id}>
                   {citation.source_url ? (
                     <a
                       className="inline-flex items-center gap-2 text-[#7DD3FC] underline-offset-4 hover:underline"
@@ -71,12 +71,12 @@ export default function AutomaticResponsePage() {
         <div className="flex items-center gap-3 rounded-xl border border-white/15 bg-white/[.06] px-6 py-4">
           <Ticket className="h-5 w-5 text-[#23A2D9]" />
           <div>
-            <p className="text-xs uppercase tracking-wide text-white/45">Tu referencia</p>
+            <p className="text-xs uppercase tracking-wide text-white/70">Tu referencia</p>
             <p className="font-bold">Ticket #{result.ticket.number}</p>
           </div>
         </div>
         {result.tracking_information && (
-          <p className="max-w-2xl text-center text-sm text-white/45">
+          <p className="max-w-2xl text-center text-sm text-white/70">
             {result.tracking_information}
           </p>
         )}

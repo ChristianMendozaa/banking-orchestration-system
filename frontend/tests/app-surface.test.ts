@@ -49,6 +49,10 @@ describe("surface proxy", () => {
     const kiosk = proxy(new NextRequest("http://localhost:3000/"))
     expect(kiosk.status).toBe(307)
     expect(kiosk.headers.get("location")).toBe("http://localhost:3000/kiosco")
+    expect(kiosk.headers.get("content-security-policy")).toContain("'strict-dynamic'")
+    expect(kiosk.headers.get("content-security-policy")).not.toContain(
+      "upgrade-insecure-requests",
+    )
 
     process.env.APP_SURFACE = "staff"
     const staff = proxy(new NextRequest("http://localhost:3001/"))

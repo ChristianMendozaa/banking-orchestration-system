@@ -1,12 +1,15 @@
 "use client"
 
 import { useKiosk, type VoiceState } from "@/components/providers/kiosk-provider"
+import { TextInteraction } from "@/components/kiosk/text-interaction"
+import { useSystemConfig } from "@/components/providers/system-config-provider"
 import { Button } from "@/components/ui/button"
 import {
   AudioLines,
   CircleAlert,
   LoaderCircle,
   Mic,
+  Keyboard,
   RefreshCw,
   ShieldCheck,
   Volume2,
@@ -25,6 +28,7 @@ const statusText: Record<VoiceState, string> = {
 }
 
 export default function VoicePage() {
+  const { config } = useSystemConfig()
   const {
     session,
     hydrated,
@@ -35,22 +39,25 @@ export default function VoicePage() {
     connectVoice,
     retryVoice,
     reset,
+    interactionMode,
+    selectInteractionMode,
   } = useKiosk()
 
   useEffect(() => {
-    if (!hydrated || !session) return
+    if (!hydrated || !session || interactionMode !== "voice") return
     if (voiceState === "idle") {
       void connectVoice().catch(() => {
         // El provider convierte el fallo en un estado recuperable visible.
       })
     }
-  }, [connectVoice, hydrated, session, voiceState])
+  }, [connectVoice, hydrated, interactionMode, session, voiceState])
 
   function returnToStart() {
     reset()
   }
 
   if (!hydrated || !session) return null
+  if (interactionMode === "text") return <TextInteraction />
 
   const recentCaptions = captions.slice(-6)
   const animated = voiceState === "listening" || voiceState === "speaking"
@@ -69,9 +76,18 @@ export default function VoicePage() {
               ? "Confírmame si entendí bien"
               : "¿En qué puedo ayudarte?"}
         </h1>
-        <p className="mt-3 text-white/50">
+        <p className="mt-3 text-white/75">
           Habla con naturalidad. Puedes interrumpirme cuando lo necesites.
         </p>
+        <Button
+          className="mt-5"
+          onClick={() => selectInteractionMode("text")}
+          size="sm"
+          variant="ghost"
+        >
+          <Keyboard className="h-4 w-4" />
+          Prefiero escribir
+        </Button>
       </div>
 
       <div className="relative my-2 grid h-44 w-44 place-items-center sm:h-52 sm:w-52">
@@ -141,7 +157,7 @@ export default function VoicePage() {
                     : "rounded-bl-sm border border-white/10 bg-white/[.08] text-white/85"
                 } ${caption.completed ? "" : "opacity-65"}`}
               >
-                <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-white/45">
+                <p className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-white/70">
                   {caption.role === "user" ? "Tú" : "Asistente"}
                 </p>
                 {caption.text}
@@ -151,10 +167,13 @@ export default function VoicePage() {
         </section>
       )}
 
-      <p className="mt-auto flex max-w-2xl items-center justify-center gap-2 text-center text-sm text-white/40">
+      <p className="mt-auto flex max-w-2xl items-center justify-center gap-2 text-center text-sm text-white/70">
         <ShieldCheck className="h-4 w-4 shrink-0" />
-        No menciones contraseñas, PIN, CVV ni números financieros completos. El audio y los
-        subtítulos no se guardan.
+        No menciones contraseñas, PIN, CVV ni números financieros completos. El audio y la
+        transcripción original no se guardan; los mensajes enmascarados se conservan
+        {config?.conversation_retention_days
+          ? ` ${config.conversation_retention_days} días.`
+          : " durante el plazo de retención configurado."}
       </p>
     </div>
   )

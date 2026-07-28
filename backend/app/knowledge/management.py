@@ -6,15 +6,18 @@ from uuid import UUID, uuid4
 
 from fastapi import UploadFile
 from pypdf import PdfReader
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.db.models import KnowledgeChunk, KnowledgeDocument
+from app.core.malware import scan_bytes
+from app.db.models import KnowledgeChunk, KnowledgeDocument, KnowledgeJob
 from app.domain.enums import (
     Category,
     KnowledgeIndexStatus,
+    KnowledgeJobOperation,
+    KnowledgeJobStatus,
     KnowledgeSourceType,
 )
 from app.domain.schemas import KnowledgeDocumentUpdate
@@ -39,7 +42,7 @@ class KnowledgeManagementService:
         self.repository = repository or KnowledgeRepository()
         self.storage_dir = Path(settings.knowledge_storage_dir).resolve()
 
-    async def create(
+    async def enqueue_create(
         self,
         db: AsyncSession,
         *,
@@ -53,15 +56,15 @@ class KnowledgeManagementService:
         verified_at: datetime,
         review_after: datetime | None,
         user_id: UUID,
-    ) -> tuple[KnowledgeDocument, int]:
+        operation: KnowledgeJobOperation = KnowledgeJobOperation.CREATE,
+    ) -> tuple[KnowledgeDocument, KnowledgeJob]:
         if not categories:
             raise AppError(
                 "KNOWLEDGE_CATEGORIES_REQUIRED",
                 "Seleccione al menos una categoria",
                 422,
             )
-        existing = await self.repository.current_document(db, slug, version)
-        if existing:
+        if await self.repository.current_document(db, slug, version):
             raise AppError(
                 "KNOWLEDGE_VERSION_EXISTS",
                 "Ya existe esa version para el documento",
@@ -83,27 +86,28 @@ class KnowledgeManagementService:
             page_count=page_count,
             content_sha256=content_hash,
             metadata_json={"categories": [category.value for category in categories]},
-            index_status=KnowledgeIndexStatus.INDEXING,
+            index_status=KnowledgeIndexStatus.PENDING,
             created_by_user_id=user_id,
             active=False,
         )
         db.add(document)
         try:
             await db.flush()
-            count = await self._index(db, document, path, categories)
-            await self.repository.deactivate_other_versions(db, slug, document.id)
-            document.active = True
-            document.index_status = KnowledgeIndexStatus.READY
-            document.indexed_at = datetime.now(UTC)
-            document.index_error = None
+            job = KnowledgeJob(
+                document_id=document.id,
+                operation=operation,
+                status=KnowledgeJobStatus.QUEUED,
+                created_by_user_id=user_id,
+            )
+            db.add(job)
             await db.flush()
-            return document, count
+            return document, job
         except Exception:
             await db.rollback()
             path.unlink(missing_ok=True)
             raise
 
-    async def create_version(
+    async def enqueue_version(
         self,
         db: AsyncSession,
         *,
@@ -113,9 +117,9 @@ class KnowledgeManagementService:
         verified_at: datetime,
         review_after: datetime | None,
         user_id: UUID,
-    ) -> tuple[KnowledgeDocument, int]:
+    ) -> tuple[KnowledgeDocument, KnowledgeJob]:
         categories = [Category(value) for value in source.metadata_json.get("categories", [])]
-        return await self.create(
+        return await self.enqueue_create(
             db,
             upload=upload,
             slug=source.slug,
@@ -127,7 +131,65 @@ class KnowledgeManagementService:
             verified_at=verified_at,
             review_after=review_after,
             user_id=user_id,
+            operation=KnowledgeJobOperation.VERSION,
         )
+
+    async def enqueue_reindex(
+        self,
+        db: AsyncSession,
+        *,
+        document: KnowledgeDocument,
+        user_id: UUID,
+    ) -> KnowledgeJob:
+        existing = await db.scalar(
+            select(KnowledgeJob).where(
+                KnowledgeJob.document_id == document.id,
+                KnowledgeJob.status.in_([KnowledgeJobStatus.QUEUED, KnowledgeJobStatus.RUNNING]),
+            )
+        )
+        if existing:
+            raise AppError("KNOWLEDGE_JOB_ACTIVE", "El documento ya tiene un trabajo activo", 409)
+        document.index_status = KnowledgeIndexStatus.INDEXING
+        job = KnowledgeJob(
+            document_id=document.id,
+            operation=KnowledgeJobOperation.REINDEX,
+            status=KnowledgeJobStatus.QUEUED,
+            created_by_user_id=user_id,
+        )
+        db.add(job)
+        await db.flush()
+        return job
+
+    async def process_job(
+        self,
+        db: AsyncSession,
+        job: KnowledgeJob,
+        document: KnowledgeDocument,
+    ) -> int:
+        path = self.path_for(document)
+        if not path.is_file():
+            raise AppError(
+                "KNOWLEDGE_FILE_MISSING",
+                "El archivo original del documento no está disponible",
+                409,
+            )
+        categories = [Category(value) for value in document.metadata_json.get("categories", [])]
+        count = await self._index(db, document, path, categories)
+        if job.operation in {
+            KnowledgeJobOperation.CREATE,
+            KnowledgeJobOperation.VERSION,
+        }:
+            await self.repository.deactivate_other_versions(db, document.slug, document.id)
+            document.active = True
+        document.index_status = KnowledgeIndexStatus.READY
+        document.indexed_at = datetime.now(UTC)
+        document.index_error = None
+        job.status = KnowledgeJobStatus.SUCCEEDED
+        job.completed_at = datetime.now(UTC)
+        job.error_code = None
+        job.error_message = None
+        await db.flush()
+        return count
 
     async def patch(
         self,
@@ -168,36 +230,21 @@ class KnowledgeManagementService:
         return document
 
     async def archive(self, db: AsyncSession, document: KnowledgeDocument) -> None:
+        active_job = await db.scalar(
+            select(KnowledgeJob).where(
+                KnowledgeJob.document_id == document.id,
+                KnowledgeJob.status.in_([KnowledgeJobStatus.QUEUED, KnowledgeJobStatus.RUNNING]),
+            )
+        )
+        if active_job:
+            raise AppError(
+                "KNOWLEDGE_JOB_ACTIVE",
+                "Espere a que termine el trabajo documental antes de archivar",
+                409,
+            )
         document.active = False
         document.index_status = KnowledgeIndexStatus.ARCHIVED
         await db.flush()
-
-    async def reindex(
-        self, db: AsyncSession, document: KnowledgeDocument
-    ) -> tuple[KnowledgeDocument, int]:
-        path = self.path_for(document)
-        if not path.is_file():
-            raise AppError(
-                "KNOWLEDGE_FILE_MISSING",
-                "El archivo original del documento no esta disponible",
-                409,
-            )
-        categories = [Category(value) for value in document.metadata_json.get("categories", [])]
-        try:
-            count = await self._index(db, document, path, categories)
-        except AppError:
-            raise
-        except Exception as exc:
-            raise AppError(
-                "KNOWLEDGE_INDEX_FAILED",
-                "No fue posible reindexar el documento",
-                502,
-            ) from exc
-        document.index_status = KnowledgeIndexStatus.READY
-        document.indexed_at = datetime.now(UTC)
-        document.index_error = None
-        await db.flush()
-        return document, count
 
     def path_for(self, document: KnowledgeDocument) -> Path:
         path = (self.storage_dir / document.storage_key).resolve()
@@ -218,6 +265,12 @@ class KnowledgeManagementService:
             )
         if not data.startswith(b"%PDF-"):
             raise AppError("INVALID_PDF", "El archivo no contiene una firma PDF valida", 422)
+        await scan_bytes(
+            data,
+            host=self.settings.clamav_host,
+            port=self.settings.clamav_port,
+            timeout_seconds=self.settings.clamav_timeout_seconds,
+        )
         self.storage_dir.mkdir(parents=True, exist_ok=True)
         storage_key = f"{uuid4()}.pdf"
         path = self.storage_dir / storage_key

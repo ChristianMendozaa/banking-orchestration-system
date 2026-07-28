@@ -11,10 +11,10 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { errorMessage } from "@/lib/api"
 import { categoryLabels, priorityLabels, statusLabels } from "@/lib/labels"
-import type { Category, ManagementCasesPage, ManagementMetrics, Priority, TicketStatus } from "@/lib/types"
+import type { Category, ExecutiveWorkload, ManagementCasesPage, ManagementMetrics, Priority, TicketStatus } from "@/lib/types"
 import { useIntervalRefresh } from "@/lib/use-interval-refresh"
 import { AlertTriangle, CheckCircle2, Clock3, Hourglass, RefreshCw, Search, UserRoundCheck } from "lucide-react"
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react"
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 function laPazDate(): string {
   return new Intl.DateTimeFormat("en-CA", {
@@ -48,12 +48,16 @@ export default function ManagerDashboardPage() {
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [statusTarget, setStatusTarget] = useState<ExecutiveWorkload | null>(null)
+  const [statusBusy, setStatusBusy] = useState(false)
+  const statusDialogRef = useRef<HTMLDivElement>(null)
 
   const sharedQuery = useMemo(() => {
     const params = new URLSearchParams({ date_from: `${dateFrom}T00:00:00`, date_to: `${shiftDate(dateTo, 1)}T00:00:00` })
     if (category) params.set("category", category)
     if (priority) params.set("priority", priority)
-    if (executiveId) params.set("executive_id", executiveId)
+    if (executiveId === "__unassigned__") params.set("unassigned", "true")
+    else if (executiveId) params.set("executive_id", executiveId)
     return params
   }, [category, dateFrom, dateTo, executiveId, priority])
 
@@ -85,6 +89,15 @@ export default function ManagerDashboardPage() {
 
   useEffect(() => { queueMicrotask(() => void load()) }, [load])
   useIntervalRefresh(() => void load(), config?.dashboard_refresh_ms)
+  useEffect(() => {
+    if (!statusTarget) return
+    statusDialogRef.current?.focus()
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape" && !statusBusy) setStatusTarget(null)
+    }
+    window.addEventListener("keydown", closeOnEscape)
+    return () => window.removeEventListener("keydown", closeOnEscape)
+  }, [statusBusy, statusTarget])
 
   function applyDays(days: number) {
     setDateFrom(shiftDate(today, -(days - 1))); setDateTo(today); setPage(1)
@@ -95,6 +108,27 @@ export default function ManagerDashboardPage() {
   }
 
   const totalPages = cases ? Math.max(1, Math.ceil(cases.total / cases.page_size)) : 1
+
+  async function toggleExecutiveStatus() {
+    if (!statusTarget) return
+    setStatusBusy(true)
+    setError(null)
+    try {
+      await request(`/management/executives/${statusTarget.id}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          status: statusTarget.status === "INACTIVO" ? "DISPONIBLE" : "INACTIVO",
+          expected_version: statusTarget.version,
+        }),
+      })
+      setStatusTarget(null)
+      await load()
+    } catch (reason) {
+      setError(errorMessage(reason))
+    } finally {
+      setStatusBusy(false)
+    }
+  }
 
   return (
     <div className="mx-auto flex max-w-[1500px] flex-col gap-6">
@@ -115,7 +149,7 @@ export default function ManagerDashboardPage() {
           <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-4">
             <select className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm" onChange={(event) => { setCategory(event.target.value as Category | ""); setPage(1) }} value={category}><option value="">Todas las categorías</option>{(Object.entries(categoryLabels) as [Category, string][]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
             <select className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm" onChange={(event) => { setPriority(event.target.value as Priority | ""); setPage(1) }} value={priority}><option value="">Toda prioridad</option>{(Object.entries(priorityLabels) as [Priority, string][]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
-            <select className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm" onChange={(event) => { setExecutiveId(event.target.value); setPage(1) }} value={executiveId}><option value="">Todos los ejecutivos</option>{metrics?.executives.map((executive) => <option key={executive.id} value={executive.id}>{executive.name}</option>)}</select>
+            <select className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm" onChange={(event) => { setExecutiveId(event.target.value); setPage(1) }} value={executiveId}><option value="">Todos los ejecutivos</option><option value="__unassigned__">Sin asignar</option>{metrics?.executives.map((executive) => <option key={executive.id} value={executive.id}>{executive.name}</option>)}</select>
           </div>
         </CardContent>
       </Card>
@@ -130,6 +164,13 @@ export default function ManagerDashboardPage() {
         <KpiCard title="Espera prom." value={metrics ? `${metrics.average_wait_minutes} min` : "—"} subtitle="Hasta iniciar" icon={<Clock3 className="h-6 w-6" />} accentColor="#F59E0B" />
         <KpiCard title="Atención prom." value={metrics ? `${metrics.average_attention_minutes} min` : "—"} subtitle="Desde inicio" icon={<Clock3 className="h-6 w-6" />} accentColor="#8B5CF6" />
       </div>
+      <div className="grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+        <Card><CardContent className="p-4"><p className="text-gray-500">Sin asignar</p><p className="mt-1 text-2xl font-bold text-gray-950">{metrics?.unassigned_cases ?? "—"}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-gray-500">Resolución automática</p><p className="mt-1 text-2xl font-bold text-gray-950">{metrics ? `${metrics.automatic_resolution_rate}%` : "—"}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-gray-500">Espera mediana</p><p className="mt-1 text-2xl font-bold text-gray-950">{metrics ? `${metrics.wait_p50_minutes} min` : "—"}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-gray-500">Espera p95</p><p className="mt-1 text-2xl font-bold text-gray-950">{metrics ? `${metrics.wait_p95_minutes} min` : "—"}</p></CardContent></Card>
+        <Card><CardContent className="p-4"><p className="text-gray-500">Pendiente más antiguo</p><p className="mt-1 text-2xl font-bold text-gray-950">{metrics ? `${metrics.oldest_pending_minutes} min` : "—"}</p></CardContent></Card>
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card><CardHeader><CardTitle>Por categoría</CardTitle></CardHeader><CardContent><div className="h-[280px]"><CategoryChart data={metrics?.by_category ?? []} /></div></CardContent></Card>
@@ -140,15 +181,35 @@ export default function ManagerDashboardPage() {
       <Card>
         <CardHeader><CardTitle>Carga por ejecutivo</CardTitle></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {metrics?.executives.map((executive) => <button className={`rounded-xl border p-4 text-left transition hover:border-[#1168BD]/30 ${executiveId === executive.id ? "border-[#1168BD] bg-blue-50" : "border-gray-100 bg-gray-50"}`} key={executive.id} onClick={() => { setExecutiveId(executiveId === executive.id ? "" : executive.id); setPage(1) }} type="button"><div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-gray-900">{executive.name}</p><p className="mt-0.5 text-xs text-gray-500">{executive.title}</p></div><span className={`h-2.5 w-2.5 rounded-full ${executive.status === "DISPONIBLE" ? "bg-emerald-500" : executive.status === "OCUPADO" ? "bg-blue-500" : "bg-gray-400"}`} /></div><div className="mt-4 flex gap-4 text-xs text-gray-500"><span><b className="text-gray-900">{executive.pending}</b> pendientes</span><span><b className="text-gray-900">{executive.in_attention}</b> activo</span><span><b className="text-gray-900">{executive.closed}</b> cerrados</span></div></button>)}
+          {metrics?.executives.map((executive) => <div className={`rounded-xl border p-4 transition hover:border-[#1168BD]/30 ${executiveId === executive.id ? "border-[#1168BD] bg-blue-50" : "border-gray-100 bg-gray-50"}`} key={executive.id}><button className="w-full text-left" onClick={() => { setExecutiveId(executiveId === executive.id ? "" : executive.id); setPage(1) }} type="button"><div className="flex items-start justify-between gap-2"><div><p className="font-semibold text-gray-900">{executive.name}</p><p className="mt-0.5 text-xs text-gray-500">{executive.title}</p></div><span aria-label={executive.status} className={`h-2.5 w-2.5 rounded-full ${executive.status === "DISPONIBLE" ? "bg-emerald-500" : executive.status === "OCUPADO" ? "bg-blue-500" : "bg-gray-400"}`} /></div><div className="mt-4 flex gap-4 text-xs text-gray-500"><span><b className="text-gray-900">{executive.pending}</b> pendientes</span><span><b className="text-gray-900">{executive.in_attention}</b> activo</span><span><b className="text-gray-900">{executive.closed}</b> cerrados</span></div></button><button className="mt-4 text-xs font-semibold text-[#1168BD] underline underline-offset-4 disabled:text-gray-400" disabled={executive.status === "OCUPADO"} onClick={() => setStatusTarget(executive)} type="button">{executive.status === "INACTIVO" ? "Marcar disponible" : executive.status === "OCUPADO" ? "Atención en curso" : "Marcar no disponible"}</button></div>)}
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between"><div><CardTitle>Expedientes del período</CardTitle><p className="mt-1 text-sm text-gray-400">{cases?.total ?? 0} resultados</p></div><form className="flex flex-wrap gap-2" onSubmit={submitSearch}><label className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" /><input className="rounded-xl border border-gray-200 py-2 pl-9 pr-3 text-sm outline-none focus:border-[#1168BD]" onChange={(event) => setSearchDraft(event.target.value)} placeholder="Ticket o motivo" value={searchDraft} /></label><select className="rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm" onChange={(event) => { setStatus(event.target.value as TicketStatus | ""); setPage(1) }} value={status}><option value="">Todos los estados</option>{(Object.entries(statusLabels) as [TicketStatus, string][]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select><Button size="sm" type="submit">Buscar</Button></form></CardHeader>
-        <CasesTable cases={cases?.items ?? []} />
+        <CasesTable cases={cases?.items ?? []} executives={metrics?.executives ?? []} onChanged={load} />
         {cases && totalPages > 1 && <div className="flex items-center justify-between border-t border-gray-100 p-4 text-sm text-gray-500"><span>Página {page} de {totalPages}</span><div className="flex gap-2"><Button disabled={page === 1} onClick={() => setPage((current) => current - 1)} size="sm" variant="secondary">Anterior</Button><Button disabled={page === totalPages} onClick={() => setPage((current) => current + 1)} size="sm" variant="secondary">Siguiente</Button></div></div>}
       </Card>
+      {statusTarget && (
+        <div aria-labelledby="executive-status-title" aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-slate-950/55 p-4" role="dialog">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl outline-none" ref={statusDialogRef} tabIndex={-1}>
+            <h2 className="text-lg font-bold text-gray-950" id="executive-status-title">
+              {statusTarget.status === "INACTIVO" ? "Habilitar ejecutivo" : "Marcar no disponible"}
+            </h2>
+            <p className="mt-3 text-sm leading-relaxed text-gray-600">
+              {statusTarget.status === "INACTIVO"
+                ? `${statusTarget.name} volverá a recibir asignaciones.`
+                : `Los tickets pendientes de ${statusTarget.name} volverán a la cola sin asignar.`}
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <Button disabled={statusBusy} onClick={() => setStatusTarget(null)} variant="secondary">Cancelar</Button>
+              <Button disabled={statusBusy} onClick={() => void toggleExecutiveStatus()}>
+                {statusBusy ? "Actualizando…" : "Confirmar"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

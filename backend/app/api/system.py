@@ -13,4 +13,5 @@ async def public_config(settings: Settings = Depends(get_settings)) -> PublicSys
         bank_name=settings.bank_name,
         branch_name=settings.branch_name,
         dashboard_refresh_ms=settings.dashboard_refresh_ms,
+        conversation_retention_days=settings.conversation_retention_days,
     )
