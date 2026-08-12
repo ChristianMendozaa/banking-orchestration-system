@@ -5,6 +5,10 @@ allowBuilds:
   sharp: true
   unrs-resolver: false
 
+# Ventana de cuarentena antes de resolver una versión recién publicada: mitiga paquetes
+# comprometidos publicados y detectados poco después (ver incidentes de npm supply-chain).
+minimumReleaseAge: 1440
+
 # Excepción explícita: versión correctiva requerida por el control de vulnerabilidades.
 minimumReleaseAgeExclude:
   - postcss@8.5.24

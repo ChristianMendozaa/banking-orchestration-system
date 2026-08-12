@@ -70,9 +70,7 @@ _rate_limiter = (
     RedisRateLimiter(settings.redis_url) if settings.redis_url else InMemoryRateLimiter()
 )
 # Alias temporal para las pruebas y herramientas internas que limpian el estado global.
-_rate_windows = _rate_limiter.windows
-if isinstance(_rate_limiter, RedisRateLimiter):
-    _rate_windows = {}
+_rate_windows = {} if isinstance(_rate_limiter, RedisRateLimiter) else _rate_limiter.windows
 
 
 def _client_address(request: Request) -> str:
