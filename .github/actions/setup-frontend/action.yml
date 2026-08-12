@@ -10,7 +10,12 @@ inputs:
 runs:
   using: composite
   steps:
+    # pnpm/action-setup reads packageManager from a root package.json, which this repo
+    # doesn't have (the frontend package lives in frontend/), so the version must be pinned
+    # here and kept in sync with the "packageManager" field in frontend/package.json.
     - uses: pnpm/action-setup@v4
+      with:
+        version: 11.11.0
 
     - uses: actions/setup-node@v4
       with:
