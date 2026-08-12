@@ -1,0 +1,23 @@
+name: Configurar frontend
+description: Instala pnpm, Node.js y las dependencias del frontend con el lockfile congelado.
+
+inputs:
+  install-args:
+    description: Argumentos adicionales para pnpm install.
+    required: false
+    default: "--frozen-lockfile"
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+        cache-dependency-path: frontend/pnpm-lock.yaml
+
+    - run: pnpm install ${{ inputs.install-args }}
+      shell: bash
+      working-directory: frontend

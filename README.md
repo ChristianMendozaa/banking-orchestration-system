@@ -497,6 +497,11 @@ Run one surface at a time when using the shared local `.next` directory. Use Doc
 
 The backend suite covers kiosk state transitions, ambiguity and correction loops, idempotent retries, protected identification, priority rules, PII masking, role boundaries, refresh rotation, realtime-secret containment, RAG ingestion and grounding, executive routing, management metrics, and knowledge-document lifecycle.
 
+`.github/workflows/ci.yml` runs on every pull request and on push to `main`. It skips backend or
+frontend jobs when the corresponding path did not change, runs the backend test suite on Python
+3.12 and 3.14, uploads coverage artifacts, and fails the run if the OpenAPI contract or the
+generated TypeScript types drift from what `generate:api` produces.
+
 Run backend validation from `backend/`:
 
 ```bash
@@ -504,7 +509,6 @@ uv run ruff format --check .
 uv run ruff check .
 uv run coverage run -m pytest -q
 uv run coverage report
-uv run --with pip-audit pip-audit
 ```
 
 Run frontend validation from `frontend/`:
@@ -516,13 +520,15 @@ pnpm typecheck
 pnpm test
 pnpm test:coverage
 pnpm build
-pnpm audit --prod --audit-level low
 ```
 
 `generate:api` exports FastAPI's OpenAPI schema and regenerates the TypeScript contracts used by
 the frontend. CI rejects drift in either generated artifact.
 
 The test environment uses an isolated ephemeral SQLite schema and deterministic AI doubles; automated tests do not call OpenAI.
+
+Dependency auditing (`uv run --with pip-audit pip-audit`, `pnpm audit`) is not run in CI; run it
+locally before releases if you want to check for known vulnerabilities.
 
 ## Operational considerations
 

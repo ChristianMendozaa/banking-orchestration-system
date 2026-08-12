@@ -1,0 +1,23 @@
+name: Configurar backend
+description: Instala uv, Python y sincroniza las dependencias del backend con el lockfile.
+
+inputs:
+  python-version:
+    description: Version de Python a instalar y usar para uv sync.
+    required: false
+    default: "3.12"
+
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@v6
+      with:
+        enable-cache: true
+        cache-dependency-glob: backend/uv.lock
+
+    - run: uv python install ${{ inputs.python-version }}
+      shell: bash
+
+    - run: uv sync --locked --python ${{ inputs.python-version }}
+      shell: bash
+      working-directory: backend
