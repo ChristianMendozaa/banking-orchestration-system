@@ -153,31 +153,157 @@ sequenceDiagram
 
 ### Orchestration policy
 
+The kiosk flow is implemented as three [LangGraph](https://github.com/langchain-ai/langgraph)
+graphs (`app/services/graph/`), one per API entry point, sharing a compiled `finalize`
+subgraph. The diagrams below are generated directly from the compiled graphs via
+`graph.get_graph().draw_mermaid()` -- from `backend/`, run
+`PYTHONPATH=. uv run python scripts/render_graph_diagrams.py` after any change to
+`app/services/graph/*.py` to regenerate this section, so it cannot drift from the
+implementation. Dashed edges are dynamic `Command`-based routing (guard and
+replay-idempotency branches, e.g. an already-completed turn short-circuiting to its cached
+result); solid edges are static and dashed-with-labels are conditional policy branches.
+
+No LangGraph checkpointer is used: each HTTP request is already the unit of work, and
+`SessionStatus` on the `kiosk_sessions` row -- read under `SELECT ... FOR UPDATE` on
+PostgreSQL -- is the durable, queryable record of where a session is in the flow. See the
+module docstring in `app/services/graph/state.py` for the full reasoning.
+
+<!-- BEGIN GENERATED GRAPH DIAGRAMS -->
+
+#### `turn_graph`
+
+Handles `POST /kiosk/sessions/{id}/turns`.
+
 ```mermaid
-flowchart TD
-    Input[Transcript] --> Mask[Mask PII]
-    Mask --> Classify[Classify category,<br/>consultation level, and risk]
-    Classify --> Ambiguous{Ambiguous or below<br/>confidence threshold?}
-    Ambiguous -->|Yes, attempts remain| Clarify[Request clarification]
-    Clarify --> Input
-    Ambiguous -->|Yes, limit reached| ForceHuman[Force human fallback]
-    Ambiguous -->|No| Confirm[Request explicit confirmation]
-    ForceHuman --> Confirm
-    Confirm --> Accepted{Confirmed?}
-    Accepted -->|No| Correct[Return to capture]
-    Correct --> Input
-    Accepted -->|Yes| Sensitive{Personalized or sensitive?}
-    Sensitive -->|Yes| Identify[Protected identification]
-    Sensitive -->|No| Finalize[Finalize case]
-    Identify --> Finalize
-    Finalize --> Eligible{General and not<br/>forced to human?}
-    Eligible -->|Yes| RAG[Attempt grounded RAG]
-    RAG --> Grounded{Valid evidence<br/>and citations?}
-    Grounded -->|Yes| Auto[Automatic resolution]
-    Grounded -->|No| Route[Skill-based routing]
-    Eligible -->|No| Route
-    Route --> Ticket[Human ticket]
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	guard_turn(guard_turn)
+	mask_pii(mask_pii)
+	classify(classify)
+	clarify(clarify)
+	force_human(force_human)
+	accept(accept)
+	persist_requirement(persist_requirement)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> guard_turn;
+	accept --> persist_requirement;
+	clarify --> persist_requirement;
+	classify -.-> accept;
+	classify -.-> clarify;
+	classify -.-> force_human;
+	force_human --> persist_requirement;
+	guard_turn -.-> __end__;
+	guard_turn -.-> mask_pii;
+	mask_pii --> classify;
+	persist_requirement --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
 ```
+
+#### `confirmation_graph`
+
+Handles `POST /kiosk/sessions/{id}/confirmation`. `finalize` is the shared subgraph below, reused verbatim by `identification_graph`.
+
+```mermaid
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	load_and_guard(load_and_guard)
+	heal_decision(heal_decision)
+	handle_replay(handle_replay)
+	validate_fresh_confirmation(validate_fresh_confirmation)
+	apply_confirmation(apply_confirmation)
+	finalize(finalize)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> load_and_guard;
+	apply_confirmation -.-> __end__;
+	apply_confirmation -.-> finalize;
+	handle_replay -.-> __end__;
+	handle_replay -.-> finalize;
+	handle_replay -.-> validate_fresh_confirmation;
+	heal_decision -. &nbsp;replay&nbsp; .-> handle_replay;
+	heal_decision -. &nbsp;fresh&nbsp; .-> validate_fresh_confirmation;
+	load_and_guard --> heal_decision;
+	validate_fresh_confirmation -.-> __end__;
+	validate_fresh_confirmation -.-> apply_confirmation;
+	finalize --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+```
+
+#### `identification_graph`
+
+Handles `POST /kiosk/sessions/{id}/identification`.
+
+```mermaid
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	guard_identification(guard_identification)
+	resolve_client_reference(resolve_client_reference)
+	persist_identification(persist_identification)
+	finalize(finalize)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> guard_identification;
+	guard_identification -.-> __end__;
+	guard_identification -.-> resolve_client_reference;
+	persist_identification --> finalize;
+	resolve_client_reference --> persist_identification;
+	finalize --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+```
+
+#### `finalize_subgraph`
+
+Compiled once in `builder.py` and added as the `finalize` node to both graphs above -- the same compiled instance, not a copy.
+
+```mermaid
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	ticket_guard(ticket_guard)
+	assign_priority(assign_priority)
+	attempt_grounding(attempt_grounding)
+	automatic_ticket(automatic_ticket)
+	route_human(route_human)
+	persist_ticket(persist_ticket)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> ticket_guard;
+	assign_priority -.-> attempt_grounding;
+	assign_priority -.-> route_human;
+	attempt_grounding -.-> automatic_ticket;
+	attempt_grounding -.-> route_human;
+	automatic_ticket --> persist_ticket;
+	route_human --> persist_ticket;
+	ticket_guard -.-> __end__;
+	ticket_guard -.-> assign_priority;
+	persist_ticket --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc
+```
+<!-- END GENERATED GRAPH DIAGRAMS -->
 
 ## Backend design
 
@@ -186,7 +312,8 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | Module | Responsibility |
 | --- | --- |
 | `app/api` | HTTP contracts, dependency injection, kiosk session authorization, staff RBAC, pagination, and filters |
-| `app/services/orchestrator.py` | Transactional workflow, state validation, idempotency, confirmation, identification, resolution, and routing |
+| `app/services/orchestrator.py` | Thin adapter: session locking, invoking the LangGraph graphs below, and shaping their final state into API responses |
+| `app/services/graph` | The state machine itself -- turn/confirmation/identification graphs, the shared `finalize` subgraph, guard and idempotency logic (see [Orchestration policy](#orchestration-policy)) |
 | `app/services/agents.py` | Classification fallback, deterministic priority rules, evidence eligibility, and executive ranking |
 | `app/services/openai_provider.py` | Structured model calls, embeddings, grounded generation, and realtime client-secret creation |
 | `app/services/pii.py` | Local PII detection and masking before downstream AI processing |
@@ -355,7 +482,7 @@ Schema evolution is managed by six explicit Alembic revisions covering the opera
 | --- | --- |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, OpenAI Agents SDK, Zod |
 | Backend | Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2 async, Uvicorn, Structlog |
-| AI | OpenAI Realtime, structured Responses API calls, text embeddings |
+| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph (kiosk orchestration state machine), MCP (read-only domain tools) |
 | Data | PostgreSQL 17, pgvector, HNSW cosine index, Alembic |
 | Security | Argon2, JWT access tokens, rotating opaque refresh tokens, HMAC identifier protection |
 | Tooling | Docker Compose, `uv`, `pnpm`, Ruff, Pytest, Vitest, ESLint |
@@ -372,7 +499,8 @@ Schema evolution is managed by six explicit Alembic revisions covering the opera
 │   │   ├── db/                  # Models, repositories, sessions, operational seed
 │   │   ├── domain/              # Enums and Pydantic contracts
 │   │   ├── knowledge/           # Ingestion, retrieval, RAG, document management
-│   │   └── services/            # Orchestrator, agents, PII, OpenAI provider
+│   │   ├── mcp_server/          # Read-only MCP tools for the AI layer (not the frontends)
+│   │   └── services/            # Orchestrator adapter, LangGraph graphs, agents, PII, OpenAI provider
 │   ├── seed/                    # Deterministic branch and executive catalog
 │   └── tests/                   # Backend unit and integration suite
 ├── frontend/

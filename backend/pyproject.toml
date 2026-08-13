@@ -9,6 +9,8 @@ dependencies = [
   "email-validator>=2.2.0",
   "fastapi>=0.116.0",
   "httpx>=0.28.0",
+  "langgraph>=1.2.11",
+  "mcp>=2.0.0",
   "openai>=1.99.0",
   "pgvector>=0.4.1",
   "psycopg[binary]>=3.2.9",
@@ -37,6 +39,14 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+# Session-scoped, not the pytest-asyncio default of function-scoped: app.main builds a
+# module-level RedisRateLimiter once at import time (correct for production, where one
+# process keeps one event loop for its whole life). Function-scoped test loops closed
+# and recreated that connection's loop between tests, which redis-py's asyncio transport
+# does not tolerate ("RuntimeError: Event loop is closed"). A session-scoped loop matches
+# the single-loop lifetime the app is actually designed for instead of working around it.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["."]
 
@@ -50,8 +60,17 @@ ignore = ["B008"]
 
 [tool.coverage.run]
 source = ["app"]
-omit = ["app/db/seed.py", "app/knowledge/cli.py"]
-concurrency = ["greenlet"]
+omit = [
+  "app/db/seed.py",
+  "app/knowledge/cli.py",
+  "app/mcp_server/__main__.py",
+  "app/mcp_server/server.py",
+  "app/mcp_server/tools.py",
+]
+# "thread": langgraph's Pregel engine dispatches node/routing-function execution through
+# a worker-thread pool (see langgraph/_internal/_runnable.py), which the default tracer
+# does not follow without this -- same class of gap as SQLAlchemy's greenlet bridge below.
+concurrency = ["greenlet", "thread"]
 
 [tool.coverage.report]
 fail_under = 90

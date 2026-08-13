@@ -265,9 +265,26 @@ class DerivationAgent:
     async def run(
         self, db: AsyncSession, category: Category, summary: str
     ) -> DerivationDecision | None:
+        ranked = await self._rank(db, category, summary)
+        return ranked[0][3] if ranked else None
+
+    async def explain(
+        self, db: AsyncSession, category: Category, summary: str
+    ) -> list[DerivationDecision]:
+        """Return every candidate's scoring breakdown, best first.
+
+        Read-only replay of `run()`'s ranking for the `explain_routing_decision` MCP
+        tool. Does not affect routing: `run()` still owns the actual assignment.
+        """
+        ranked = await self._rank(db, category, summary)
+        return [row[3] for row in ranked]
+
+    async def _rank(
+        self, db: AsyncSession, category: Category, summary: str
+    ) -> list[tuple[float, datetime, str, DerivationDecision]]:
         executives = await self.repository.available(db)
         if not executives:
-            return None
+            return []
 
         loads = await self.repository.active_loads(db)
         max_load = max([*loads.values(), 1])
@@ -325,7 +342,7 @@ class DerivationAgent:
                 )
             )
         ranked.sort(key=lambda row: (-row[0], row[1], row[2]))
-        return ranked[0][3] if ranked else None
+        return ranked
 
 
 class InitialAttentionAgent:

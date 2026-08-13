@@ -159,6 +159,34 @@ services:
       - -m
       - app.knowledge.worker
 
+  mcp-server:
+    <<: *backend-base
+    restart: unless-stopped
+    environment:
+      <<: *backend-environment
+      MCP_SERVER_PORT: "8100"
+    depends_on:
+      knowledge-bootstrap:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    ports:
+      - "${MCP_SERVER_PORT:-8100}:8100"
+    command:
+      - /workspace/backend/.venv/bin/python
+      - -m
+      - app.mcp_server
+    healthcheck:
+      test:
+        - CMD
+        - /workspace/backend/.venv/bin/python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
   frontend-kiosk:
     <<: *frontend-base
     # Este servicio construye la imagen compartida; frontend-staff reutiliza la misma.
