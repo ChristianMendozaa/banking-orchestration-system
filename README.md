@@ -482,7 +482,7 @@ Schema evolution is managed by six explicit Alembic revisions covering the opera
 | --- | --- |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, OpenAI Agents SDK, Zod |
 | Backend | Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2 async, Uvicorn, Structlog |
-| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph (kiosk orchestration state machine), MCP (read-only domain tools) |
+| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph (kiosk orchestration state machine), MCP (read-only domain tools), CrewAI (offline knowledge-governance crew) |
 | Data | PostgreSQL 17, pgvector, HNSW cosine index, Alembic |
 | Security | Argon2, JWT access tokens, rotating opaque refresh tokens, HMAC identifier protection |
 | Tooling | Docker Compose, `uv`, `pnpm`, Ruff, Pytest, Vitest, ESLint |
@@ -501,6 +501,7 @@ Schema evolution is managed by six explicit Alembic revisions covering the opera
 │   │   ├── knowledge/           # Ingestion, retrieval, RAG, document management
 │   │   ├── mcp_server/          # Read-only MCP tools for the AI layer (not the frontends)
 │   │   └── services/            # Orchestrator adapter, LangGraph graphs, agents, PII, OpenAI provider
+│   ├── governance/               # Standalone CrewAI crew (own Python project -- see its README)
 │   ├── seed/                    # Deterministic branch and executive catalog
 │   └── tests/                   # Backend unit and integration suite
 ├── frontend/

@@ -491,3 +491,43 @@ class KnowledgeJobSummary(ORMModel):
 class KnowledgeJobResponse(BaseModel):
     job: KnowledgeJobSummary
     document: KnowledgeDocumentSummary
+
+
+class RetrievalQAResult(BaseModel):
+    question: str = Field(min_length=1, max_length=400)
+    grounded: bool
+    notes: str = Field(default="", max_length=1000)
+
+
+class GovernanceProposalCreate(BaseModel):
+    """Body submitted by the standalone governance crew (backend/governance), never by
+    the frontends. Never applied automatically -- a manager reviewing this proposal acts
+    through the existing document PATCH endpoint if they agree with it."""
+
+    category_suggestions: list[Category] = Field(default_factory=list)
+    section_suggestions: list[str] = Field(default_factory=list)
+    review_after_suggestion: datetime | None = None
+    compliance_veto: bool = False
+    compliance_flags: list[str] = Field(default_factory=list)
+    compliance_notes: str = Field(default="", max_length=4000)
+    retrieval_qa_results: list[RetrievalQAResult] = Field(default_factory=list)
+    overall_recommendation: str = Field(default="", max_length=4000)
+
+    @field_validator("category_suggestions")
+    @classmethod
+    def dedupe_categories(cls, value: list[Category]) -> list[Category]:
+        return list(dict.fromkeys(value))
+
+
+class GovernanceProposalSummary(ORMModel):
+    id: UUID
+    document_id: UUID
+    category_suggestions: list[Category]
+    section_suggestions: list[str]
+    review_after_suggestion: datetime | None
+    compliance_veto: bool
+    compliance_flags: list[str]
+    compliance_notes: str
+    retrieval_qa_results: list[RetrievalQAResult]
+    overall_recommendation: str
+    created_at: datetime

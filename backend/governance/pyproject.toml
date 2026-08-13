@@ -1,0 +1,36 @@
+[project]
+name = "sistema-orquestacion-governance"
+version = "0.1.0"
+description = "Crew de gobernanza documental: analista, cumplimiento y QA de recuperacion"
+# CrewAI pulls chromadb -> pydantic.v1, which does not import on Python 3.14
+# ("unable to infer type for attribute" at class-definition time, not just a warning).
+# Deliberately excluded from the 3.12/3.14 CI matrix that covers backend/ -- this is a
+# separate project specifically because its dependency tree conflicts with backend's
+# (crewai needs mcp<2.0.0; the MCP server in app/mcp_server needs mcp>=2.0.0).
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "crewai>=1.15.0",
+  "httpx>=0.28.0",
+  "pydantic>=2.10.0",
+  "pypdf>=6.15.0",
+  "structlog>=25.4.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4.0",
+  "pytest-httpx>=0.35.0",
+  "reportlab>=4.4.0",
+  "ruff>=0.12.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

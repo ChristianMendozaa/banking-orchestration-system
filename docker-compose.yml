@@ -187,6 +187,31 @@ services:
       retries: 12
       start_period: 10s
 
+  # On-demand CLI, not a long-running service -- excluded from `docker compose up` by
+  # its profile. Own image: crewai's dependency tree conflicts with mcp-server's and
+  # does not import on Python 3.14, so it cannot share the backend image. Invoke with:
+  #   docker compose --profile governance run --rm \
+  #     -e GOVERNANCE_MANAGER_EMAIL=... -e GOVERNANCE_MANAGER_PASSWORD=... \
+  #     knowledge-governance <document_id>
+  # See backend/governance/README.md.
+  knowledge-governance:
+    build:
+      context: backend/governance
+      dockerfile: Dockerfile
+    image: sistema-orquestacion-governance:local
+    profiles: ["governance"]
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOVERNANCE_API_BASE_URL: http://backend:8000
+      GOVERNANCE_MCP_URL: http://mcp-server:8100/mcp
+      GOVERNANCE_MANAGER_EMAIL: ${GOVERNANCE_MANAGER_EMAIL:-}
+      GOVERNANCE_MANAGER_PASSWORD: ${GOVERNANCE_MANAGER_PASSWORD:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+      mcp-server:
+        condition: service_healthy
+
   frontend-kiosk:
     <<: *frontend-base
     # Este servicio construye la imagen compartida; frontend-staff reutiliza la misma.
