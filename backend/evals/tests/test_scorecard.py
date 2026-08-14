@@ -34,8 +34,8 @@ def test_to_dict_preserves_per_persona_detail() -> None:
 
 def test_to_markdown_marks_failed_persona() -> None:
     markdown = to_markdown(_results())
-    assert "✅ persona_a" in markdown
-    assert "❌ persona_b" in markdown
+    assert "[PASS] persona_a" in markdown
+    assert "[FAIL] persona_b" in markdown
     assert "1/2 aprobadas" in markdown
 
 

@@ -18,3 +18,7 @@ build/
 *.sqlite
 *.sqlite3
 *.log
+
+# evals/harness live-run output (make check / make evals-live)
+evals/scorecard.md
+evals/scorecard.json

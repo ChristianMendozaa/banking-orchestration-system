@@ -37,13 +37,13 @@ def to_markdown(results: list[EvalResult]) -> str:
         "",
     ]
     for result in results:
-        icon = "✅" if result.passed else "❌"
-        lines.append(f"## {icon} {result.persona} (`{result.final_status}`)")
+        status = "[PASS]" if result.passed else "[FAIL]"
+        lines.append(f"## {status} {result.persona} (`{result.final_status}`)")
         lines.append("")
         lines.append("| Verificación | Resultado | Detalle |")
         lines.append("| --- | --- | --- |")
         for check in result.checks:
-            check_icon = "✅" if check.passed else "❌"
-            lines.append(f"| {check.name} | {check_icon} | {check.detail} |")
+            check_status = "[PASS]" if check.passed else "[FAIL]"
+            lines.append(f"| {check.name} | {check_status} | {check.detail} |")
         lines.append("")
     return "\n".join(lines)

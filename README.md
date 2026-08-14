@@ -708,7 +708,33 @@ frontend jobs when the corresponding path did not change, runs the backend test 
 3.12 and 3.14, uploads coverage artifacts, and fails the run if the OpenAPI contract or the
 generated TypeScript types drift from what `generate:api` produces.
 
-Run backend validation from `backend/`:
+### Running everything with one command
+
+A root `Makefile` wraps every suite -- backend, `backend/evals`, and frontend -- behind three
+entry points. Run `make help` for the full target list.
+
+```bash
+make install   # uv sync (backend/, backend/evals/) + pnpm install --frozen-lockfile (frontend/)
+make test      # the hermetic suites only: backend pytest, evals pytest, frontend vitest
+make check     # everything CI runs, plus the evals suites CI doesn't, plus the live harness
+```
+
+`make test` needs nothing running -- it's the fast, free path for everyday iteration. `make
+check` adds linting, typechecking, `next build`, the OpenAPI contract-drift check, and the live
+AutoGen harness described below (`evals-live`); it starts `docker compose` and reads
+`OPENAI_API_KEY` and `MAX_CLARIFICATIONS` straight out of `backend/.env`, so nothing is duplicated
+or hardcoded in the Makefile itself -- if the key is absent, `evals-live` is reported as `SKIP`
+rather than failing the run. Every suite runs regardless of earlier failures, and `make check`
+ends with one summary table (suite, PASS/FAIL/SKIP, duration) and a non-zero exit if anything
+failed.
+
+Each target also runs standalone, e.g. `make backend-test` or `make frontend-lint`, if you only
+want one suite.
+
+### What each target runs
+
+Backend validation (`backend-lint`, `backend-test`, `backend-coverage` -- equivalent to running
+these from `backend/`):
 
 ```bash
 uv run ruff format --check .
@@ -717,32 +743,44 @@ uv run coverage run -m pytest -q
 uv run coverage report
 ```
 
-Run frontend validation from `frontend/`:
+`backend/evals`' own suite is mocked and makes no LLM calls (`evals-lint`, `evals-test` --
+equivalent to running these from `backend/evals/`):
 
 ```bash
-pnpm generate:api
+uv run ruff check .
+uv run pytest -q
+```
+
+Frontend validation (`frontend-lint`, `frontend-typecheck`, `frontend-test`, `frontend-build`,
+`contract` -- equivalent to running these from `frontend/`):
+
+```bash
 pnpm lint
 pnpm typecheck
-pnpm test
 pnpm test:coverage
 pnpm build
+pnpm generate:api
 ```
 
 `generate:api` exports FastAPI's OpenAPI schema and regenerates the TypeScript contracts used by
-the frontend. CI rejects drift in either generated artifact.
+the frontend; `make check`'s `contract` target then fails on any drift. Backend and frontend
+suites are hermetic: the backend test environment uses an isolated ephemeral SQLite schema and
+deterministic AI doubles, and does not call OpenAI or read `backend/.env` (`APP_ENV=test` forces
+`Settings` to skip loading it, so a developer's local Redis/ClamAV/OpenAI configuration never
+leaks into a test run). None of `make test`, `make lint`, `backend-build`, or `contract` needs
+Docker Compose or any other service running.
 
-The test environment uses an isolated ephemeral SQLite schema and deterministic AI doubles; automated tests do not call OpenAI.
-
-[`backend/evals/`](backend/evals/README.md) is a separate, standalone-project policy
-evaluation harness: an AutoGen agent plays one of five customer personas and drives a
-real kiosk session turn by turn against a **live** backend, and a deterministic (non-LLM)
-evaluator in `harness/evaluator.py` scores the finished session against the orchestration
-policy -- did a fraud report reach `CRITICO`, was a sensitive case identified before it
-resolved, was every automatic answer cited. Its coverage is intentionally kept out of
-`backend/`'s `fail_under=90` gate, and there is no CI workflow for the live run -- each
-run makes real, billed OpenAI calls on both sides (the simulated customer and the
-backend's own classification/RAG), so it stays a manual, local-only check against a
-`docker compose` backend rather than something triggered from a PR.
+[`backend/evals/`](backend/evals/README.md) additionally ships a separate, standalone-project
+**live** policy evaluation harness (`make evals-live`, or `uv run python -m harness` from
+`backend/evals/`): an AutoGen agent plays one of five customer personas and drives a real kiosk
+session turn by turn against a **live** backend, and a deterministic (non-LLM) evaluator in
+`harness/evaluator.py` scores the finished session against the orchestration policy -- did a
+fraud report reach `CRITICO`, was a sensitive case identified before it resolved, was every
+automatic answer cited. Its coverage is intentionally kept out of `backend/`'s `fail_under=90`
+gate, and there is no CI workflow for the live run -- each run makes real, billed OpenAI calls on
+both sides (the simulated customer and the backend's own classification/RAG), so it stays a
+manual, local-only check against a `docker compose` backend rather than something triggered from
+a PR.
 
 Dependency auditing (`uv run --with pip-audit pip-audit`, `pnpm audit`) is not run in CI; run it
 locally before releases if you want to check for known vulnerabilities.

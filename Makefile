@@ -1,0 +1,163 @@
+.DEFAULT_GOAL := help
+.NOTPARALLEL:
+.PHONY: help install \
+	backend-lint backend-test backend-coverage \
+	evals-lint evals-test evals-live \
+	frontend-lint frontend-typecheck frontend-test frontend-build \
+	contract \
+	services-up services-down \
+	test lint check _reset _summary
+
+# bash, not the Make default /bin/sh, so run_suite can read PIPESTATUS -- needed to get a
+# suite's real exit code past the `| tee` used to both stream its output live and capture
+# it for the checks-count extraction below.
+SHELL := /bin/bash
+REPORT := .make-report.tsv
+
+# Every suite target writes one PASS/FAIL/SKIP row to $(REPORT) (name, status, duration,
+# and a checks count pulled from the tool's own output where one exists -- pytest/vitest
+# "N passed" lines, the evals scorecard's "M/N aprobadas" line), prints that result
+# immediately, and exits with the suite's own status -- so `make backend-test` alone still
+# fails correctly. The aggregates (test/lint/check below) invoke suites through a nested
+# `$(MAKE) -k`, which keeps going past a failing target instead of aborting, so every
+# suite still runs and every failure still surfaces in one pass.
+#
+# The count column exists because "11 passed" (11 suites) reads as suspiciously few next
+# to a project with hundreds of individual tests -- the summary should make clear those 11
+# rows are suites, not the tests themselves.
+#
+# No leading "@" here: this is $(call)ed both directly (where the calling recipe line's
+# own "@" already suppresses echo) and nested inside evals-live's shell if/else, where an
+# embedded "@" would reach the shell as literal text instead of being stripped by make.
+define run_suite
+start=$$(date +%s); \
+printf '\n\033[1m==> %s\033[0m\n' "$(1)"; \
+log=$$(mktemp); \
+( $(2) ) 2>&1 | tee "$$log"; \
+rc=$${PIPESTATUS[0]}; \
+if [ $$rc -eq 0 ]; then status=PASS; color='\033[32m'; else status=FAIL; color='\033[31m'; fi; \
+dur=$$(( $$(date +%s) - start )); \
+case "$(1)" in \
+	backend:test|evals:test) \
+		count=$$(grep -oE '[0-9]+ (passed|failed|error|skipped|xfailed|xpassed)' "$$log" | awk '{sum+=$$1} END {if (sum>0) print sum}');; \
+	frontend:test) \
+		count=$$(grep -E '^ *Tests +[0-9]+ (passed|failed)' "$$log" | grep -oE '\([0-9]+\)' | tr -d '()');; \
+	evals:live) \
+		count=$$(grep -oE 'Verificaciones: [0-9]+/[0-9]+' "$$log" | grep -oE '/[0-9]+' | tr -d '/');; \
+	*) \
+		count="";; \
+esac; \
+rm -f "$$log"; \
+printf '%s\t%s\t%s\t%s\n' "$(1)" "$$status" "$$dur" "$$count" >> $(REPORT); \
+printf "$$color%-22s %-6s\033[0m %5ss  %s\n" "$(1)" "$$status" "$$dur" "$${count:+($$count checks)}"; \
+[ "$$status" = PASS ]
+endef
+
+help: ## Show this help
+	@echo "Usage: make <target>"
+	@echo ""
+	@awk 'BEGIN {FS = ":.*##"} /^[a-zA-Z_-]+:.*##/ { printf "  %-16s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+
+install: ## Sync backend, evals, and frontend dependencies
+	cd backend && uv sync
+	cd backend/evals && uv sync
+	cd frontend && pnpm install --frozen-lockfile
+
+## --- Individual suites (each is safe to run on its own; none needs a running system
+## except evals-live) ---
+
+backend-lint: ## Ruff format check + lint (backend/)
+	@$(call run_suite,backend:lint,cd backend && uv run ruff format --check . && uv run ruff check .)
+
+backend-test: ## pytest under coverage (backend/) -- hermetic, in-memory SQLite
+	@$(call run_suite,backend:test,cd backend && uv run coverage run -m pytest -q)
+
+backend-coverage: ## Enforce backend's fail_under=90 coverage gate
+	@$(call run_suite,backend:coverage,cd backend && uv run coverage report)
+
+evals-lint: ## Ruff check (backend/evals/)
+	@$(call run_suite,evals:lint,cd backend/evals && uv run ruff check .)
+
+evals-test: ## pytest, fully mocked -- no LLM calls (backend/evals/)
+	@$(call run_suite,evals:test,cd backend/evals && uv run pytest -q)
+
+frontend-lint: ## eslint (frontend/)
+	@$(call run_suite,frontend:lint,cd frontend && pnpm lint)
+
+frontend-typecheck: ## next typegen + tsc --noEmit (frontend/)
+	@$(call run_suite,frontend:typecheck,cd frontend && pnpm typecheck)
+
+frontend-test: ## vitest with coverage thresholds (frontend/)
+	@$(call run_suite,frontend:test,cd frontend && pnpm test:coverage)
+
+frontend-build: ## next build (frontend/)
+	@$(call run_suite,frontend:build,cd frontend && pnpm build)
+
+contract: ## Regenerate the OpenAPI contract and fail on drift
+	@$(call run_suite,contract,cd frontend && pnpm generate:api && git diff --exit-code -- openapi.json lib/generated-api.ts)
+
+services-up: ## Start postgres/redis/clamav/backend via docker compose
+	docker compose up -d --wait backend
+
+services-down: ## Stop docker compose services
+	docker compose down
+
+evals-live: ## Live AutoGen persona harness against a running backend -- billed OpenAI calls
+	@openai_key=$$(grep -m1 '^OPENAI_API_KEY=' backend/.env 2>/dev/null | cut -d= -f2-); \
+	max_clar=$$(grep -m1 '^MAX_CLARIFICATIONS=' backend/.env 2>/dev/null | cut -d= -f2-); \
+	backend_port=$$(grep -m1 '^BACKEND_PORT=' .env 2>/dev/null | cut -d= -f2-); \
+	max_clar=$${max_clar:-2}; \
+	backend_port=$${backend_port:-8000}; \
+	if [ -z "$$openai_key" ]; then \
+		printf '\n\033[1m==> evals:live\033[0m\n'; \
+		echo "OPENAI_API_KEY not set in backend/.env -- skipping (harness and knowledge-bootstrap both need it)"; \
+		printf '%s\t%s\t%s\t%s\n' "evals:live" "SKIP" "0" "" >> $(REPORT); \
+	else \
+		$(call run_suite,evals:live,docker compose up -d --wait backend && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --output scorecard.md); \
+	fi
+
+## --- Aggregates. Each runs its suites through a nested `make -k` (keep-going): every
+## suite runs even if an earlier one fails, and every failure ends up in the summary. ---
+
+test: ## Fast, free, hermetic suites only -- nothing needs to be running
+	@$(MAKE) --no-print-directory _reset
+	-@$(MAKE) --no-print-directory -k backend-test backend-coverage evals-test frontend-test
+	@$(MAKE) --no-print-directory _summary
+
+lint: ## All linters
+	@$(MAKE) --no-print-directory _reset
+	-@$(MAKE) --no-print-directory -k backend-lint evals-lint frontend-lint
+	@$(MAKE) --no-print-directory _summary
+
+check: ## Everything CI runs, plus the evals suites CI doesn't, plus the live harness
+	@$(MAKE) --no-print-directory _reset
+	-@$(MAKE) --no-print-directory -k backend-lint backend-test backend-coverage evals-lint evals-test frontend-lint frontend-typecheck frontend-test frontend-build contract evals-live
+	@$(MAKE) --no-print-directory _summary
+
+_reset:
+	@rm -f $(REPORT)
+	@touch $(REPORT)
+
+_summary:
+	@awk -F'\t' ' \
+		{ \
+			status = $$2; \
+			if (status == "PASS") { pass++; color = "\033[32m" } \
+			else if (status == "SKIP") { skip++; color = "\033[33m" } \
+			else { fail++; color = "\033[31m" } \
+			total += $$3; \
+			checks = $$4; \
+			if (checks != "") { checks_total += checks; suites_with_checks++ } \
+			label = (checks != "") ? checks " checks" : "-"; \
+			printf "%-22s %s%-6s\033[0m %5ss  %s\n", $$1, color, status, $$3, label; \
+		} \
+		END { \
+			printf "\n%d suites: %d passed, %d failed, %d skipped   %ds total\n", \
+				pass + fail + skip, pass, fail, skip, total; \
+			if (suites_with_checks > 0) { \
+				printf "%d individual tests/checks across %d suites (the rest are lint/build/typecheck gates without a per-item count)\n", \
+					checks_total, suites_with_checks; \
+			} \
+			if (fail > 0) exit 1; \
+		} \
+	' $(REPORT)

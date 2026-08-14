@@ -30,3 +30,6 @@ doc/operacion/*
 doc/rag/*
 !doc/rag/*.pdf
 !doc/rag/manifest.json
+
+# make check / make test report
+.make-report.tsv

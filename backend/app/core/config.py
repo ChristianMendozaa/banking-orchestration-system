@@ -1,16 +1,25 @@
 import base64
 import ipaddress
 import json
+import os
 from functools import lru_cache
 from typing import Annotated, Literal
 
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+# tests/conftest.py sets APP_ENV=test before importing this module and provides every
+# setting the suite needs via os.environ. Loading .env on top of that would let a
+# developer's local REDIS_URL / CLAMAV_HOST leak into the test process -- swapping in a
+# real RedisRateLimiter or a real malware scan instead of the in-memory/no-op fallbacks
+# the tests assume -- so tests must see the same clean environment CI does (no .env file
+# exists on the runner).
+_ENV_FILE = None if os.getenv("APP_ENV") == "test" else ".env"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", extra="ignore", case_sensitive=False
+        env_file=_ENV_FILE, env_file_encoding="utf-8", extra="ignore", case_sensitive=False
     )
 
     app_env: Literal["development", "test", "production"] = "development"
