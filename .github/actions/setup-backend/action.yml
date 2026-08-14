@@ -1,9 +1,9 @@
-name: Configurar backend
-description: Instala uv, Python y sincroniza las dependencias del backend con el lockfile.
+name: Set up backend
+description: Installs uv, Python, and syncs the backend dependencies with the lockfile.
 
 inputs:
   python-version:
-    description: Version de Python a instalar y usar para uv sync.
+    description: Python version to install and use for uv sync.
     required: false
     default: "3.12"
 

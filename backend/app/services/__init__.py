@@ -1,1 +1,1 @@
-"""Servicios de aplicacion e integraciones."""
+"""Application services and integrations."""

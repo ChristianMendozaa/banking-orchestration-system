@@ -80,7 +80,7 @@ describe("explicitConfirmation", () => {
 })
 
 describe("captionsFromHistory", () => {
-  it("muestra solo mensajes del usuario y la asistente, sin eventos internos", () => {
+  it("shows only user and assistant messages, no internal events", () => {
     const captions = captionsFromHistory([
       {
         itemId: "user-audio",
@@ -134,7 +134,7 @@ describe("captionsFromHistory", () => {
 })
 
 describe("createKioskRealtimeAgent", () => {
-  it("expone únicamente las tools que delegan al backend", () => {
+  it("exposes only the tools that delegate to the backend", () => {
     const agent = createKioskRealtimeAgent({
       analyzeRequirement: vi.fn(),
       confirmRequirement: vi.fn(),
@@ -147,7 +147,7 @@ describe("createKioskRealtimeAgent", () => {
     ])
   })
 
-  it("devuelve resultados en segundo plano para impedir la respuesta automática del SDK", async () => {
+  it("returns results in the background to prevent the SDK from auto-responding", async () => {
     const analyzeRequirement = vi.fn().mockResolvedValue(analysis)
     const agent = createKioskRealtimeAgent({
       analyzeRequirement,
@@ -177,7 +177,7 @@ describe("createKioskRealtimeAgent", () => {
     })
   })
 
-  it("mantiene también la confirmación fuera de la continuación automática", async () => {
+  it("also keeps confirmation out of the automatic continuation", async () => {
     const confirmRequirement = vi.fn().mockResolvedValue(completed)
     const agent = createKioskRealtimeAgent({
       analyzeRequirement: vi.fn(),
@@ -206,7 +206,7 @@ describe("createKioskRealtimeAgent", () => {
     })
   })
 
-  it("pide una confirmación inequívoca sin invocar el backend ni auto-responder", async () => {
+  it("asks for an unambiguous confirmation without calling the backend or auto-responding", async () => {
     const confirmRequirement = vi.fn()
     const agent = createKioskRealtimeAgent({
       analyzeRequirement: vi.fn(),
@@ -237,13 +237,13 @@ describe("createKioskRealtimeAgent", () => {
   })
 })
 
-describe("claves de transición", () => {
-  it("correlaciona análisis y tickets con claves estables", () => {
+describe("transition keys", () => {
+  it("correlates analysis and tickets with stable keys", () => {
     expect(analysisTransitionKey(analysis)).toBe("requirement-1:CONFIRM")
     expect(flowTransitionKey(completed)).toBe("ticket:ticket-1")
   })
 
-  it("extrae únicamente resultados controlables y detecta el cierre", () => {
+  it("extracts only controllable results and detects closure", () => {
     expect(
       controlledTransitionFromToolResult(
         JSON.stringify({
@@ -262,8 +262,8 @@ describe("claves de transición", () => {
   })
 })
 
-describe("orden de respuestas de negocio", () => {
-  it("no deja que un análisis retrasado borre identificación o cierre", () => {
+describe("business response ordering", () => {
+  it("does not let a delayed analysis erase identification or closure", () => {
     const identify = {
       ...completed,
       next_action: "IDENTIFY" as const,
@@ -289,7 +289,7 @@ describe("orden de respuestas de negocio", () => {
     ).toBe(false)
   })
 
-  it("acepta el avance de una aclaración si solo se reconcilió su fase inicial", () => {
+  it("accepts a clarification's advance if only its initial phase was reconciled", () => {
     const clarified = { ...analysis, requirement_id: "requirement-2" }
     expect(
       shouldApplyAnalysisResponse(
@@ -301,7 +301,7 @@ describe("orden de respuestas de negocio", () => {
     ).toBe(true)
   })
 
-  it("no revive un requerimiento que ya fue rechazado", () => {
+  it("does not revive a request that was already rejected", () => {
     const capture = {
       ...completed,
       next_action: "CAPTURE" as const,
@@ -326,7 +326,7 @@ describe("orden de respuestas de negocio", () => {
     ).toBe(true)
   })
 
-  it("no deja que IDENTIFY retrasado reemplace un ticket COMPLETE", () => {
+  it("does not let a delayed IDENTIFY replace a COMPLETE ticket", () => {
     const identify = {
       ...completed,
       next_action: "IDENTIFY" as const,
@@ -346,7 +346,7 @@ describe("orden de respuestas de negocio", () => {
     )
   })
 
-  it("solo reintenta audio interrumpido mientras la transición siga vigente", () => {
+  it("only retries interrupted audio while the transition is still valid", () => {
     const transition = {
       transitionKey: analysisTransitionKey(analysis),
       speechText: analysis.speech_text,
@@ -379,14 +379,14 @@ describe("orden de respuestas de negocio", () => {
     ).toBe(false)
   })
 
-  it("limita a uno el reintento automático de una locución", () => {
+  it("limits an utterance's automatic retry to one", () => {
     expect(canReplayControlledSpeech(0)).toBe(true)
     expect(canReplayControlledSpeech(1)).toBe(false)
   })
 })
 
 describe("requestControlledResponse", () => {
-  it("genera una respuesta sin crear un mensaje de usuario y sin herramientas", () => {
+  it("generates a response without creating a user message and without tools", () => {
     const requestResponse = vi.fn()
     const sendEvent = vi.fn()
 

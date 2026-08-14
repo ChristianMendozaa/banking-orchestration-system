@@ -1,7 +1,7 @@
 [project]
 name = "sistema-orquestacion-backend"
 version = "0.1.0"
-description = "Backend del sistema de orquestacion de atencion bancaria"
+description = "Backend for the banking service orchestration system"
 requires-python = ">=3.12"
 dependencies = [
   "alembic>=1.16.0",

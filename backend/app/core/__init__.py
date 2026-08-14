@@ -1,1 +1,1 @@
-"""Configuracion transversal de la aplicacion."""
+"""Cross-cutting application configuration."""

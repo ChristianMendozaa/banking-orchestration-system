@@ -1,4 +1,4 @@
-"""Genera los documentos operativos administrados junto con el sistema."""
+"""Generate the managed operational documents alongside the system."""
 
 import hashlib
 import json

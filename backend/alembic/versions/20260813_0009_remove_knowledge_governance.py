@@ -1,10 +1,10 @@
-"""Retira las propuestas históricas de gobernanza documental.
+"""Remove the historical document-governance proposals.
 
 Revision ID: 20260813_0009
 Revises: 20260813_0008
 
-La eliminación descarta los datos existentes. El downgrade solo reconstruye una tabla
-vacía para conservar la reversibilidad estructural de la cadena de migraciones.
+The removal discards existing data. The downgrade only reconstructs an empty table
+to preserve the structural reversibility of the migration chain.
 """
 
 import sqlalchemy as sa

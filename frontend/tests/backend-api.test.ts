@@ -15,7 +15,7 @@ afterEach(() => {
 })
 
 describe("backend API proxy", () => {
-  it("bloquea familias ajenas antes de contactar al backend", async () => {
+  it("blocks foreign families before contacting the backend", async () => {
     process.env.APP_SURFACE = "kiosk"
     process.env.BACKEND_INTERNAL_URL = "http://backend:8000"
     const fetchMock = vi.fn()
@@ -30,7 +30,7 @@ describe("backend API proxy", () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it("conserva método, query y cabeceras de una solicitud permitida", async () => {
+  it("preserves method, query, and headers of an allowed request", async () => {
     process.env.APP_SURFACE = "kiosk"
     process.env.BACKEND_INTERNAL_URL = "http://backend:8000/"
     const fetchMock = vi.fn().mockResolvedValue(

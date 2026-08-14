@@ -1,1 +1,1 @@
-"""Persistencia SQLAlchemy."""
+"""SQLAlchemy persistence."""

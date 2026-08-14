@@ -1,1 +1,1 @@
-"""Backend del sistema de orquestacion bancaria."""
+"""Banking orchestration system backend."""

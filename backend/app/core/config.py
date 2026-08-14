@@ -85,39 +85,39 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_rag_settings(self) -> "Settings":
         if self.embedding_dimensions <= 0:
-            raise ValueError("EMBEDDING_DIMENSIONS debe ser positivo")
+            raise ValueError("EMBEDDING_DIMENSIONS must be positive")
         if self.rag_top_k <= 0:
-            raise ValueError("RAG_TOP_K debe ser positivo")
+            raise ValueError("RAG_TOP_K must be positive")
         if not 0 <= self.rag_min_score <= 1:
-            raise ValueError("RAG_MIN_SCORE debe estar entre 0 y 1")
+            raise ValueError("RAG_MIN_SCORE must be between 0 and 1")
         if self.rag_chunk_tokens < 100:
-            raise ValueError("RAG_CHUNK_TOKENS debe ser al menos 100")
+            raise ValueError("RAG_CHUNK_TOKENS must be at least 100")
         if not 0 <= self.rag_chunk_overlap < self.rag_chunk_tokens:
-            raise ValueError("RAG_CHUNK_OVERLAP debe ser menor que RAG_CHUNK_TOKENS")
+            raise ValueError("RAG_CHUNK_OVERLAP must be smaller than RAG_CHUNK_TOKENS")
         if self.embedding_dimensions != 1536:
             raise ValueError(
-                "EMBEDDING_DIMENSIONS debe ser 1536 porque el esquema pgvector usa esa dimension"
+                "EMBEDDING_DIMENSIONS must be 1536 because the pgvector schema uses that dimension"
             )
         if self.kiosk_session_minutes <= 0:
-            raise ValueError("KIOSK_SESSION_MINUTES debe ser positivo")
+            raise ValueError("KIOSK_SESSION_MINUTES must be positive")
         if self.knowledge_max_upload_mb <= 0:
-            raise ValueError("KNOWLEDGE_MAX_UPLOAD_MB debe ser positivo")
+            raise ValueError("KNOWLEDGE_MAX_UPLOAD_MB must be positive")
         if self.knowledge_max_pages <= 0:
-            raise ValueError("KNOWLEDGE_MAX_PAGES debe ser positivo")
+            raise ValueError("KNOWLEDGE_MAX_PAGES must be positive")
         if not 1 <= self.clamav_port <= 65535:
-            raise ValueError("CLAMAV_PORT debe ser un puerto válido")
+            raise ValueError("CLAMAV_PORT must be a valid port")
         if self.clamav_timeout_seconds <= 0:
-            raise ValueError("CLAMAV_TIMEOUT_SECONDS debe ser positivo")
+            raise ValueError("CLAMAV_TIMEOUT_SECONDS must be positive")
         if self.dashboard_refresh_ms < 1_000:
-            raise ValueError("DASHBOARD_REFRESH_MS debe ser al menos 1000")
+            raise ValueError("DASHBOARD_REFRESH_MS must be at least 1000")
         if self.estimated_service_minutes <= 0:
-            raise ValueError("ESTIMATED_SERVICE_MINUTES debe ser positivo")
+            raise ValueError("ESTIMATED_SERVICE_MINUTES must be positive")
         if self.conversation_retention_days <= 0:
-            raise ValueError("CONVERSATION_RETENTION_DAYS debe ser positivo")
+            raise ValueError("CONVERSATION_RETENTION_DAYS must be positive")
         if self.conversation_cleanup_hours <= 0:
-            raise ValueError("CONVERSATION_CLEANUP_HOURS debe ser positivo")
+            raise ValueError("CONVERSATION_CLEANUP_HOURS must be positive")
         if not self.support_tracking_information.strip():
-            raise ValueError("SUPPORT_TRACKING_INFORMATION no puede estar vacío")
+            raise ValueError("SUPPORT_TRACKING_INFORMATION cannot be empty")
         return self
 
     @field_validator("cors_origins", mode="before")
@@ -141,7 +141,7 @@ class Settings(BaseSettings):
     def parse_identifier_keys(cls, value: str | dict[str, str]) -> dict[str, str]:
         parsed = json.loads(value) if isinstance(value, str) else value
         if not isinstance(parsed, dict) or not parsed:
-            raise ValueError("IDENTIFIER_ENCRYPTION_KEYS debe ser un objeto JSON no vacio")
+            raise ValueError("IDENTIFIER_ENCRYPTION_KEYS must be a non-empty JSON object")
         return {str(key): str(secret) for key, secret in parsed.items()}
 
     @model_validator(mode="after")
@@ -151,32 +151,32 @@ class Settings(BaseSettings):
         executive_password = self.seed_executive_password.get_secret_value()
         manager_password = self.seed_manager_password.get_secret_value()
         if len(jwt_secret) < 32:
-            raise ValueError("JWT_SECRET debe ser un secreto aleatorio de al menos 32 caracteres")
+            raise ValueError("JWT_SECRET must be a random secret of at least 32 characters")
         if len(pepper) < 32:
-            raise ValueError(
-                "IDENTIFIER_PEPPER debe ser un secreto aleatorio de al menos 32 caracteres"
-            )
+            raise ValueError("IDENTIFIER_PEPPER must be a random secret of at least 32 characters")
         if self.identifier_active_key_id not in self.identifier_encryption_keys:
-            raise ValueError("IDENTIFIER_ACTIVE_KEY_ID no existe en IDENTIFIER_ENCRYPTION_KEYS")
+            raise ValueError(
+                "IDENTIFIER_ACTIVE_KEY_ID does not exist in IDENTIFIER_ENCRYPTION_KEYS"
+            )
         for key_id, encoded in self.identifier_encryption_keys.items():
             try:
                 decoded = base64.b64decode(encoded, validate=True)
             except ValueError as exc:
-                raise ValueError(f"Clave de cifrado invalida: {key_id}") from exc
+                raise ValueError(f"Invalid encryption key: {key_id}") from exc
             if len(decoded) != 32:
-                raise ValueError(f"La clave de cifrado {key_id} debe contener 32 bytes")
+                raise ValueError(f"Encryption key {key_id} must contain 32 bytes")
         if self.app_env == "production" and "development-v1" in self.identifier_encryption_keys:
-            raise ValueError("Configure un llavero de identificadores exclusivo para produccion")
+            raise ValueError("Configure an identifier keyring exclusive to production")
         if len(executive_password) < 12 or len(manager_password) < 12:
-            raise ValueError("Las contrasenas de semilla deben tener al menos 12 caracteres")
+            raise ValueError("Seed passwords must be at least 12 characters long")
         if self.app_env == "production" and not self.openai_enabled:
-            raise ValueError("OPENAI_API_KEY es obligatorio en produccion")
+            raise ValueError("OPENAI_API_KEY is required in production")
         if self.app_env == "production" and not self.redis_url:
-            raise ValueError("REDIS_URL es obligatorio en produccion")
+            raise ValueError("REDIS_URL is required in production")
         if self.app_env == "production" and not self.clamav_host:
-            raise ValueError("CLAMAV_HOST es obligatorio en produccion")
+            raise ValueError("CLAMAV_HOST is required in production")
         if self.app_env == "production" and len(self.metrics_token.get_secret_value()) < 32:
-            raise ValueError("METRICS_TOKEN debe tener al menos 32 caracteres en produccion")
+            raise ValueError("METRICS_TOKEN must be at least 32 characters in production")
         return self
 
     @property

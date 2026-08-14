@@ -1,9 +1,9 @@
-name: Configurar frontend
-description: Instala pnpm, Node.js y las dependencias del frontend con el lockfile congelado.
+name: Set up frontend
+description: Installs pnpm, Node.js, and the frontend dependencies with the frozen lockfile.
 
 inputs:
   install-args:
-    description: Argumentos adicionales para pnpm install.
+    description: Additional arguments for pnpm install.
     required: false
     default: "--frozen-lockfile"
 

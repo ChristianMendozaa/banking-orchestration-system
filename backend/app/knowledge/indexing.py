@@ -11,11 +11,11 @@ from app.services.openai_provider import OpenAIProvider
 
 
 class NoIndexableTextError(ValueError):
-    """El documento no produjo fragmentos aptos para indexación."""
+    """The document did not produce any chunks suitable for indexing."""
 
 
 class EmbeddingCountMismatchError(ValueError):
-    """El proveedor devolvió una cantidad de vectores inconsistente."""
+    """The provider returned an inconsistent number of vectors."""
 
 
 async def index_document(
@@ -29,7 +29,7 @@ async def index_document(
     repository: KnowledgeRepository,
     known_headings: set[str] | None = None,
 ) -> int:
-    """Fragmenta, vectoriza y reemplaza atómicamente los chunks de un documento."""
+    """Chunk, embed, and atomically replace a document's chunks."""
     text_chunks = chunk_pdf(
         path,
         model=settings.embedding_model,

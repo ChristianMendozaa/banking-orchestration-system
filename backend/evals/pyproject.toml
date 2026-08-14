@@ -1,7 +1,7 @@
 [project]
 name = "sistema-orquestacion-evals"
 version = "0.1.0"
-description = "Arnes de evaluacion end-to-end de la politica de orquestacion (AutoGen)"
+description = "End-to-end orchestration policy evaluation harness (AutoGen)"
 # No hard dependency conflict with backend/ -- confirmed via `uv pip install --dry-run`
 # and a real 3.12/3.14 import check before writing any code.
 # Kept as its own project anyway so its coverage never counts against backend's

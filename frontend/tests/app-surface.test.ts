@@ -17,7 +17,7 @@ afterEach(() => {
 })
 
 describe("app surface", () => {
-  it("valida el modo y define una entrada exclusiva", () => {
+  it("validates the mode and defines an exclusive entry", () => {
     expect(parseAppSurface("kiosk")).toBe("kiosk")
     expect(parseAppSurface("staff")).toBe("staff")
     expect(parseAppSurface("otro")).toBeNull()
@@ -25,7 +25,7 @@ describe("app surface", () => {
     expect(appSurfaceHome("staff")).toBe("/login")
   })
 
-  it("separa las páginas de kiosco y personal", () => {
+  it("separates kiosk and staff pages", () => {
     expect(isPagePathAllowed("kiosk", "/kiosco/voz")).toBe(true)
     expect(isPagePathAllowed("kiosk", "/login")).toBe(false)
     expect(isPagePathAllowed("staff", "/ejecutivo/caso/123")).toBe(true)
@@ -33,7 +33,7 @@ describe("app surface", () => {
     expect(isPagePathAllowed("staff", "/kiosco")).toBe(false)
   })
 
-  it("separa las familias API sin aceptar prefijos parciales", () => {
+  it("separates API families without accepting partial prefixes", () => {
     expect(isBackendPathAllowed("kiosk", "/api/v1/kiosk/sessions")).toBe(true)
     expect(isBackendPathAllowed("kiosk", "/api/v1/auth/login")).toBe(false)
     expect(isBackendPathAllowed("staff", "/api/v1/management/metrics")).toBe(true)
@@ -44,7 +44,7 @@ describe("app surface", () => {
 })
 
 describe("surface proxy", () => {
-  it("redirige la raíz de cada instancia", () => {
+  it("redirects the root of each instance", () => {
     process.env.APP_SURFACE = "kiosk"
     const kiosk = proxy(new NextRequest("http://localhost:3000/"))
     expect(kiosk.status).toBe(307)
@@ -60,7 +60,7 @@ describe("surface proxy", () => {
     expect(staff.headers.get("location")).toBe("http://localhost:3001/login")
   })
 
-  it("oculta rutas ajenas y falla cerrado sin configuración", () => {
+  it("hides foreign routes and fails closed without configuration", () => {
     process.env.APP_SURFACE = "kiosk"
     expect(proxy(new NextRequest("http://localhost:3000/login")).status).toBe(404)
 

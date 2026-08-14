@@ -158,7 +158,7 @@ jobs:
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
-            echo "Un job requerido fallo o fue cancelado."
+            echo "A required job failed or was cancelled."
             exit 1
           fi
-          echo "Todos los jobs requeridos pasaron o se omitieron."
+          echo "All required jobs passed or were skipped."

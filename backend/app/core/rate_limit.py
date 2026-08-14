@@ -13,7 +13,7 @@ class RateLimitDecision:
 
 
 class InMemoryRateLimiter:
-    """Ventana móvil local con limpieza acotada de clientes inactivos."""
+    """Local sliding window with bounded cleanup of idle clients."""
 
     def __init__(
         self,
@@ -68,7 +68,7 @@ class InMemoryRateLimiter:
 
 
 class RedisRateLimiter:
-    """Ventana fija compartida y atómica para despliegues con más de un proceso."""
+    """Shared, atomic fixed window for deployments with more than one process."""
 
     _SCRIPT = """
 local current = redis.call('INCR', KEYS[1])

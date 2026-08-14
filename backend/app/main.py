@@ -69,7 +69,7 @@ app.add_middleware(
 _rate_limiter = (
     RedisRateLimiter(settings.redis_url) if settings.redis_url else InMemoryRateLimiter()
 )
-# Alias temporal para las pruebas y herramientas internas que limpian el estado global.
+# Temporary alias for tests and internal tools that clear global state.
 _rate_windows = {} if isinstance(_rate_limiter, RedisRateLimiter) else _rate_limiter.windows
 
 

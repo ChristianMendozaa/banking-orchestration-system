@@ -1,11 +1,11 @@
-"""Tabla histórica de propuestas de gobernanza documental.
+"""Historical table for document-governance proposals.
 
 Revision ID: 20260813_0008
 Revises: 20260728_0007
 
-Esta revisión se conserva para que instalaciones que ya la aplicaron mantengan una
-cadena de migración válida. La revisión siguiente retira la tabla junto con la
-funcionalidad asociada.
+This revision is kept so installations that already applied it retain a valid
+migration chain. The next revision removes the table along with its associated
+functionality.
 """
 
 import sqlalchemy as sa

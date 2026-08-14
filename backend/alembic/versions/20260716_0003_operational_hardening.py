@@ -1,4 +1,4 @@
-"""Expiracion, prioridad previa y gestion documental.
+"""Expiry, proposed priority, and document management.
 
 Revision ID: 20260716_0003
 Revises: 20260716_0002

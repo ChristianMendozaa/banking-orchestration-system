@@ -1,4 +1,4 @@
-"""Base documental RAG y retiro de FAQ por palabras clave.
+"""RAG document base and retirement of keyword-based FAQ.
 
 Revision ID: 20260716_0002
 Revises: 20260716_0001

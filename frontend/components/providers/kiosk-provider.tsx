@@ -189,7 +189,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       try {
         realtime.close()
       } catch {
-        // La conexión puede haber sido cerrada previamente por el transporte.
+        // The connection may already have been closed by the transport.
       }
     }
     for (const transitionKey of requestedTransitionsRef.current) {
@@ -263,7 +263,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     try {
       realtimeRef.current?.mute(true)
     } catch {
-      // El cierre posterior garantiza que el micrófono quede liberado.
+      // The subsequent close guarantees the microphone ends up released.
     }
     disposeRealtime()
     setVoiceState("closed")
@@ -352,7 +352,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
               setVoiceState("muted")
             }
           } catch {
-            // La instantánea recuperada sigue siendo la fuente de verdad.
+            // The retrieved snapshot remains the source of truth.
           }
         }
         return snapshot
@@ -441,7 +441,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     try {
       realtimeRef.current?.mute(true)
     } catch {
-      // La navegación y el estado de negocio no dependen del transporte de voz.
+      // Navigation and business state do not depend on the voice transport.
     }
   }, [state.result?.next_action])
 
@@ -784,7 +784,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
                     setVoiceState("muted")
                   }
                 } catch {
-                  // El estado del flujo y su ruta permanecen recuperables.
+                  // Flow state and its route remain recoverable.
                 }
               }
               return response
@@ -1012,7 +1012,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           try {
             realtime.mute(true)
           } catch {
-            // La respuesta autoritativa seguirá controlando la fase del flujo.
+            // The authoritative response will keep controlling the flow phase.
           }
           setVoiceState("thinking")
         })
@@ -1042,7 +1042,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           try {
             realtime.mute(keepMuted)
           } catch {
-            // La ruta visual no depende de poder cambiar el track de entrada.
+            // The visual route does not depend on being able to switch the input track.
           }
           if (!pendingTransition) {
             setVoiceState(keepMuted ? "muted" : "listening")
@@ -1062,17 +1062,17 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         })
         realtime.on("audio_stopped", () => {
           if (!isCurrentRealtime()) return
-          // El SDK emite este evento al terminar de generar, no necesariamente al
-          // terminar la reproducción WebRTC. La transición controlada se completa
-          // con output_audio_buffer.stopped.
+          // The SDK emits this event when it finishes generating, not necessarily when
+          // WebRTC playback finishes. The controlled transition completes
+          // with output_audio_buffer.stopped.
           if (!audioDoneTransitionKeyRef.current) {
             setVoiceState(realtime.muted ? "muted" : "listening")
           }
         })
         realtime.on("audio_interrupted", () => {
           if (!isCurrentRealtime()) return
-          // Si todavía no se produjo audio, se difiere un único reintento hasta
-          // que termine el turno que causó la interrupción.
+          // If no audio has been produced yet, a single retry is deferred until
+          // the turn that caused the interruption finishes.
           finishControlledPlayback(true)
         })
         realtime.on("transport_event", (event) => {
@@ -1203,7 +1203,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           ) {
             setVoiceError("Se perdió la conexión de voz")
             void reconcileSession(activeSession).catch(() => {
-              // El error de transporte ya es visible y se podrá reintentar manualmente.
+              // The transport error is already visible and can be retried manually.
             })
             if (terminalTransitionKeyRef.current) {
               startCompletionCountdown()
@@ -1335,7 +1335,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         method: "POST",
         body: JSON.stringify({ messages }),
       }).catch(() => {
-        // El flujo de negocio ya fue confirmado; la sincronización podrá omitirse sin duplicarlo.
+        // The business flow was already confirmed; sync can be skipped without duplicating it.
       })
     },
     [],
@@ -1558,6 +1558,6 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
 
 export function useKiosk(): KioskContextValue {
   const value = useContext(KioskContext)
-  if (!value) throw new Error("useKiosk requiere KioskProvider")
+  if (!value) throw new Error("useKiosk requires KioskProvider")
   return value
 }

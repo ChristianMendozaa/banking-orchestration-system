@@ -1,1 +1,1 @@
-"""Generación, ingestión y recuperación de la base documental de atención."""
+"""Generation, ingestion, and retrieval of the service knowledge base."""

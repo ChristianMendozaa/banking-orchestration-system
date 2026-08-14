@@ -1,1 +1,1 @@
-"""Pruebas del backend."""
+"""Backend tests."""

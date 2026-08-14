@@ -1,4 +1,4 @@
-"""Resumen conversacional e idempotencia de confirmacion.
+"""Conversation summary and confirmation idempotency.
 
 Revision ID: 20260720_0005
 Revises: 20260717_0004

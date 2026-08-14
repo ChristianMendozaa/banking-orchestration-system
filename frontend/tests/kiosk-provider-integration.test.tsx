@@ -36,7 +36,7 @@ describe("KioskProvider text flow", () => {
     mocks.replace.mockReset()
   })
 
-  it("crea, conserva y procesa una sesión sin abrir el transporte de voz", async () => {
+  it("creates, retains, and processes a session without opening the voice transport", async () => {
     const session = {
       session_id: "session-text",
       session_token: "token",

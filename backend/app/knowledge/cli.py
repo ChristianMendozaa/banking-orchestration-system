@@ -21,7 +21,7 @@ def _corpus_path() -> Path:
 async def ingest() -> None:
     settings = get_settings()
     if not settings.openai_enabled:
-        raise RuntimeError("OPENAI_API_KEY es obligatoria para generar embeddings")
+        raise RuntimeError("OPENAI_API_KEY is required to generate embeddings")
     service = KnowledgeIngestionService(settings, OpenAIProvider(settings))
     async with SessionFactory() as db:
         stats = await service.ingest_corpus(db, _corpus_path())
@@ -44,7 +44,7 @@ async def status() -> None:
 async def evaluate() -> None:
     settings = get_settings()
     if not settings.openai_enabled:
-        raise RuntimeError("OPENAI_API_KEY es obligatoria para evaluar retrieval")
+        raise RuntimeError("OPENAI_API_KEY is required to evaluate retrieval")
     cases_path = Path(__file__).parents[2] / "tests" / "fixtures" / "rag_eval_cases.json"
     cases = json.loads(cases_path.read_text(encoding="utf-8"))
     provider = OpenAIProvider(settings)
@@ -98,7 +98,7 @@ async def evaluate() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Base documental RAG de atención bancaria")
+    parser = argparse.ArgumentParser(description="RAG knowledge base for banking service")
     parser.add_argument("command", choices=("ingest", "status", "evaluate"))
     args = parser.parse_args()
     if args.command == "ingest":

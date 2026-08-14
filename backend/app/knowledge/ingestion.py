@@ -36,15 +36,15 @@ class KnowledgeIngestionService:
         retired_storage_keys: list[str] = []
         manifest_path = corpus_dir / "manifest.json"
         if not manifest_path.is_file():
-            raise FileNotFoundError(f"No existe el manifiesto requerido: {manifest_path}")
+            raise FileNotFoundError(f"Required manifest does not exist: {manifest_path}")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         documents = manifest.get("documents")
         if not isinstance(documents, list):
-            raise ValueError("El manifiesto no contiene una lista de documentos")
+            raise ValueError("The manifest does not contain a list of documents")
         try:
             for spec in documents:
                 if not isinstance(spec, dict) or not isinstance(spec.get("file_name"), str):
-                    raise ValueError("El manifiesto contiene un documento invalido")
+                    raise ValueError("The manifest contains an invalid document")
                 result = await self._ingest_document(db, corpus_dir / spec["file_name"], spec)
                 if result is None:
                     stats["unchanged"] += 1
@@ -69,15 +69,15 @@ class KnowledgeIngestionService:
 
     async def _ingest_document(self, db: AsyncSession, path: Path, spec: dict) -> int | None:
         if not path.is_file():
-            raise FileNotFoundError(f"No existe el PDF requerido: {path}")
+            raise FileNotFoundError(f"Required PDF does not exist: {path}")
         file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
         if file_hash != str(spec.get("sha256", "")):
-            raise ValueError(f"El hash declarado no coincide con el PDF: {path}")
+            raise ValueError(f"Declared hash does not match the PDF: {path}")
         slug = str(spec["slug"])
         version = str(spec["version"])
         categories = [Category(value) for value in spec.get("categories", [])]
         if not categories:
-            raise ValueError(f"El documento {slug} no declara categorias")
+            raise ValueError(f"Document {slug} does not declare any categories")
         sections = [str(value).strip() for value in spec.get("sections", []) if str(value).strip()]
         index_signature = self._index_signature(categories, sections)
         metadata = {
@@ -98,7 +98,7 @@ class KnowledgeIngestionService:
         if document is not None:
             if document.content_sha256 != file_hash:
                 raise ValueError(
-                    f"El contenido de {slug}:{version} cambio sin incrementar la version"
+                    f"Content for {slug}:{version} changed without incrementing the version"
                 )
             previous_signature = document.metadata_json.get("index_signature")
             was_active = document.active

@@ -1,4 +1,4 @@
-"""Registro operativo y estimacion de espera.
+"""Operational registry and wait-time estimation.
 
 Revision ID: 20260717_0004
 Revises: 20260716_0003

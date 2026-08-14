@@ -1,15 +1,15 @@
 # Backend FastAPI
 
-Monolito modular que implementa el flujo de orquestación bancaria: privacidad,
-clasificación, desambiguación, prioridad, verificación protegida, respuesta RAG,
-derivación por habilidades, tickets, trazas, operación ejecutiva, métricas
-gerenciales y gestión documental.
+Modular monolith implementing the banking orchestration flow: privacy, classification,
+disambiguation, prioritization, protected verification, RAG response, skill-based
+derivation, tickets, traces, executive operation, management metrics, and document
+governance.
 
-Para ejecutar el sistema completo consulte [`../README.md`](../README.md).
+To run the complete system see [`../README.md`](../README.md).
 
-## Inicio local
+## Local setup
 
-Requisitos: Python 3.12 o superior, `uv` y PostgreSQL con la extensión `vector`.
+Requirements: Python 3.12 or later, `uv`, and PostgreSQL with the `vector` extension.
 
 ```bash
 uv sync
@@ -19,69 +19,67 @@ uv run python -m app.knowledge.cli ingest
 uv run uvicorn app.main:app --reload
 ```
 
-En otra terminal, el servidor MCP de solo lectura se inicia como un proceso ASGI
-independiente que reutiliza este mismo entorno:
+In another terminal, the read-only MCP server starts as an independent ASGI process
+that reuses this same environment:
 
 ```bash
 uv run python -m app.mcp_server
 ```
 
-La aplicación exige `APP_NAME`, `BANK_NAME`, `BRANCH_NAME`, `CORS_ORIGINS`,
-`DATABASE_URL`, `JWT_SECRET`, `IDENTIFIER_PEPPER` y las contraseñas de semilla desde
-`.env`; no existen datos de despliegue ni credenciales de respaldo en código. Copie
-`.env.example` solo si `.env` aún no existe y reemplace todos los valores marcados.
-No publique `OPENAI_API_KEY`.
+The application requires `APP_NAME`, `BANK_NAME`, `BRANCH_NAME`, `CORS_ORIGINS`,
+`DATABASE_URL`, `JWT_SECRET`, `IDENTIFIER_PEPPER`, and the seed passwords from `.env`;
+no deployment data or backup credentials live in code. Copy `.env.example` only if
+`.env` doesn't exist yet, and replace every marked value. Never publish
+`OPENAI_API_KEY`.
 
 - OpenAPI: `http://localhost:8000/docs`
-- Salud: `http://localhost:8000/api/v1/health/ready`
-- Configuración pública: `http://localhost:8000/api/v1/system/public-config`
+- Health: `http://localhost:8000/api/v1/health/ready`
+- Public configuration: `http://localhost:8000/api/v1/system/public-config`
 - MCP: `http://localhost:8100/mcp`
-- Salud MCP: `http://localhost:8100/healthz`
+- MCP health: `http://localhost:8100/healthz`
 
-## Kiosco y agentes
+## Kiosk and agents
 
-1. `POST /api/v1/kiosk/sessions` crea una sesión corta con token opaco.
-2. Las siguientes llamadas usan `X-Session-Token`.
-3. `POST .../realtime-token` crea un secreto efímero para WebRTC. La API key normal
-   nunca sale del backend.
-4. `POST .../turns` enmascara PII y clasifica. El `turn_id` hace la operación idempotente.
-5. El flujo responde `CLARIFY` o `CONFIRM`.
-6. `POST .../confirmation` permite corrección o inicia la finalización, donde se aplica
-   la prioridad y se crea el caso.
-7. Los niveles `PERSONALIZADA` y `SENSIBLE` solicitan el CI del cliente mediante
-   un campo protegido.
-8. Las consultas `GENERAL` intentan RAG; cualquier falta de evidencia deriva a una
-   persona.
+1. `POST /api/v1/kiosk/sessions` creates a short-lived session with an opaque token.
+2. Subsequent calls use `X-Session-Token`.
+3. `POST .../realtime-token` creates an ephemeral secret for WebRTC. The regular API
+   key never leaves the backend.
+4. `POST .../turns` masks PII and classifies. `turn_id` makes the operation idempotent.
+5. The flow responds `CLARIFY` or `CONFIRM`.
+6. `POST .../confirmation` allows correction or starts finalization, where priority is
+   applied and the case is created.
+7. The `PERSONALIZADA` and `SENSIBLE` levels request the customer's CI through a
+   protected field.
+8. `GENERAL` inquiries attempt RAG; any evidence gap routes to a person.
 
-`app/services/orchestrator.py` es un adaptador delgado sobre tres grafos LangGraph:
-`turn_graph`, `confirmation_graph` e `identification_graph`. Los dos últimos reutilizan
-el subgrafo compilado `finalize`, que aplica prioridad, intenta una respuesta fundamentada
-y, cuando corresponde, deriva a una persona. LangGraph usa las abstracciones de
-LangChain Core como dependencia subyacente; el kiosco no mantiene una segunda capa de
-agentes LangChain.
+`app/services/orchestrator.py` is a thin adapter over three LangGraph graphs:
+`turn_graph`, `confirmation_graph`, and `identification_graph`. The last two reuse the
+compiled `finalize` subgraph, which applies priority, attempts a grounded answer, and,
+when applicable, routes to a person. LangGraph uses LangChain Core abstractions as an
+underlying dependency; the kiosk does not maintain a second LangChain agent layer.
 
-Los agentes tienen responsabilidades separadas:
+Agents have separated responsibilities:
 
-- `ClassificationAgent`: categoría, nivel, ambigüedad y señales de riesgo.
-- `PrioritizationAgent`: prioridad determinista y atención preferente.
-- `InitialAttentionAgent`: respuesta solo para nivel general, con evidencia RAG.
-- `DerivationAgent`: habilidad exacta, similitud semántica, experiencia y carga.
+- `ClassificationAgent`: category, level, ambiguity, and risk signals.
+- `PrioritizationAgent`: deterministic priority and preferential attention.
+- `InitialAttentionAgent`: response for the general level only, with RAG evidence.
+- `DerivationAgent`: exact skill, semantic similarity, experience, and workload.
 
-El audio y la transcripción original no se persisten. Realtime mantiene la conversación
-speech-to-speech y el navegador sincroniza únicamente mensajes completados; el backend
-los vuelve a enmascarar antes de guardarlos y los purga según la retención configurada.
-Las herramientas del agente Realtime delegan clasificación, confirmación, RAG,
-identificación y tickets al backend mediante REST.
+Audio and the original transcript are not persisted. Realtime keeps the conversation
+speech-to-speech and the browser syncs only completed messages; the backend re-masks
+them before storing and purges them according to the configured retention. The
+Realtime agent's tools delegate classification, confirmation, RAG, identification, and
+tickets to the backend via REST.
 
-El CI conserva el HMAC y sufijo enmascarado para comparación y listados. Adicionalmente,
-se cifra con AES-256-GCM para que solo el ejecutivo asignado pueda revelarlo durante la
-atención activa. Al cerrar se purga el valor recuperable; la consulta y la purga quedan
-auditadas y gerencia recibe siempre el valor enmascarado.
+The CI keeps the HMAC digest and masked suffix for comparison and listings.
+Additionally, it is encrypted with AES-256-GCM so only the assigned executive can
+reveal it during active attendance. Closing purges the recoverable value; the query and
+the purge are both audited, and management always receives the masked value.
 
-## Base de conocimiento
+## Knowledge base
 
-El bootstrap consume exclusivamente `../doc/rag/manifest.json`; no genera documentos
-en tiempo de ejecución.
+Bootstrap consumes exclusively `../doc/rag/manifest.json`; it does not generate
+documents at runtime.
 
 ```bash
 uv run python -m app.knowledge.cli ingest
@@ -89,75 +87,84 @@ uv run python -m app.knowledge.cli status
 uv run python -m app.knowledge.cli evaluate
 ```
 
-- `ingest`: valida manifiesto/hash, extrae texto, fragmenta y genera embeddings.
-- `status`: informa documentos activos y fragmentos.
-- `evaluate`: prueba recuperación y también clasifica los casos donde la política
-  prohíbe respuesta automática.
+- `ingest`: validates the manifest/hash, extracts text, chunks, and generates
+  embeddings.
+- `status`: reports active documents and chunks.
+- `evaluate`: tests retrieval and also classifies cases where policy prohibits an
+  automatic response.
 
-La API gerencial bajo `/api/v1/management/knowledge/documents` permite listar,
-cargar, editar, versionar, descargar, reindexar y archivar. Las indexaciones se
-encolan y `python -m app.knowledge.worker` las procesa con reintentos recuperables.
-Antes de almacenar, ClamAV valida el archivo; además se verifican firma PDF, MIME,
-tamaño, páginas, texto extraíble, categorías y URL HTTP(S). Los archivos se almacenan
-con claves UUID; el nombre original es solo metadato.
+The management API under `/api/v1/management/knowledge/documents` allows listing,
+uploading, editing, versioning, downloading, reindexing, and archiving. Indexing jobs
+are queued and `python -m app.knowledge.worker` processes them with recoverable
+retries. Before storage, ClamAV scans the file; PDF signature, MIME type, size, page
+count, extractable text, category, and HTTP(S) source URL are also verified. Files are
+stored with UUID keys; the original filename is metadata only.
 
-Una respuesta automática requiere:
+An automatic response requires:
 
-- consulta ya enmascarada;
-- documento activo y no vencido;
-- categoría compatible y similitud sobre el umbral;
-- respuesta estructurada limitada a la evidencia recuperada;
-- al menos una cita válida a un fragmento recuperado.
+- an already-masked query;
+- an active, non-expired document;
+- a compatible category and similarity above the threshold;
+- a structured response bounded to the retrieved evidence;
+- at least one valid citation to a retrieved chunk.
 
-Ante cualquier incumplimiento se crea un ticket humano.
+Any failure of these conditions creates a human ticket.
 
-## Servidor MCP
+## MCP server
 
-`app/mcp_server` expone cinco herramientas de solo lectura para clientes MCP externos:
+`app/mcp_server` exposes five read-only tools to external MCP clients:
 `search_knowledge`, `get_case_trace`, `list_executive_availability`,
-`get_ticket_status` y `explain_routing_decision`. Usa transporte streamable HTTP en
-`/mcp`, exige un JWT vigente de ejecutivo o gerencia y comparte las funciones de dominio
-y PostgreSQL con la API sin compartir su proceso.
+`get_ticket_status`, and `explain_routing_decision`. It uses streamable HTTP transport
+at `/mcp`, requires a valid executive or manager JWT, and shares domain functions and
+PostgreSQL with the API without sharing its process.
 
-El MCP no forma parte del camino del kiosco. Los frontends, los grafos LangGraph y el
-arnés AutoGen continúan usando la API REST. `search_knowledge` y
-`explain_routing_decision` son las únicas herramientas MCP que pueden usar OpenAI --
-la primera para el embedding de la consulta, la segunda porque reutiliza
-`DerivationAgent` para el ranking semántico del caso; las otras tres consultan el
-estado del dominio sin mutarlo y sin depender del proveedor. `/healthz` es público
-para health checks, pero `/mcp` siempre pasa por `BearerAuthMiddleware`.
+MCP is not part of the kiosk path. The frontends, the LangGraph graphs, and the
+AutoGen harness continue to use the REST API. `search_knowledge` and
+`explain_routing_decision` are the only MCP tools that may use OpenAI — the first for
+query embedding, the second because it reuses `DerivationAgent` for the case's semantic
+ranking; the other three query domain state without mutating it and without depending
+on the provider. `/healthz` is public for health checks, but `/mcp` always goes through
+`BearerAuthMiddleware`.
 
-## Persistencia y migraciones
+## Persistence and migrations
 
-Las migraciones son explícitas y congeladas:
+Migrations are explicit and frozen:
 
-- `20260716_0001`: esquema operacional;
-- `20260716_0002`: pgvector, documentos, fragmentos e interacciones RAG;
-- `20260716_0003`: expiración, prioridad propuesta y ciclo documental.
-- `20260717_0004`: registro de clientes, fuentes internas y espera estimada.
-- `20260720_0005`: flujo natural, confirmación idempotente y estado recuperable.
-- `20260721_0006`: expediente operativo, conversación retenida y cierre estructurado.
-- `20260728_0007`: cola documental, control gerencial y privacidad de cierre.
-- `20260813_0008`: revisión histórica conservada para compatibilidad de despliegues.
-- `20260813_0009`: retiro definitivo de la tabla histórica de propuestas documentales.
+- `20260716_0001`: operational schema;
+- `20260716_0002`: pgvector, documents, chunks, and RAG interactions;
+- `20260716_0003`: expiry, proposed priority, and document lifecycle.
+- `20260717_0004`: customer registry, internal sources, and estimated wait.
+- `20260720_0005`: natural flow, idempotent confirmation, and recoverable state.
+- `20260721_0006`: operational case file, retained conversation, and structured
+  closure.
+- `20260728_0007`: document queue, management controls, and closure privacy.
+- `20260813_0008`: historical revision kept for deployment compatibility.
+- `20260813_0009`: permanent retirement of the historical document-proposal table.
 
-La actualización a `0009` elimina los registros que pudieran existir en esa tabla. Tome
-una copia antes de migrar si necesita conservarlos; un downgrade reconstruye únicamente
-la estructura vacía.
+Upgrading to `0009` deletes any records that may exist in that table. Take a backup
+before migrating if you need to keep them; a downgrade reconstructs only the empty
+structure.
 
-No se usa `Base.metadata.create_all()` en migraciones. Los tests sí crean un esquema
-SQLite efímero de forma aislada.
+`Base.metadata.create_all()` is not used in migrations. Tests do create an isolated
+ephemeral SQLite schema.
 
-## Autorización
+## Authorization
 
-- JWT de acceso corto en memoria del frontend.
-- Refresh opaco, rotado y almacenado como hash; cookie `HttpOnly`, `SameSite=Lax` y
-  `Secure` en producción.
-- Roles `EXECUTIVE` y `MANAGER`.
-- Un ejecutivo solo consulta sus tickets; gerencia accede a métricas y conocimiento.
-- Los estados de ticket usan versión optimista y transiciones cerradas.
+- Short-lived access JWT held in frontend memory.
+- Opaque refresh token, rotated and stored as a hash; `HttpOnly`, `SameSite=Lax`, and
+  `Secure` (in production) cookie.
+- `EXECUTIVE` and `MANAGER` roles.
+- An executive can only query their own tickets; management accesses metrics and
+  knowledge.
+- Ticket states use optimistic versioning and closed transitions.
 
-## Verificación
+## Verification
+
+From the repo root, `make test` (hermetic suites only) or `make check` (everything, including
+lint/typecheck/build and the live evals harness) run this project alongside `evals/` and
+`frontend/` with one command and a single pass/fail summary -- see the root
+[README's "Running everything with one command"](../README.md#running-everything-with-one-command).
+Equivalently, from `backend/`:
 
 ```bash
 uv run ruff format --check .
@@ -167,14 +174,15 @@ uv run coverage report
 uv run --with pip-audit pip-audit
 ```
 
-Las pruebas no consumen OpenAI y cubren flujo general, aclaración, corrección,
-identificación, prioridad, privacidad, RAG, caducidad, roles, refresh, concurrencia y
-ciclo documental.
+Tests do not consume OpenAI, do not read `backend/.env` (`APP_ENV=test` short-circuits that in
+`app/core/config.py`, so a developer's local Redis/ClamAV/OpenAI settings never leak into a test
+run), and cover the general flow, clarification, correction, identification, priority, privacy,
+RAG, expiry, roles, refresh, concurrency, and the document lifecycle.
 
-El arnés de evaluación de política vive como proyecto independiente en
-[`evals/`](evals/README.md). Un agente AutoGen simula cinco perfiles de cliente contra
-una API REST real y un evaluador determinista puntúa el resultado. Sus pruebas unitarias
-no consumen OpenAI:
+The policy evaluation harness lives as an independent project in
+[`evals/`](evals/README.md). An AutoGen agent simulates five customer personas against
+a real REST API, and a deterministic evaluator scores the outcome. Its unit tests do
+not consume OpenAI:
 
 ```bash
 cd evals
@@ -182,11 +190,11 @@ uv sync
 uv run pytest
 ```
 
-La ejecución de punta a punta sí genera costo de OpenAI y no tiene workflow de CI; se
-lanza manualmente contra un backend local en ejecución (`docker compose up`), nunca en
-cada PR.
+The end-to-end run does incur OpenAI cost and has no CI workflow; it is launched manually against
+a running local backend (`docker compose up`, or `make evals-live` from the repo root, which reads
+`OPENAI_API_KEY` and `MAX_CLARIFICATIONS` from `backend/.env`), never on every PR.
 
-Para regenerar el catálogo de ejecutivos y los documentos operativos administrados:
+To regenerate the executive catalog and the managed operational documents:
 
 ```bash
 uv run python scripts/render_operational_documents.py

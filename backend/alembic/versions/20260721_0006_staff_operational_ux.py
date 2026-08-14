@@ -1,4 +1,4 @@
-"""Expediente operativo, conversacion protegida y cierre documentado.
+"""Operational case file, protected conversation, and documented closure.
 
 Revision ID: 20260721_0006
 Revises: 20260720_0005

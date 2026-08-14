@@ -6,7 +6,7 @@ import type { KioskSession } from "../lib/types"
 afterEach(() => vi.unstubAllGlobals())
 
 describe("kiosk API client", () => {
-  it("centraliza la creación y la autenticación de la sesión", async () => {
+  it("centralizes session creation and authentication", async () => {
     const session: KioskSession = {
       session_id: "session-1",
       session_token: "secret",

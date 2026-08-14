@@ -14,7 +14,7 @@ class MaskingResult:
 
 
 class PIIMaskingService:
-    """Enmascaramiento local y determinista para el contexto bancario boliviano."""
+    """Local, deterministic masking for the Bolivian banking context."""
 
     _patterns: tuple[tuple[str, re.Pattern[str]], ...] = (
         (

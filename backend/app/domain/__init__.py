@@ -1,1 +1,1 @@
-"""Entidades y contratos del dominio."""
+"""Domain entities and contracts."""

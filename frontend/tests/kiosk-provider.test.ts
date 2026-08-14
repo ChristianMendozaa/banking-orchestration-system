@@ -39,7 +39,7 @@ function result(
 }
 
 describe("kioskRouteForState", () => {
-  it("deriva una sola ruta de la instantánea de negocio", () => {
+  it("derives a single route from the business snapshot", () => {
     expect(kioskRouteForState({ session: null, result: null })).toBe("/kiosco")
     expect(kioskRouteForState({ session, result: null })).toBe("/kiosco/voz")
     expect(kioskRouteForState({ session, result: result("IDENTIFY") })).toBe(

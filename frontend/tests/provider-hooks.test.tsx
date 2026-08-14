@@ -16,7 +16,7 @@ afterEach(() => {
 })
 
 describe("provider helpers", () => {
-  it("mantiene un solo temporizador y lo limpia al desmontar", () => {
+  it("keeps a single timer and clears it on unmount", () => {
     vi.useFakeTimers()
     const callback = vi.fn()
     const { unmount } = renderHook(() => useIntervalRefresh(callback, 1_000))
@@ -28,7 +28,7 @@ describe("provider helpers", () => {
     expect(callback).toHaveBeenCalledTimes(2)
   })
 
-  it("comparte una sola rotación de refresh entre errores 401 concurrentes", async () => {
+  it("shares a single refresh rotation across concurrent 401 errors", async () => {
     const session = (accessToken: string): TokenResponse => ({
       access_token: accessToken,
       token_type: "bearer",

@@ -29,7 +29,7 @@ describe("TextInteraction", () => {
     context.selectInteractionMode.mockReset()
   })
 
-  it("permite enviar una solicitud escrita y volver a voz", async () => {
+  it("allows sending a written request and returning to voice", async () => {
     context.submitTextTurn.mockResolvedValue({})
     render(<TextInteraction />)
 
@@ -47,7 +47,7 @@ describe("TextInteraction", () => {
     expect(context.selectInteractionMode).toHaveBeenCalledWith("voice")
   })
 
-  it("presenta decisiones explícitas cuando el resumen requiere confirmación", async () => {
+  it("presents explicit decisions when the summary requires confirmation", async () => {
     context.analysis = {
       next_action: "CONFIRM",
       speech_text: "Confirma si entendí correctamente.",

@@ -1,4 +1,4 @@
-"""Controles operativos y cola de indexacion documental.
+"""Operational controls and document indexing queue.
 
 Revision ID: 20260728_0007
 Revises: 20260721_0006
@@ -109,7 +109,7 @@ def upgrade() -> None:
         )
         """
     )
-    # Un caso humano sin ejecutivo queda explicitamente en cola.
+    # A human case with no executive is explicitly left queued.
     op.execute(
         """
         UPDATE cases
@@ -127,7 +127,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # La revisión anterior no reconoce QUEUED; se conserva el caso como asignado.
+    # The previous revision doesn't recognize QUEUED; the case is kept as assigned.
     op.execute("UPDATE cases SET status = 'ASSIGNED' WHERE status = 'QUEUED'")
     op.drop_index(
         "ix_operational_audit_events_target_id",

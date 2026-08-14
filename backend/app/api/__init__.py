@@ -1,1 +1,1 @@
-"""Rutas HTTP versionadas."""
+"""Versioned HTTP routes."""

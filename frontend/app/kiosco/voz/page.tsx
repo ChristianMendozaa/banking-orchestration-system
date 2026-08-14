@@ -47,7 +47,7 @@ export default function VoicePage() {
     if (!hydrated || !session || interactionMode !== "voice") return
     if (voiceState === "idle") {
       void connectVoice().catch(() => {
-        // El provider convierte el fallo en un estado recuperable visible.
+        // The provider turns the failure into a visible, recoverable state.
       })
     }
   }, [connectVoice, hydrated, interactionMode, session, voiceState])

@@ -587,8 +587,6 @@ protected staff case file, and compatibility-safe retirement of superseded schem
 ├── doc/
 │   ├── rag/                     # Governed source PDFs and manifest
 │   └── operacion/               # Generated operational documentation
-├── docs/
-│   └── operations.md            # Operations and recovery runbook
 ├── docker-compose.yml           # Complete local topology and startup ordering
 └── .env.example                 # Compose-level configuration template
 ```
@@ -793,16 +791,76 @@ the document worker, API, and isolated web surfaces. Before a production deploym
 - Terminate TLS at a trusted reverse proxy and configure the exact public CORS origins.
 - Store database credentials, `JWT_SECRET`, `IDENTIFIER_PEPPER`, seed passwords, and the OpenAI key in a managed secret store.
 - Configure a random `METRICS_TOKEN`, scrape `/internal/metrics`, centralize JSON logs,
-  and apply the alert thresholds in the operational runbook.
+  and apply the alert thresholds below.
 - Define PostgreSQL backup, restore, migration rollback, and knowledge-file durability procedures.
 - Review document approval and expiry policies, identity-verification rules, and data retention with the relevant security and compliance teams.
 - Run dependency auditing and all backend/frontend quality gates in CI.
+
+Keep Redis and ClamAV reachable only from the internal network; neither is meant to be
+publicly exposed. Run `alembic upgrade head` before starting the API, worker, and MCP
+process, then validate `/api/v1/health/ready` and the MCP process's `/healthz`, followed
+by both web surfaces. Production configuration fails at startup if OpenAI, Redis, ClamAV,
+a dedicated identifier-encryption key, or `METRICS_TOKEN` is missing.
+
+### Services and observability
+
+- The API publishes liveness and readiness under `/api/v1/health`.
+- The MCP process publishes `/healthz`; its `/mcp` endpoint requires a valid executive or
+  manager JWT and must not be exposed outside the network intended for authorized MCP
+  clients.
+- Prometheus can scrape `/internal/metrics` with `Authorization: Bearer <METRICS_TOKEN>`.
+- Logs are JSON, include `trace_id`, normalized route, status, and duration, and never
+  record customer text or identifiers.
+- The `app.knowledge.worker` process claims jobs with locking, recovers interrupted jobs,
+  and keeps the previously active document when a reindex fails.
+
+Recommended baseline alerts:
+
+- 5xx response rate above 2% for 5 minutes;
+- HTTP p95 above 2 seconds for 10 minutes;
+- rate-limit rejections growing anomalously;
+- readiness failing for 2 minutes;
+- the MCP process health check failing for 2 minutes;
+- document jobs failed or running for more than 15 minutes;
+- critical or unassigned cases above the operational threshold;
+- the oldest pending case's age above the defined SLA.
+
+### Backup and restore
+
+Take consistent backups of PostgreSQL and the `knowledge_data` volume. The document
+archive and its metadata must be restored to the same logical point. Rehearse the restore
+in an isolated environment at least quarterly:
+
+1. restore the database and volume;
+2. run `alembic current` and verify the expected revision;
+3. run `python -m app.knowledge.cli status`;
+4. exercise login, session creation, assignment, and document download;
+5. compare document counts and hashes.
+
+### Migration and rollback
+
+Take a backup and review the new revision's SQL before migrating. If the application
+fails after a deploy, revert the application version first. Only run `alembic downgrade`
+when the revision documents a safe reversal — a migration that purges data cannot
+reconstruct it.
+
+Revision `20260813_0009` permanently drops the historical document-proposal table (see
+[`backend/README.md`](backend/README.md) for the mechanical warning). Its downgrade can
+recreate the structure but not the deleted rows; export that data before upgrading if a
+retention obligation applies.
+
+### Privacy and retention
+
+Audio and the original transcript are not stored. Completed messages are re-masked in the
+backend and purged once `CONVERSATION_RETENTION_DAYS` elapses. Closing a ticket deletes
+the recoverable encrypted CI; its hash, masked value, and audit events remain.
+
+Verify daily that the retention process ran, and document any exceptions.
 
 When OpenAI is intentionally absent in development, deterministic classification fallback remains available, realtime voice returns a controlled `503`, and RAG safely routes the case to a human. Production configuration rejects a missing OpenAI key at startup.
 
 ## Additional documentation
 
 - [Backend implementation guide](backend/README.md)
-- [Operations and recovery runbook](docs/operations.md)
 - [Governed RAG manifest](doc/rag/manifest.json)
 - [Orchestration policy evaluation harness (AutoGen)](backend/evals/README.md)

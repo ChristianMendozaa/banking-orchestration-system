@@ -1,4 +1,4 @@
-"""Esquema inicial congelado del sistema.
+"""Frozen initial system schema.
 
 Revision ID: 20260716_0001
 Revises:

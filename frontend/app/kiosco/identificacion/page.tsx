@@ -38,7 +38,7 @@ export default function IdentificationPage() {
       voiceState === "idle"
     ) {
       void connectVoice().catch(() => {
-        // La identificación escrita puede continuar aunque falle la voz.
+        // Written identification can continue even if voice fails.
       })
     }
   }, [connectVoice, hydrated, interactionMode, result, session, voiceState])
