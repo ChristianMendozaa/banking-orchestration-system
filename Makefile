@@ -43,7 +43,7 @@ case "$(1)" in \
 	frontend:test) \
 		count=$$(grep -E '^ *Tests +[0-9]+ (passed|failed)' "$$log" | grep -oE '\([0-9]+\)' | tr -d '()');; \
 	evals:live) \
-		count=$$(grep -oE 'Verificaciones: [0-9]+/[0-9]+' "$$log" | grep -oE '/[0-9]+' | tr -d '/');; \
+		count=$$(grep -oE 'checks [0-9]+/[0-9]+' "$$log" | tail -1 | grep -oE '/[0-9]+' | tr -d '/');; \
 	*) \
 		count="";; \
 esac; \
@@ -102,18 +102,23 @@ services-up: ## Start postgres/redis/clamav/backend via docker compose
 services-down: ## Stop docker compose services
 	docker compose down
 
-evals-live: ## Live AutoGen persona harness against a running backend -- billed OpenAI calls
+# The harness must be told the same MAX_CLARIFICATIONS and RAG_MIN_SCORE the evaluated
+# backend runs with -- they are policy thresholds it asserts against, not preferences --
+# so both are read from backend/.env rather than duplicated as constants here.
+evals-live: ## Live AutoGen scenario harness + LLM judge against a running backend -- billed OpenAI calls
 	@openai_key=$$(grep -m1 '^OPENAI_API_KEY=' backend/.env 2>/dev/null | cut -d= -f2-); \
 	max_clar=$$(grep -m1 '^MAX_CLARIFICATIONS=' backend/.env 2>/dev/null | cut -d= -f2-); \
+	rag_min=$$(grep -m1 '^RAG_MIN_SCORE=' backend/.env 2>/dev/null | cut -d= -f2-); \
 	backend_port=$$(grep -m1 '^BACKEND_PORT=' .env 2>/dev/null | cut -d= -f2-); \
 	max_clar=$${max_clar:-2}; \
+	rag_min=$${rag_min:-0.45}; \
 	backend_port=$${backend_port:-8000}; \
 	if [ -z "$$openai_key" ]; then \
 		printf '\n\033[1m==> evals:live\033[0m\n'; \
 		echo "OPENAI_API_KEY not set in backend/.env -- skipping (harness and knowledge-bootstrap both need it)"; \
 		printf '%s\t%s\t%s\t%s\n' "evals:live" "SKIP" "0" "" >> $(REPORT); \
 	else \
-		$(call run_suite,evals:live,docker compose up -d --wait backend && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --output scorecard.md); \
+		$(call run_suite,evals:live,docker compose up -d --wait backend && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md --json-output reports/latest.json --html reports/latest.html); \
 	fi
 
 ## --- Aggregates. Each runs its suites through a nested `make -k` (keep-going): every

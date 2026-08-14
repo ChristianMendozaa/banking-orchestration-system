@@ -33,3 +33,9 @@ doc/rag/*
 
 # make check / make test report
 .make-report.tsv
+
+# Reportes de una corrida del harness de evaluacion (dashboard HTML, JSON, scorecard).
+# Cada corrida produce artefactos nuevos que dependen del estado del backend y de las
+# respuestas del modelo; no se versionan.
+backend/evals/reports/
+backend/evals/scorecard.md

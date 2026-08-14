@@ -347,7 +347,7 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | `app/mcp_server` | Read-only MCP tools for authenticated external clients -- bearer-authenticated, streamable-HTTP, never called by the frontends (see [MCP server](#mcp-server)) |
 | `app/db` | Async SQLAlchemy models, repositories, session management, and idempotent operational seeding |
 | `alembic` | Explicit, ordered schema migrations including pgvector and the HNSW vector index |
-| `evals/` (standalone project) | AutoGen persona-simulation harness scoring policy compliance against a live backend; own venv and CI job, not part of the modular backend (see [Quality assurance](#quality-assurance)) |
+| `evals/` (standalone project) | AutoGen scenario harness and LLM judge scoring policy compliance and service quality against a live backend; own venv, not part of the modular backend (see [Quality assurance](#quality-assurance)) |
 
 ### Specialized orchestration components
 
@@ -557,7 +557,7 @@ protected staff case file, and compatibility-safe retirement of superseded schem
 | --- | --- |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, OpenAI Agents SDK, Zod |
 | Backend | Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2 async, Uvicorn, Structlog |
-| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools), AutoGen (offline REST-based policy evaluation) |
+| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools), AutoGen (offline REST-based evaluation: simulated customer and LLM judge) |
 | Data | PostgreSQL 17, pgvector, HNSW cosine index, Alembic |
 | Security | Argon2, JWT access tokens, rotating opaque refresh tokens, HMAC identifier protection |
 | Tooling | Docker Compose, `uv`, `pnpm`, Ruff, Pytest, Vitest, ESLint |
@@ -576,7 +576,7 @@ protected staff case file, and compatibility-safe retirement of superseded schem
 │   │   ├── knowledge/           # Ingestion, retrieval, RAG, document management
 │   │   ├── mcp_server/          # Read-only MCP tools for authenticated external clients
 │   │   └── services/            # Orchestrator adapter, LangGraph graphs, agents, PII, OpenAI provider
-│   ├── evals/                   # Standalone AutoGen policy-evaluation harness (own project)
+│   ├── evals/                   # Standalone AutoGen evaluation harness + judge (own project)
 │   ├── seed/                    # Deterministic branch and executive catalog
 │   └── tests/                   # Backend unit and integration suite
 ├── frontend/
@@ -720,8 +720,10 @@ make check     # everything CI runs, plus the evals suites CI doesn't, plus the 
 `make test` needs nothing running -- it's the fast, free path for everyday iteration. `make
 check` adds linting, typechecking, `next build`, the OpenAPI contract-drift check, and the live
 AutoGen harness described below (`evals-live`); it starts `docker compose` and reads
-`OPENAI_API_KEY` and `MAX_CLARIFICATIONS` straight out of `backend/.env`, so nothing is duplicated
-or hardcoded in the Makefile itself -- if the key is absent, `evals-live` is reported as `SKIP`
+`OPENAI_API_KEY`, `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` straight out of `backend/.env` -- the
+last two are policy thresholds the harness asserts against, so reading them keeps the harness and
+the system under test in agreement rather than duplicating constants in the Makefile. If the key
+is absent, `evals-live` is reported as `SKIP`
 rather than failing the run. Every suite runs regardless of earlier failures, and `make check`
 ends with one summary table (suite, PASS/FAIL/SKIP, duration) and a non-zero exit if anything
 failed.
@@ -769,16 +771,31 @@ leaks into a test run). None of `make test`, `make lint`, `backend-build`, or `c
 Docker Compose or any other service running.
 
 [`backend/evals/`](backend/evals/README.md) additionally ships a separate, standalone-project
-**live** policy evaluation harness (`make evals-live`, or `uv run python -m harness` from
-`backend/evals/`): an AutoGen agent plays one of five customer personas and drives a real kiosk
-session turn by turn against a **live** backend, and a deterministic (non-LLM) evaluator in
-`harness/evaluator.py` scores the finished session against the orchestration policy -- did a
-fraud report reach `CRITICO`, was a sensitive case identified before it resolved, was every
-automatic answer cited. Its coverage is intentionally kept out of `backend/`'s `fail_under=90`
-gate, and there is no CI workflow for the live run -- each run makes real, billed OpenAI calls on
-both sides (the simulated customer and the backend's own classification/RAG), so it stays a
-manual, local-only check against a `docker compose` backend rather than something triggered from
-a PR.
+**live** evaluation harness (`make evals-live`, or `uv run python -m harness --html` from
+`backend/evals/`). An AutoGen agent plays a customer with a specific situation and a specific
+way of speaking, and drives a real kiosk session turn by turn against a **live** backend. The
+finished session is then scored twice:
+
+- A deterministic, non-LLM evaluator (`harness/evaluator.py`) checks everything decidable from
+  recorded state -- did a fraud report reach `CRITICO`, was a sensitive case identified before it
+  resolved, was every automatic answer cited, was a spoken card number ever echoed back. Each
+  check carries a severity and an applicability flag, so a check that does not apply to a
+  scenario reports as such instead of inflating the pass count.
+- A second AutoGen agent, the judge (`harness/judge.py`), scores understanding, routing, policy
+  compliance, communication and resolution quality from 1 to 10 and writes the reasoning shown in
+  the report. It receives the deterministic results as ground truth it may explain but not
+  contradict, and **any failed hard check caps the final score at 4/10** whatever the judge
+  thought.
+
+The catalog covers 41 scenarios across all five categories, grounded and ungrounded inquiries,
+the clarification and correction loops, preferential attention, adversarial input, and the
+state-machine guards. A run produces a markdown scorecard, a JSON dump and a self-contained HTML
+dashboard at `backend/evals/reports/latest.html`.
+
+Its coverage is intentionally kept out of `backend/`'s `fail_under=90` gate, and there is no CI
+workflow for the live run -- each run makes real, billed OpenAI calls on three fronts (the
+simulated customer, the judge, and the backend's own classification/RAG), so it stays a manual,
+local-only check against a `docker compose` backend rather than something triggered from a PR.
 
 Dependency auditing (`uv run --with pip-audit pip-audit`, `pnpm audit`) is not run in CI; run it
 locally before releases if you want to check for known vulnerabilities.
@@ -863,4 +880,4 @@ When OpenAI is intentionally absent in development, deterministic classification
 
 - [Backend implementation guide](backend/README.md)
 - [Governed RAG manifest](doc/rag/manifest.json)
-- [Orchestration policy evaluation harness (AutoGen)](backend/evals/README.md)
+- [Kiosk orchestration evaluation harness (AutoGen)](backend/evals/README.md)
