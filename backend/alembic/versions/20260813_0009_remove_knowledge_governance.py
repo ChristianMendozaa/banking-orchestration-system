@@ -1,24 +1,27 @@
-"""Tabla histórica de propuestas de gobernanza documental.
+"""Retira las propuestas históricas de gobernanza documental.
 
-Revision ID: 20260813_0008
-Revises: 20260728_0007
+Revision ID: 20260813_0009
+Revises: 20260813_0008
 
-Esta revisión se conserva para que instalaciones que ya la aplicaron mantengan una
-cadena de migración válida. La revisión siguiente retira la tabla junto con la
-funcionalidad asociada.
+La eliminación descarta los datos existentes. El downgrade solo reconstruye una tabla
+vacía para conservar la reversibilidad estructural de la cadena de migraciones.
 """
 
 import sqlalchemy as sa
 
 from alembic import op
 
-revision = "20260813_0008"
-down_revision = "20260728_0007"
+revision = "20260813_0009"
+down_revision = "20260813_0008"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
+    op.drop_table("knowledge_governance_proposals")
+
+
+def downgrade() -> None:
     op.create_table(
         "knowledge_governance_proposals",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -48,15 +51,3 @@ def upgrade() -> None:
         "knowledge_governance_proposals",
         ["created_by_user_id"],
     )
-
-
-def downgrade() -> None:
-    op.drop_index(
-        "ix_knowledge_governance_proposals_created_by_user_id",
-        table_name="knowledge_governance_proposals",
-    )
-    op.drop_index(
-        "ix_knowledge_governance_proposals_document_id",
-        table_name="knowledge_governance_proposals",
-    )
-    op.drop_table("knowledge_governance_proposals")

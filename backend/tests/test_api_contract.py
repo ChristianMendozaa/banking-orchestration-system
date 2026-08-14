@@ -30,8 +30,6 @@ EXPECTED_OPERATIONS = {
     ("PATCH", "/api/v1/management/knowledge/documents/{document_id}"),
     ("DELETE", "/api/v1/management/knowledge/documents/{document_id}"),
     ("GET", "/api/v1/management/knowledge/documents/{document_id}/download"),
-    ("GET", "/api/v1/management/knowledge/documents/{document_id}/governance-proposals"),
-    ("POST", "/api/v1/management/knowledge/documents/{document_id}/governance-proposals"),
     ("POST", "/api/v1/management/knowledge/documents/{document_id}/reindex"),
     ("POST", "/api/v1/management/knowledge/documents/{document_id}/versions"),
     ("GET", "/api/v1/management/metrics"),

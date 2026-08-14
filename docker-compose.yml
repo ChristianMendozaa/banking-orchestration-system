@@ -73,6 +73,12 @@ services:
     image: redis:8.2-alpine
     restart: "no"
     command: ["redis-server", "--save", "", "--appendonly", "no"]
+    # Published for the "backend runs on the host, dependencies run in Compose" local
+    # dev flow (backend/.env points REDIS_URL at localhost, not the compose network).
+    # Not part of the deployment topology diagram or production guidance in
+    # docs/operations.md, which still calls for internal-network-only access there.
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -82,6 +88,9 @@ services:
   clamav:
     image: clamav/clamav:stable
     restart: "no"
+    # Same local-dev rationale as redis's port mapping above.
+    ports:
+      - "${CLAMAV_PORT:-3310}:3310"
     healthcheck:
       test: ["CMD", "clamdscan", "--ping", "1"]
       interval: 15s
@@ -186,31 +195,6 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
-
-  # On-demand CLI, not a long-running service -- excluded from `docker compose up` by
-  # its profile. Own image: crewai's dependency tree conflicts with mcp-server's and
-  # does not import on Python 3.14, so it cannot share the backend image. Invoke with:
-  #   docker compose --profile governance run --rm \
-  #     -e GOVERNANCE_MANAGER_EMAIL=... -e GOVERNANCE_MANAGER_PASSWORD=... \
-  #     knowledge-governance <document_id>
-  # See backend/governance/README.md.
-  knowledge-governance:
-    build:
-      context: backend/governance
-      dockerfile: Dockerfile
-    image: sistema-orquestacion-governance:local
-    profiles: ["governance"]
-    environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      GOVERNANCE_API_BASE_URL: http://backend:8000
-      GOVERNANCE_MCP_URL: http://mcp-server:8100/mcp
-      GOVERNANCE_MANAGER_EMAIL: ${GOVERNANCE_MANAGER_EMAIL:-}
-      GOVERNANCE_MANAGER_PASSWORD: ${GOVERNANCE_MANAGER_PASSWORD:-}
-    depends_on:
-      backend:
-        condition: service_healthy
-      mcp-server:
-        condition: service_healthy
 
   frontend-kiosk:
     <<: *frontend-base

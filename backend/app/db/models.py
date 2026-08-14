@@ -378,38 +378,6 @@ class KnowledgeJob(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     document: Mapped[KnowledgeDocument] = relationship()
 
 
-class KnowledgeGovernanceProposal(UUIDPrimaryKeyMixin, TimestampMixin, Base):
-    """A CrewAI governance crew's review of a document, submitted for manager approval.
-
-    Append-only: a proposal is never mutated or auto-applied. A manager who agrees with
-    it acts through the existing `PATCH /management/knowledge/documents/{id}` endpoint
-    (e.g. to change categories); this table is only the crew's recommendation and audit
-    trail. Produced by the standalone `backend/governance` package, not by
-    `KnowledgeWorker` -- CrewAI's dependency tree conflicts with the MCP server's, so it
-    cannot run inside the main backend process. See backend/governance/README.md.
-    """
-
-    __tablename__ = "knowledge_governance_proposals"
-
-    document_id: Mapped[UUID] = mapped_column(
-        ForeignKey("knowledge_documents.id", ondelete="CASCADE"), index=True
-    )
-    category_suggestions: Mapped[list[str]] = mapped_column(JSON, default=list)
-    section_suggestions: Mapped[list[str]] = mapped_column(JSON, default=list)
-    review_after_suggestion: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
-    compliance_veto: Mapped[bool] = mapped_column(Boolean, default=False)
-    compliance_flags: Mapped[list[str]] = mapped_column(JSON, default=list)
-    compliance_notes: Mapped[str] = mapped_column(Text, default="")
-    retrieval_qa_results: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
-    overall_recommendation: Mapped[str] = mapped_column(Text, default="")
-    created_by_user_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
-    )
-    document: Mapped[KnowledgeDocument] = relationship()
-
-
 class RAGInteraction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "rag_interactions"
 

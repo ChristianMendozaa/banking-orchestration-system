@@ -364,33 +364,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/management/knowledge/documents/{document_id}/governance-proposals": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List Governance Proposals */
-        get: operations["list_governance_proposals_api_v1_management_knowledge_documents__document_id__governance_proposals_get"];
-        put?: never;
-        /**
-         * Create Governance Proposal
-         * @description Records a governance-crew review for manager approval.
-         *
-         *     Submitted by the standalone `backend/governance` package (CrewAI's dependency tree
-         *     conflicts with the MCP server's, so the crew cannot run inside this process), acting
-         *     as an ordinary MANAGER-authenticated client -- same auth, same contract as anything
-         *     else in this router. Never mutates the document: a manager who agrees with the
-         *     proposal applies it manually via `PATCH /{document_id}`.
-         */
-        post: operations["create_governance_proposal_api_v1_management_knowledge_documents__document_id__governance_proposals_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/management/knowledge/documents/{document_id}/reindex": {
         parameters: {
             query?: never;
@@ -744,73 +717,6 @@ export interface components {
             ticket?: components["schemas"]["TicketResult"] | null;
             /** Tracking Information */
             tracking_information?: string | null;
-        };
-        /**
-         * GovernanceProposalCreate
-         * @description Body submitted by the standalone governance crew (backend/governance), never by
-         *     the frontends. Never applied automatically -- a manager reviewing this proposal acts
-         *     through the existing document PATCH endpoint if they agree with it.
-         */
-        GovernanceProposalCreate: {
-            /** Category Suggestions */
-            category_suggestions?: components["schemas"]["Category"][];
-            /** Compliance Flags */
-            compliance_flags?: string[];
-            /**
-             * Compliance Notes
-             * @default
-             */
-            compliance_notes: string;
-            /**
-             * Compliance Veto
-             * @default false
-             */
-            compliance_veto: boolean;
-            /**
-             * Overall Recommendation
-             * @default
-             */
-            overall_recommendation: string;
-            /** Retrieval Qa Results */
-            retrieval_qa_results?: components["schemas"]["RetrievalQAResult"][];
-            /** Review After Suggestion */
-            review_after_suggestion?: string | null;
-            /** Section Suggestions */
-            section_suggestions?: string[];
-        };
-        /** GovernanceProposalSummary */
-        GovernanceProposalSummary: {
-            /** Category Suggestions */
-            category_suggestions: components["schemas"]["Category"][];
-            /** Compliance Flags */
-            compliance_flags: string[];
-            /** Compliance Notes */
-            compliance_notes: string;
-            /** Compliance Veto */
-            compliance_veto: boolean;
-            /**
-             * Created At
-             * Format: date-time
-             */
-            created_at: string;
-            /**
-             * Document Id
-             * Format: uuid
-             */
-            document_id: string;
-            /**
-             * Id
-             * Format: uuid
-             */
-            id: string;
-            /** Overall Recommendation */
-            overall_recommendation: string;
-            /** Retrieval Qa Results */
-            retrieval_qa_results: components["schemas"]["RetrievalQAResult"][];
-            /** Review After Suggestion */
-            review_after_suggestion: string | null;
-            /** Section Suggestions */
-            section_suggestions: string[];
         };
         /**
          * GroundingStatus
@@ -1184,18 +1090,6 @@ export interface components {
          * @enum {string}
          */
         ResolutionType: "AUTOMATIC" | "HUMAN";
-        /** RetrievalQAResult */
-        RetrievalQAResult: {
-            /** Grounded */
-            grounded: boolean;
-            /**
-             * Notes
-             * @default
-             */
-            notes: string;
-            /** Question */
-            question: string;
-        };
         /** SessionCreateRequest */
         SessionCreateRequest: {
             /**
@@ -2276,72 +2170,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    list_governance_proposals_api_v1_management_knowledge_documents__document_id__governance_proposals_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GovernanceProposalSummary"][];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    create_governance_proposal_api_v1_management_knowledge_documents__document_id__governance_proposals_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                document_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["GovernanceProposalCreate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["GovernanceProposalSummary"];
-                };
             };
             /** @description Validation Error */
             422: {

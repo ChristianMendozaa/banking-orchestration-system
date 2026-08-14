@@ -1,0 +1,37 @@
+[project]
+name = "sistema-orquestacion-evals"
+version = "0.1.0"
+description = "Arnes de evaluacion end-to-end de la politica de orquestacion (AutoGen)"
+# No hard dependency conflict with backend/ -- confirmed via `uv pip install --dry-run`
+# and a real 3.12/3.14 import check before writing any code.
+# Kept as its own project anyway so its coverage never counts against backend's
+# fail_under=90 gate, and so it can run as a separate, manually-triggered CI job (real
+# OpenAI cost per run) instead of on every PR.
+requires-python = ">=3.12"
+dependencies = [
+  "autogen-agentchat>=0.7.5",
+  "autogen-ext[openai]>=0.7.5",
+  "httpx>=0.28.0",
+  "pydantic>=2.10.0",
+  "structlog>=25.4.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.4.0",
+  "pytest-asyncio>=1.1.0",
+  "pytest-httpx>=0.35.0",
+  "ruff>=0.12.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

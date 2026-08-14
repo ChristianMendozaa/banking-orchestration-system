@@ -13,6 +13,7 @@ The system combines a voice-enabled kiosk, an executive workspace, a management 
 - [System architecture](#system-architecture)
 - [Customer journey](#customer-journey)
 - [Backend design](#backend-design)
+- [MCP server](#mcp-server)
 - [Retrieval-augmented generation](#retrieval-augmented-generation)
 - [Security and privacy](#security-and-privacy)
 - [API overview](#api-overview)
@@ -57,6 +58,7 @@ flowchart LR
     Customer[Branch customer] --> Kiosk[Kiosk surface<br/>Next.js]
     Executive[Bank executive] --> Staff[Staff surface<br/>Next.js]
     Manager[Manager] --> Staff
+    Eval[AutoGen evaluation harness] -.->|Kiosk REST contract| API
 
     Kiosk -->|Allowlisted BFF proxy| API[FastAPI application]
     Staff -->|Allowlisted BFF proxy| API
@@ -64,7 +66,7 @@ flowchart LR
 
     subgraph Backend[Modular backend]
         API --> Auth[Authentication and RBAC]
-        API --> Orchestrator[Orchestration service]
+        API --> Orchestrator[LangGraph kiosk orchestration]
         API --> Operations[Ticket and management APIs]
         API --> Knowledge[Knowledge management and RAG]
         Orchestrator --> Agents[Classification<br/>Prioritization<br/>Initial attention<br/>Derivation]
@@ -80,7 +82,16 @@ flowchart LR
     Knowledge --> Scanner[ClamAV]
     API --> Redis[(Redis rate limits)]
     Agents -->|Masked text only| OpenAI[OpenAI Responses<br/>and Embeddings]
+
+    MCPClients[Authenticated external<br/>MCP clients] -->|Streamable HTTP /mcp<br/>staff JWT| MCP[MCP server<br/>read-only domain tools]
+    MCP --> PostgreSQL
+    MCP -->|Knowledge-search embeddings| OpenAI
 ```
+
+The MCP server is a second ASGI process on its own port, sharing the backend's domain
+code and PostgreSQL database without becoming part of the kiosk request path. The kiosk,
+staff surfaces, and AutoGen harness use the REST API; authenticated external MCP clients
+use `/mcp`. See [MCP server](#mcp-server).
 
 ### Deployment topology
 
@@ -90,10 +101,12 @@ Docker Compose defines an ordered startup pipeline. Migrations and deterministic
 flowchart LR
     DB[(PostgreSQL + pgvector)] -->|healthy| Migrate[Alembic migrations<br/>and operational seed]
     Redis[(Redis)] --> API
+    Redis -.->|Compose startup gate| MCP
     Scanner[ClamAV] --> API
     Migrate -->|completed| Bootstrap[Knowledge bootstrap]
     Bootstrap -->|completed| API[FastAPI backend]
     Bootstrap -->|completed| Worker[Knowledge worker]
+    Bootstrap -->|completed| MCP[MCP server :8100]
     API -->|healthy| Kiosk[Kiosk frontend :3000]
     API -->|healthy| Staff[Staff frontend :3001]
     Bootstrap --> Volume[(Knowledge volume)]
@@ -109,6 +122,7 @@ sequenceDiagram
     actor Customer
     participant UI as Kiosk UI
     participant API as FastAPI
+    participant Graph as LangGraph
     participant AI as AI services
     participant DB as PostgreSQL
     participant Exec as Executive
@@ -121,31 +135,39 @@ sequenceDiagram
     AI-->>UI: Ephemeral client secret
 
     UI->>API: Submit transcript with stable turn_id
-    API->>API: Mask PII
-    API->>AI: Classify masked request
-    API->>API: Apply priority policy
+    API->>Graph: Invoke turn_graph
+    Graph->>Graph: Mask PII
+    Graph->>AI: Classify masked request
+    Graph->>Graph: Apply deterministic policy
+    Graph->>DB: Persist session and requirement state
 
     alt Request is ambiguous
+        Graph-->>API: Request clarification
         API-->>UI: Ask one clarification question
         Customer->>UI: Provide clarification
         UI->>API: Submit clarification turn
     end
 
+    Graph-->>API: Return next action and summary
     API-->>UI: Present customer-facing summary
     Customer->>UI: Confirm or correct
+    UI->>API: Submit confirmation
+    API->>Graph: Invoke confirmation_graph
 
     alt Personalized or sensitive request
+        Graph-->>API: Require protected identification
         API-->>UI: Request customer identity-card number (CI) in protected field
         UI->>API: Submit identifier outside the voice transcript
-        API->>DB: Store HMAC and masked suffix only
+        API->>Graph: Invoke identification_graph
+        Graph->>DB: Store protected identifier and finalize
     end
 
     alt Eligible general inquiry with sufficient evidence
-        API->>AI: Retrieve and generate from approved evidence
-        API->>DB: Persist citations and audit outcome
+        Graph->>AI: Retrieve and generate from approved evidence
+        Graph->>DB: Persist citations and audit outcome
         API-->>UI: Grounded answer with sources
     else Human service required
-        API->>DB: Rank executives and create ticket
+        Graph->>DB: Rank executives and create ticket
         API-->>UI: Ticket, desk, executive, and wait estimate
         Exec->>API: Progress ticket through controlled states
     end
@@ -167,6 +189,10 @@ No LangGraph checkpointer is used: each HTTP request is already the unit of work
 `SessionStatus` on the `kiosk_sessions` row -- read under `SELECT ... FOR UPDATE` on
 PostgreSQL -- is the durable, queryable record of where a session is in the flow. See the
 module docstring in `app/services/graph/state.py` for the full reasoning.
+
+The application imports LangGraph directly. LangChain Core provides the underlying graph
+runtime abstractions through LangGraph's dependency tree; there is no separate LangChain
+agent layer in the kiosk.
 
 <!-- BEGIN GENERATED GRAPH DIAGRAMS -->
 
@@ -318,8 +344,10 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | `app/services/openai_provider.py` | Structured model calls, embeddings, grounded generation, and realtime client-secret creation |
 | `app/services/pii.py` | Local PII detection and masking before downstream AI processing |
 | `app/knowledge` | PDF extraction, chunking, ingestion, retrieval, grounding validation, evaluation, and management lifecycle |
+| `app/mcp_server` | Read-only MCP tools for authenticated external clients -- bearer-authenticated, streamable-HTTP, never called by the frontends (see [MCP server](#mcp-server)) |
 | `app/db` | Async SQLAlchemy models, repositories, session management, and idempotent operational seeding |
 | `alembic` | Explicit, ordered schema migrations including pgvector and the HNSW vector index |
+| `evals/` (standalone project) | AutoGen persona-simulation harness scoring policy compliance against a live backend; own venv and CI job, not part of the modular backend (see [Quality assurance](#quality-assurance)) |
 
 ### Specialized orchestration components
 
@@ -335,6 +363,51 @@ Concurrency-sensitive kiosk operations lock the session row on PostgreSQL. Stabl
 ```text
 PENDIENTE -> EN_ATENCION -> CERRADO
 ```
+
+## MCP server
+
+`app/mcp_server/` runs as a second ASGI application (`python -m app.mcp_server`, port
+`8100`) using the backend image and domain code but a separate process and database
+connection pool. It exposes five read-only tools over MCP's streamable-HTTP transport to
+authenticated external MCP clients. The kiosk and staff frontends call the typed REST
+API, while the [AutoGen eval harness](backend/evals/README.md) exercises that same kiosk
+REST contract. Neither the LangGraph nodes nor the AutoGen harness call MCP.
+
+| Tool | Returns |
+| --- | --- |
+| `search_knowledge` | pgvector evidence for a query, scoped to a category -- fragments with citation and similarity score, never a generated answer |
+| `get_case_trace` | The auditable `TraceEvent` timeline for a case, PII-masked |
+| `list_executive_availability` | Available executives, active workload, and category skills |
+| `get_ticket_status` | Ticket status, priority, estimated wait, and assigned executive -- never the customer identifier |
+| `explain_routing_decision` | Recomputes `DerivationAgent`'s full ranking (semantic match 70%, experience 20%, workload 10%) without mutating the case |
+
+```mermaid
+flowchart LR
+    Client[Authenticated external<br/>MCP client] -->|Streamable HTTP /mcp<br/>staff JWT| Auth[BearerAuthMiddleware]
+    Auth --> Tools[Five read-only tools]
+    Tools --> Domain[domain.py]
+    Domain --> PostgreSQL[(PostgreSQL 17)]
+    Domain -->|search_knowledge,<br/>explain_routing_decision| OpenAI[OpenAI embeddings]
+```
+
+Authentication reuses the same JWT and role model as the staff REST API
+(`decode_access_token`, `UserRole.EXECUTIVE` / `UserRole.MANAGER`) rather than a parallel
+scheme. The check is inlined as raw ASGI middleware (`app/mcp_server/auth.py`) instead of
+Starlette's `BaseHTTPMiddleware`, which buffers the response body and is unsafe for MCP's
+streaming transport. The server never exposes kiosk-session mutation or identifier
+reveal -- those operations stay exclusive to the authenticated REST API.
+
+Run it locally alongside the backend:
+
+```bash
+cd backend
+uv run python -m app.mcp_server
+curl http://localhost:8100/healthz
+```
+
+After obtaining an executive or manager access token through the REST authentication
+API, configure the MCP client to connect to `http://localhost:8100/mcp` with
+`Authorization: Bearer <access-token>`.
 
 ## Retrieval-augmented generation
 
@@ -474,7 +547,9 @@ erDiagram
     }
 ```
 
-Schema evolution is managed by six explicit Alembic revisions covering the operational model, pgvector knowledge schema, production hardening fields, the customer/operational registry, the natural kiosk flow, and the protected staff case file.
+Schema evolution is managed by nine ordered Alembic revisions covering the operational
+model, pgvector knowledge schema, production hardening, the natural kiosk flow, the
+protected staff case file, and compatibility-safe retirement of superseded schema.
 
 ## Technology stack
 
@@ -482,7 +557,7 @@ Schema evolution is managed by six explicit Alembic revisions covering the opera
 | --- | --- |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, OpenAI Agents SDK, Zod |
 | Backend | Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2 async, Uvicorn, Structlog |
-| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph (kiosk orchestration state machine), MCP (read-only domain tools), CrewAI (offline knowledge-governance crew) |
+| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools), AutoGen (offline REST-based policy evaluation) |
 | Data | PostgreSQL 17, pgvector, HNSW cosine index, Alembic |
 | Security | Argon2, JWT access tokens, rotating opaque refresh tokens, HMAC identifier protection |
 | Tooling | Docker Compose, `uv`, `pnpm`, Ruff, Pytest, Vitest, ESLint |
@@ -499,9 +574,9 @@ Schema evolution is managed by six explicit Alembic revisions covering the opera
 │   │   ├── db/                  # Models, repositories, sessions, operational seed
 │   │   ├── domain/              # Enums and Pydantic contracts
 │   │   ├── knowledge/           # Ingestion, retrieval, RAG, document management
-│   │   ├── mcp_server/          # Read-only MCP tools for the AI layer (not the frontends)
+│   │   ├── mcp_server/          # Read-only MCP tools for authenticated external clients
 │   │   └── services/            # Orchestrator adapter, LangGraph graphs, agents, PII, OpenAI provider
-│   ├── governance/               # Standalone CrewAI crew (own Python project -- see its README)
+│   ├── evals/                   # Standalone AutoGen policy-evaluation harness (own project)
 │   ├── seed/                    # Deterministic branch and executive catalog
 │   └── tests/                   # Backend unit and integration suite
 ├── frontend/
@@ -512,6 +587,8 @@ Schema evolution is managed by six explicit Alembic revisions covering the opera
 ├── doc/
 │   ├── rag/                     # Governed source PDFs and manifest
 │   └── operacion/               # Generated operational documentation
+├── docs/
+│   └── operations.md            # Operations and recovery runbook
 ├── docker-compose.yml           # Complete local topology and startup ordering
 └── .env.example                 # Compose-level configuration template
 ```
@@ -656,6 +733,17 @@ the frontend. CI rejects drift in either generated artifact.
 
 The test environment uses an isolated ephemeral SQLite schema and deterministic AI doubles; automated tests do not call OpenAI.
 
+[`backend/evals/`](backend/evals/README.md) is a separate, standalone-project policy
+evaluation harness: an AutoGen agent plays one of five customer personas and drives a
+real kiosk session turn by turn against a **live** backend, and a deterministic (non-LLM)
+evaluator in `harness/evaluator.py` scores the finished session against the orchestration
+policy -- did a fraud report reach `CRITICO`, was a sensitive case identified before it
+resolved, was every automatic answer cited. Its coverage is intentionally kept out of
+`backend/`'s `fail_under=90` gate, and there is no CI workflow for the live run -- each
+run makes real, billed OpenAI calls on both sides (the simulated customer and the
+backend's own classification/RAG), so it stays a manual, local-only check against a
+`docker compose` backend rather than something triggered from a PR.
+
 Dependency auditing (`uv run --with pip-audit pip-audit`, `pnpm audit`) is not run in CI; run it
 locally before releases if you want to check for known vulnerabilities.
 
@@ -679,3 +767,4 @@ When OpenAI is intentionally absent in development, deterministic classification
 - [Backend implementation guide](backend/README.md)
 - [Operations and recovery runbook](docs/operations.md)
 - [Governed RAG manifest](doc/rag/manifest.json)
+- [Orchestration policy evaluation harness (AutoGen)](backend/evals/README.md)

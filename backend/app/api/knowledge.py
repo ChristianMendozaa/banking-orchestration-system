@@ -14,7 +14,6 @@ from app.core.errors import AppError
 from app.db.models import (
     KnowledgeChunk,
     KnowledgeDocument,
-    KnowledgeGovernanceProposal,
     KnowledgeJob,
     User,
 )
@@ -27,8 +26,6 @@ from app.domain.enums import (
     UserRole,
 )
 from app.domain.schemas import (
-    GovernanceProposalCreate,
-    GovernanceProposalSummary,
     KnowledgeDocumentPage,
     KnowledgeDocumentSummary,
     KnowledgeDocumentUpdate,
@@ -365,63 +362,3 @@ async def download_document(
     if not path.is_file():
         raise AppError("KNOWLEDGE_FILE_MISSING", "Archivo documental no disponible", 404)
     return FileResponse(path, media_type=document.mime_type, filename=document.file_name)
-
-
-@router.post(
-    "/{document_id}/governance-proposals",
-    response_model=GovernanceProposalSummary,
-    status_code=201,
-)
-async def create_governance_proposal(
-    document_id: UUID,
-    payload: GovernanceProposalCreate,
-    user: User = Depends(require_roles(UserRole.MANAGER)),
-    db: AsyncSession = Depends(get_db),
-) -> GovernanceProposalSummary:
-    """Records a governance-crew review for manager approval.
-
-    Submitted by the standalone `backend/governance` package (CrewAI's dependency tree
-    conflicts with the MCP server's, so the crew cannot run inside this process), acting
-    as an ordinary MANAGER-authenticated client -- same auth, same contract as anything
-    else in this router. Never mutates the document: a manager who agrees with the
-    proposal applies it manually via `PATCH /{document_id}`.
-    """
-    await require_document(db, document_id)
-    proposal = KnowledgeGovernanceProposal(
-        document_id=document_id,
-        category_suggestions=[category.value for category in payload.category_suggestions],
-        section_suggestions=payload.section_suggestions,
-        review_after_suggestion=payload.review_after_suggestion,
-        compliance_veto=payload.compliance_veto,
-        compliance_flags=payload.compliance_flags,
-        compliance_notes=payload.compliance_notes,
-        retrieval_qa_results=[
-            result.model_dump(mode="json") for result in payload.retrieval_qa_results
-        ],
-        overall_recommendation=payload.overall_recommendation,
-        created_by_user_id=user.id,
-    )
-    db.add(proposal)
-    await db.commit()
-    await db.refresh(proposal)
-    return GovernanceProposalSummary.model_validate(proposal)
-
-
-@router.get(
-    "/{document_id}/governance-proposals",
-    response_model=list[GovernanceProposalSummary],
-)
-async def list_governance_proposals(
-    document_id: UUID,
-    _: User = Depends(require_roles(UserRole.MANAGER)),
-    db: AsyncSession = Depends(get_db),
-) -> list[GovernanceProposalSummary]:
-    await require_document(db, document_id)
-    rows = (
-        await db.scalars(
-            select(KnowledgeGovernanceProposal)
-            .where(KnowledgeGovernanceProposal.document_id == document_id)
-            .order_by(KnowledgeGovernanceProposal.created_at.desc())
-        )
-    ).all()
-    return [GovernanceProposalSummary.model_validate(row) for row in rows]
