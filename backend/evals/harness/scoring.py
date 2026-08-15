@@ -58,9 +58,7 @@ class ScenarioResult:
 
     @property
     def score(self) -> int:
-        return (
-            min(self.raw_score, HARD_FAILURE_SCORE_CAP) if self.hard_failures else self.raw_score
-        )
+        return min(self.raw_score, HARD_FAILURE_SCORE_CAP) if self.hard_failures else self.raw_score
 
     @property
     def raw_score(self) -> int:

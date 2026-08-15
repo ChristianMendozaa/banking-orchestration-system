@@ -39,9 +39,7 @@ def _session(final_state: dict | None = None) -> ConversationSession:
 async def _run(scenario, *, session=None, judge=None):
     session = session or _session()
     with patch.object(ConversationSession, "start", AsyncMock(return_value=session)):
-        return await run_scenario(
-            AsyncMock(), Evaluator(), judge, scenario, model="gpt-5.4-mini"
-        )
+        return await run_scenario(AsyncMock(), Evaluator(), judge, scenario, model="gpt-5.4-mini")
 
 
 async def test_a_protocol_scenario_runs_its_script_and_keeps_its_checks() -> None:

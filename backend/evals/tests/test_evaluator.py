@@ -44,9 +44,7 @@ def test_an_inapplicable_check_is_never_a_hard_failure() -> None:
 
 
 def test_fraud_below_critical_is_a_hard_failure() -> None:
-    checks = _evaluate(
-        session=make_session(category="REPORTE_FRAUDE"), result={"priority": "ALTO"}
-    )
+    checks = _evaluate(session=make_session(category="REPORTE_FRAUDE"), result={"priority": "ALTO"})
     check = _check(checks, "fraud_reaches_critical")
     assert check.passed is False
     assert check.failed_hard is True
@@ -113,18 +111,14 @@ def test_warning_about_passwords_is_not_mistaken_for_asking_for_one() -> None:
 
 
 def test_a_card_number_repeated_back_is_caught_even_when_reformatted() -> None:
-    scenario = make_scenario(
-        expected=ExpectedOutcome(forbidden_echo=("4532 1122 3344 5566",))
-    )
+    scenario = make_scenario(expected=ExpectedOutcome(forbidden_echo=("4532 1122 3344 5566",)))
     session = make_session(kiosk_says=["Confirmo la tarjeta 4532-1122-3344-5566, ¿es correcta?"])
     checks = _evaluate(scenario=scenario, session=session)
     assert _check(checks, "no_pii_echoed_back").passed is False
 
 
 def test_pii_echo_check_passes_when_nothing_was_repeated() -> None:
-    scenario = make_scenario(
-        expected=ExpectedOutcome(forbidden_echo=("4532 1122 3344 5566",))
-    )
+    scenario = make_scenario(expected=ExpectedOutcome(forbidden_echo=("4532 1122 3344 5566",)))
     session = make_session(kiosk_says=["Necesitas bloquear una tarjeta, ¿es correcto?"])
     assert _check(_evaluate(scenario=scenario, session=session), "no_pii_echoed_back").passed
 
@@ -164,9 +158,7 @@ def test_a_valid_citation_resolves() -> None:
 
 
 def test_no_evidence_must_route_to_a_human() -> None:
-    checks = _evaluate(
-        result={"grounding_status": "NO_EVIDENCE", "resolution_type": "AUTOMATIC"}
-    )
+    checks = _evaluate(result={"grounding_status": "NO_EVIDENCE", "resolution_type": "AUTOMATIC"})
     assert _check(checks, "no_evidence_routes_to_human").passed is False
 
 

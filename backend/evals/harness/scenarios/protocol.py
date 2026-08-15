@@ -27,9 +27,7 @@ def _path(session: ConversationSession, suffix: str) -> str:
 
 
 async def _first_turn(session: ConversationSession, transcript: str) -> dict:
-    response = await session.client.send_turn(
-        session.handle, transcript, is_clarification=False
-    )
+    response = await session.client.send_turn(session.handle, transcript, is_clarification=False)
     session.record_raw("send_turn", transcript, 200, response)
     session.last_requirement_id = response.get("requirement_id")
     session.last_category = response.get("category")
@@ -168,9 +166,7 @@ async def malformed_identifier(session: ConversationSession) -> list[CheckResult
 
 async def missing_session_token(session: ConversationSession) -> list[CheckResult]:
     """The per-session opaque token is the only thing guarding a kiosk session."""
-    response = await session.client.request_raw(
-        "GET", _path(session, ""), session=None
-    )
+    response = await session.client.request_raw("GET", _path(session, ""), session=None)
     session.record_raw("get_status", "sin X-Session-Token", response.status_code, response.body)
     return [
         CheckResult(

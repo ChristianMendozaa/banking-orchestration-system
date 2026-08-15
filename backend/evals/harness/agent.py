@@ -61,9 +61,7 @@ debes inventar un numero: responde exactamente TERMINATE y no llames mas herrami
 
 def build_system_message(scenario: Scenario) -> str:
     identity = (
-        _WITH_CI.format(identifier=scenario.identifier)
-        if scenario.identifier
-        else _WITHOUT_CI
+        _WITH_CI.format(identifier=scenario.identifier) if scenario.identifier else _WITHOUT_CI
     )
     return SYSTEM_MESSAGE_TEMPLATE.format(
         goal=scenario.goal,

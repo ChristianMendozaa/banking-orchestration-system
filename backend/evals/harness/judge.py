@@ -241,9 +241,8 @@ def build_dossier(
             for check in checks
         ],
     }
-    return (
-        "Review this kiosk session and return your verdict.\n\n"
-        + json.dumps(dossier, ensure_ascii=False, indent=2, default=str)
+    return "Review this kiosk session and return your verdict.\n\n" + json.dumps(
+        dossier, ensure_ascii=False, indent=2, default=str
     )
 
 

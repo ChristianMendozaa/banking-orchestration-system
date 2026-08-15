@@ -259,8 +259,7 @@ class Evaluator:
         detail = f"ticket={ticket.get('number')}"
         if executive:
             detail += (
-                f" ejecutivo={executive.get('name')} "
-                f"ventanilla={executive.get('window_number')}"
+                f" ejecutivo={executive.get('name')} ventanilla={executive.get('window_number')}"
             )
         else:
             detail += " sin ejecutivo (asignacion pendiente)"
@@ -375,9 +374,7 @@ class Evaluator:
         session: ConversationSession, expected: "ExpectedOutcome"
     ) -> CheckResult:
         if expected.clarifications is None:
-            return CheckResult.skip(
-                "expected_clarifications", "el escenario no fija aclaraciones"
-            )
+            return CheckResult.skip("expected_clarifications", "el escenario no fija aclaraciones")
         low, high = expected.clarifications
         return CheckResult(
             "expected_clarifications",

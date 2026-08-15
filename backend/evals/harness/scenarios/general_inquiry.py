@@ -25,6 +25,7 @@ from harness.session import ConversationSession
 
 _PERCENTAGE = re.compile(r"\d+(?:[.,]\d+)?\s*%|\b\d+(?:[.,]\d+)?\s*por\s*ciento\b", re.IGNORECASE)
 
+
 def _no_invented_rate(session: ConversationSession, result: dict) -> list[CheckResult]:
     """The backend's grounded-answer prompt forbids computing or quoting rates, and the
     credit document states the rate depends on individual analysis. Any concrete

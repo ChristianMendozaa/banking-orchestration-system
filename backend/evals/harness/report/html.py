@@ -393,8 +393,8 @@ def _score_histogram(results: list[ScenarioResult]) -> str:
         # rect so only the top corners round.
         parts.append(
             f'<path class="bar" d="M{x:.1f} {baseline:.1f} '
-            f'V{y + radius:.1f} Q{x:.1f} {y:.1f} {x + radius:.1f} {y:.1f} '
-            f'H{x + bar_w - radius:.1f} Q{x + bar_w:.1f} {y:.1f} '
+            f"V{y + radius:.1f} Q{x:.1f} {y:.1f} {x + radius:.1f} {y:.1f} "
+            f"H{x + bar_w - radius:.1f} Q{x + bar_w:.1f} {y:.1f} "
             f'{x + bar_w:.1f} {y + radius:.1f} V{baseline:.1f} Z">'
             f"<title>{count} scenario{'s' if count != 1 else ''} scored {score}/10</title>"
             f"</path>"
@@ -432,8 +432,7 @@ def _group_chart(results: list[ScenarioResult]) -> str:
     for tick in range(0, MAX_SCORE + 1, 2):
         x = left + plot_w * tick / MAX_SCORE
         parts.append(
-            f'<line class="gridline" x1="{x:.1f}" y1="{top_pad}" '
-            f'x2="{x:.1f}" y2="{axis_y}"/>'
+            f'<line class="gridline" x1="{x:.1f}" y1="{top_pad}" x2="{x:.1f}" y2="{axis_y}"/>'
         )
         parts.append(
             f'<text class="tick tabular" x="{x:.1f}" y="{axis_y + 15}" '
@@ -452,8 +451,8 @@ def _group_chart(results: list[ScenarioResult]) -> str:
         radius = min(4.0, bar_w)
         parts.append(
             f'<path class="bar" d="M{left} {y:.1f} H{left + bar_w - radius:.1f} '
-            f'Q{left + bar_w:.1f} {y:.1f} {left + bar_w:.1f} {y + radius:.1f} '
-            f'V{y + bar_h - radius:.1f} Q{left + bar_w:.1f} {y + bar_h:.1f} '
+            f"Q{left + bar_w:.1f} {y:.1f} {left + bar_w:.1f} {y + radius:.1f} "
+            f"V{y + bar_h - radius:.1f} Q{left + bar_w:.1f} {y + bar_h:.1f} "
             f'{left + bar_w - radius:.1f} {y + bar_h:.1f} H{left} Z">'
             f"<title>{_e(label)}: {average:.1f} out of 10</title></path>"
         )
@@ -621,10 +620,10 @@ def _variance_card(results: list[ScenarioResult]) -> str:
     if not spreads:
         return ""
     rows = "".join(
-        f"<tr><td>{_e(item.scenario)}</td><td class=\"num\">{item.runs}</td>"
-        f"<td class=\"num\">{item.mean:.1f}</td>"
-        f"<td class=\"num\">{item.lowest}–{item.highest}</td>"
-        f"<td class=\"num\">{item.spread}</td></tr>"
+        f'<tr><td>{_e(item.scenario)}</td><td class="num">{item.runs}</td>'
+        f'<td class="num">{item.mean:.1f}</td>'
+        f'<td class="num">{item.lowest}–{item.highest}</td>'
+        f'<td class="num">{item.spread}</td></tr>'
         for item in spreads
     )
     return (
