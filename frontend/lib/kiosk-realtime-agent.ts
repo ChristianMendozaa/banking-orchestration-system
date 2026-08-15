@@ -36,6 +36,9 @@ FLUJO OBLIGATORIO:
 6. Si la confirmación devuelve CAPTURE, espera que vuelva a describir el caso.
 7. Si devuelve IDENTIFY, deja de hacer preguntas mientras escribe el CI en pantalla.
 8. Si devuelve COMPLETE, no continúes la conversación.
+9. Si analizar_requerimiento devuelve DECLINE, la aplicación pronunciará speech_text
+   explicando qué sí puede resolver el kiosco. No insistas, no pidas confirmación y no
+   continúes la conversación.
 `.trim()
 
 function compactText(value: string): string {

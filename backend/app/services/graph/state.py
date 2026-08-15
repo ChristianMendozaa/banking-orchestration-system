@@ -90,4 +90,5 @@ class OrchestrationState(TypedDict, total=False):
 
     # finalize subgraph working state.
     grounded_response: GroundedResponse | None
+    grounding_attempted: bool
     ticket: Ticket

@@ -12,6 +12,8 @@ from app.db.models import (
 )
 from app.db.repositories import CaseRepository
 from app.domain.enums import (
+    Category,
+    Priority,
     ResolutionType,
     SessionStatus,
 )
@@ -35,6 +37,36 @@ from app.services.agents import (
 from app.services.graph.builder import confirmation_graph, identification_graph, turn_graph
 from app.services.graph.state import GraphContext
 from app.services.pii import PIIMaskingService
+
+# Deterministic, not model-authored -- matches how every other customer-facing sentence the
+# kiosk speaks outside a grounded RAG answer is built (see _build_result below and
+# _CUSTOMER_SUMMARIES in agents.py). A declined turn never reaches a confirmation step, so
+# nothing here is generated per-request.
+DECLINE_SPEECH_TEXT = (
+    "En este kiosco solo puedo ayudarte con bloqueo de tarjetas, reporte de fraude, "
+    "solicitudes de crédito, banca digital y consultas generales del banco. Para eso no te "
+    "puedo ayudar aquí; si necesitas otra cosa, acércate con un ejecutivo en la sucursal."
+)
+
+# One short, deterministic reason per category, said before the ticket/desk/wait sentence in
+# a human handoff -- so a person does not just hear a ticket number with no explanation of
+# why they are being sent to a person. Kept separate from _CUSTOMER_SUMMARIES in agents.py:
+# that one describes the customer's need in the confirmation step, this one frames the
+# handoff itself.
+_HANDOFF_REASONS = {
+    Category.BLOQUEO_TARJETA: "Voy a derivarte con un ejecutivo para bloquear tu tarjeta.",
+    Category.REPORTE_FRAUDE: (
+        "Voy a derivarte con un ejecutivo de prevención de fraude para atender tu reporte."
+    ),
+    Category.CONSULTA_GENERAL: "Voy a derivarte con un ejecutivo para atender tu consulta.",
+    Category.SOLICITUD_CREDITO: (
+        "Voy a derivarte con un ejecutivo de créditos para continuar tu trámite."
+    ),
+    Category.BANCA_DIGITAL: (
+        "Voy a derivarte con un ejecutivo de banca digital para resolver tu caso."
+    ),
+}
+_URGENT_HANDOFF_REASSURANCE = " Este caso se está atendiendo como prioritario."
 
 
 class OrchestratorService:
@@ -81,6 +113,20 @@ class OrchestratorService:
     def _analysis_response(
         self, kiosk_session: KioskSession, requirement: Requirement
     ) -> TurnAnalysisResponse:
+        if kiosk_session.status == SessionStatus.DECLINED:
+            return TurnAnalysisResponse(
+                requirement_id=requirement.id,
+                status=SessionStatus.DECLINED,
+                summary=requirement.summary,
+                customer_summary=requirement.customer_summary,
+                category=requirement.category,
+                priority=requirement.proposed_priority,
+                consultation_level=requirement.consultation_level,
+                confidence=requirement.confidence,
+                pii_types=requirement.pii_metadata.get("types", []),
+                next_action="DECLINE",
+                speech_text=DECLINE_SPEECH_TEXT,
+            )
         clarify = kiosk_session.status == SessionStatus.NEEDS_CLARIFICATION
         question = requirement.clarification_question if clarify else None
         customer_summary = requirement.customer_summary.strip()
@@ -199,6 +245,7 @@ class OrchestratorService:
         if kiosk_session.status in {
             SessionStatus.NEEDS_CLARIFICATION,
             SessionStatus.AWAITING_CONFIRMATION,
+            SessionStatus.DECLINED,
         }:
             requirement = await self.repository.latest_requirement(db, kiosk_session.id)
             if requirement:
@@ -253,14 +300,20 @@ class OrchestratorService:
         if case.session.resolution_type == ResolutionType.AUTOMATIC:
             speech = case.session.final_response or "Tu consulta quedó resuelta."
         elif assignment:
+            reason = _HANDOFF_REASONS.get(case.category, "")
+            urgent = (
+                _URGENT_HANDOFF_REASSURANCE
+                if requirement.proposed_priority in {Priority.ALTO, Priority.CRITICO}
+                else ""
+            )
             wait_message = (
                 f" La espera estimada es de {ticket.estimated_wait_minutes} minutos."
                 if ticket.estimated_wait_minutes is not None
                 else ""
             )
             speech = (
-                f"Tu ticket es {ticket.number}. Dirígete a {assignment.window_number} "
-                f"con {assignment.name}.{wait_message}"
+                f"{reason}{urgent} Tu ticket es {ticket.number}. Dirígete a "
+                f"{assignment.window_number} con {assignment.name}.{wait_message}"
             )
         else:
             speech = f"Tu ticket es {ticket.number}. La asignación está pendiente."

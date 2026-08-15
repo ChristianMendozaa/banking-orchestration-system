@@ -121,6 +121,8 @@ class ConversationSession:
                 self.pii_types.append(pii_type)
         if response.get("next_action") == "CLARIFY":
             self.clarification_rounds += 1
+        if response.get("next_action") == "DECLINE":
+            self.finished = True
         return self._describe(response)
 
     async def send_confirmation(self, confirmed: bool) -> str:

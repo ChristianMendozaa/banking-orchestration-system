@@ -28,6 +28,7 @@ export interface ControlledTransition {
 export function kioskRouteForState(state: {
   session: KioskSession | null
   result: FlowResult | null
+  analysis?: TurnAnalysis | null
 }): string {
   if (!state.session) return "/kiosco"
   if (state.result?.next_action === "IDENTIFY") return "/kiosco/identificacion"
@@ -36,6 +37,7 @@ export function kioskRouteForState(state: {
       ? "/kiosco/respuesta"
       : "/kiosco/ticket"
   }
+  if (state.analysis?.next_action === "DECLINE") return "/kiosco/respuesta"
   return "/kiosco/voz"
 }
 
@@ -278,6 +280,6 @@ export function controlledTransitionFromToolResult(
     transitionKey: record.transition_key,
     speechText: compactText(record.speech_text),
     nextAction: record.next_action,
-    terminal: record.next_action === "COMPLETE",
+    terminal: record.next_action === "COMPLETE" || record.next_action === "DECLINE",
   }
 }

@@ -29,6 +29,7 @@ def build_turn_graph():
     builder.add_node("clarify", turn_nodes.clarify)
     builder.add_node("force_human", turn_nodes.force_human)
     builder.add_node("accept", turn_nodes.accept)
+    builder.add_node("decline", turn_nodes.decline)
     builder.add_node("persist_requirement", turn_nodes.persist_requirement)
 
     builder.add_edge(START, "guard_turn")
@@ -36,11 +37,17 @@ def build_turn_graph():
     builder.add_conditional_edges(
         "classify",
         turn_nodes.route_ambiguity,
-        {"clarify": "clarify", "force_human": "force_human", "accept": "accept"},
+        {
+            "clarify": "clarify",
+            "force_human": "force_human",
+            "accept": "accept",
+            "decline": "decline",
+        },
     )
     builder.add_edge("clarify", "persist_requirement")
     builder.add_edge("force_human", "persist_requirement")
     builder.add_edge("accept", "persist_requirement")
+    builder.add_edge("decline", "persist_requirement")
     builder.add_edge("persist_requirement", END)
 
     return builder.compile(name="turn_graph")

@@ -1588,6 +1588,7 @@
           "ORCHESTRATING",
           "RESOLVED_AUTOMATIC",
           "ASSIGNED",
+          "DECLINED",
           "FAILED"
         ],
         "title": "SessionStatus",
@@ -2329,7 +2330,8 @@
           "next_action": {
             "enum": [
               "CLARIFY",
-              "CONFIRM"
+              "CONFIRM",
+              "DECLINE"
             ],
             "title": "Next Action",
             "type": "string"

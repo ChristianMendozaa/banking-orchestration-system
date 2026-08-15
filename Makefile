@@ -118,7 +118,7 @@ evals-live: ## Live AutoGen scenario harness + LLM judge against a running backe
 		echo "OPENAI_API_KEY not set in backend/.env -- skipping (harness and knowledge-bootstrap both need it)"; \
 		printf '%s\t%s\t%s\t%s\n' "evals:live" "SKIP" "0" "" >> $(REPORT); \
 	else \
-		$(call run_suite,evals:live,docker compose up -d --wait backend && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md --json-output reports/latest.json --html reports/latest.html); \
+		$(call run_suite,evals:live,docker compose up -d --wait backend && (cd backend && uv run python scripts/reset_kiosk_queue.py) && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md --json-output reports/latest.json --html reports/latest.html); \
 	fi
 
 ## --- Aggregates. Each runs its suites through a nested `make -k` (keep-going): every

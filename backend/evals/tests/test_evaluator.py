@@ -76,6 +76,14 @@ def test_a_session_that_never_reached_a_terminal_state_fails() -> None:
     assert _check(checks, "session_reached_terminal_state").passed is False
 
 
+def test_a_declined_session_counts_as_terminal() -> None:
+    """DECLINED is the out-of-scope path (see turn_nodes.decline): the kiosk stops the
+    session immediately instead of confirming and ticketing an out-of-domain or
+    privileged-access request, so it never reaches ASSIGNED/RESOLVED_AUTOMATIC."""
+    checks = _evaluate(status="DECLINED")
+    assert _check(checks, "session_reached_terminal_state").passed is True
+
+
 def test_api_errors_are_a_hard_failure() -> None:
     checks = _evaluate(session=make_session(errors=["send_turn: 409 conflict"]))
     assert _check(checks, "no_unexpected_api_errors").failed_hard is True

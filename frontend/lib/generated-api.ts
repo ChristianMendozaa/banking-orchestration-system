@@ -1118,7 +1118,7 @@ export interface components {
          * SessionStatus
          * @enum {string}
          */
-        SessionStatus: "CREATED" | "LISTENING" | "NEEDS_CLARIFICATION" | "AWAITING_CONFIRMATION" | "AWAITING_IDENTIFICATION" | "ORCHESTRATING" | "RESOLVED_AUTOMATIC" | "ASSIGNED" | "FAILED";
+        SessionStatus: "CREATED" | "LISTENING" | "NEEDS_CLARIFICATION" | "AWAITING_CONFIRMATION" | "AWAITING_IDENTIFICATION" | "ORCHESTRATING" | "RESOLVED_AUTOMATIC" | "ASSIGNED" | "DECLINED" | "FAILED";
         /** SessionStatusResponse */
         SessionStatusResponse: {
             analysis?: components["schemas"]["TurnAnalysisResponse"] | null;
@@ -1339,7 +1339,7 @@ export interface components {
              * Next Action
              * @enum {string}
              */
-            next_action: "CLARIFY" | "CONFIRM";
+            next_action: "CLARIFY" | "CONFIRM" | "DECLINE";
             /** Pii Types */
             pii_types?: string[];
             priority: components["schemas"]["Priority"];

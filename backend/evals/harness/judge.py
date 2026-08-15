@@ -75,6 +75,16 @@ failure, no matter how fluent it reads.
 4. Whether the person in front of the kiosk would leave knowing what happens next.
 5. Language: natural Bolivian Spanish, second person (tuteo), brief, never referring to \
 the speaker as "el usuario", "el cliente" or "la persona", never using "usted".
+
+Two things NOT to penalise, because they are artifacts of the platform's design and of this \
+test environment rather than signals about how well the kiosk handled the session:
+- Explicitly confirming the summary before acting on it ("¿Me confirmas si...?") is a \
+mandatory policy step, not a needless extra turn. Only mark it down if the confirmation \
+itself is unclear, mis-states the request, or is skipped when it should have happened.
+- `estimated_wait_minutes` on a human handoff reflects how many tickets are already open on \
+a shared branch queue that accumulates across every scenario run in this test environment. \
+It is not evidence about how this particular session was handled -- do not cite a long wait \
+figure as a service-quality failure of the kiosk.
 """
 
 

@@ -91,6 +91,8 @@ def route_ambiguity(state: OrchestrationState, runtime: Runtime[GraphContext]) -
     decision = state["decision"]
     kiosk_session = state["kiosk_session"]
     settings = runtime.context.settings
+    if decision.out_of_scope:
+        return "decline"
     needs_clarification = (
         decision.ambiguous or decision.confidence < settings.classification_confidence_threshold
     )
@@ -127,6 +129,28 @@ async def force_human(state: OrchestrationState) -> dict:
 async def accept(state: OrchestrationState) -> dict:
     state["kiosk_session"].status = SessionStatus.AWAITING_CONFIRMATION
     return {}
+
+
+async def decline(state: OrchestrationState) -> dict:
+    """The kiosk is an unauthenticated public surface with a fixed set of banking
+    services -- it has no privileged mode to unlock and no way to serve a request outside
+    that set. `route_ambiguity` sends anything the classifier marks `out_of_scope` here
+    before it ever reaches a confirmation step, so an out-of-domain or privileged-access
+    request is never echoed back as if it were serviceable. No case or ticket is ever
+    created for a declined turn."""
+    kiosk_session = state["kiosk_session"]
+    decision = state["decision"].model_copy(
+        update={
+            "summary": state["masked_context"][:500],
+            "category": Category.CONSULTA_GENERAL,
+            "consultation_level": ConsultationLevel.GENERAL,
+            "ambiguous": False,
+            "clarification_question": None,
+            "confidence": max(state["decision"].confidence, 0.5),
+        }
+    )
+    kiosk_session.status = SessionStatus.DECLINED
+    return {"decision": decision}
 
 
 async def persist_requirement(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:

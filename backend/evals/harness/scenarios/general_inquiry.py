@@ -41,6 +41,11 @@ def _no_invented_rate(session: ConversationSession, result: dict) -> list[CheckR
 
 
 def _answer_is_not_empty(session: ConversationSession, result: dict) -> list[CheckResult]:
+    """Only meaningful when the case actually resolved automatically -- a case correctly
+    routed to a human has no automatic answer to measure, and scoring an absent answer as a
+    failure there double-counts a routing problem another check already reports."""
+    if result.get("resolution_type") != "AUTOMATIC":
+        return [CheckResult.skip("automatic_answer_has_content", "no se resolvio automaticamente")]
     answer = (result.get("response") or "").strip()
     return [
         CheckResult(

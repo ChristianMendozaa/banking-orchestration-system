@@ -4,8 +4,21 @@ from uuid import UUID, uuid4
 from httpx import AsyncClient
 from sqlalchemy import select
 
-from app.db.models import CaseRecord, Identification, KioskSession, Requirement, Ticket
-from tests.conftest import TestSession
+from app.api.deps import get_orchestrator
+from app.db.models import CaseRecord, Identification, KioskSession, Requirement, Ticket, TraceEvent
+from app.domain.enums import Category, ConsultationLevel
+from app.domain.schemas import ClassificationDecision
+from app.knowledge.service import KnowledgeService
+from app.main import app
+from app.services.agents import (
+    ClassificationAgent,
+    DerivationAgent,
+    InitialAttentionAgent,
+    PrioritizationAgent,
+)
+from app.services.orchestrator import OrchestratorService
+from app.services.pii import PIIMaskingService
+from tests.conftest import TestSession, settings_for_tests, test_orchestrator
 
 
 async def _session(client: AsyncClient) -> tuple[str, str]:
@@ -94,6 +107,46 @@ async def test_general_query_without_rag_evidence_is_routed_to_human(
     assert result["resolution_type"] == "HUMAN"
     assert result["grounding_status"] == "NO_EVIDENCE"
     assert result["citations"] == []
+
+
+async def test_general_inquiry_outside_consulta_general_reports_true_no_evidence(
+    client: AsyncClient,
+) -> None:
+    """Regression test: route_human used to label grounding_status NO_EVIDENCE only when
+    category was CONSULTA_GENERAL, so a real "we searched and found nothing" for every other
+    category was misreported as NOT_APPLICABLE ("we never searched") -- unexplainable from
+    the session state alone. It must now report NO_EVIDENCE for any GENERAL-level case that
+    genuinely went through grounding, and log a RAG_NO_EVIDENCE trace event."""
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    turn = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={
+            "turn_id": str(uuid4()),
+            "transcript": "Qué requisitos necesito para solicitar un crédito de consumo",
+        },
+    )
+    assert turn.status_code == 200, turn.text
+    analysis = turn.json()
+    assert analysis["category"] == "SOLICITUD_CREDITO"
+    assert analysis["consultation_level"] == "GENERAL"
+
+    confirmation = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+        headers=headers,
+        json={"requirement_id": analysis["requirement_id"], "confirmed": True},
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    result = confirmation.json()
+    assert result["resolution_type"] == "HUMAN"
+    assert result["grounding_status"] == "NO_EVIDENCE"
+
+    async with TestSession() as db:
+        events = list(
+            await db.scalars(select(TraceEvent).where(TraceEvent.event_type == "RAG_NO_EVIDENCE"))
+        )
+        assert len(events) == 1
 
 
 async def test_session_token_is_required(client: AsyncClient) -> None:
@@ -484,3 +537,65 @@ async def test_unknown_identifier_still_creates_ticket_for_manual_verification(
     assert result["identification_status"] == "FALLIDO"
     assert result["ticket"] is not None
     assert result["requirement_id"] == requirement_id
+
+
+async def test_out_of_scope_request_is_declined_without_case_or_ticket(
+    client: AsyncClient,
+) -> None:
+    """The kiosk has a fixed set of banking services and no privileged mode to unlock. A
+    classifier decision marked out_of_scope must end the session in DECLINED without ever
+    creating a CaseRecord or a Ticket -- unlike force_human, which still produces both."""
+
+    class OutOfScopeProvider:
+        async def classify(self, _: str) -> ClassificationDecision:
+            return ClassificationDecision(
+                summary="Pide recomendacion de restaurante y clima, ajeno a la banca",
+                customer_summary="Necesitas orientación sobre una consulta bancaria.",
+                category=Category.CONSULTA_GENERAL,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.95,
+                ambiguous=False,
+                out_of_scope=True,
+            )
+
+    provider = OutOfScopeProvider()
+    declining_orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: declining_orchestrator
+    try:
+        session_id, token = await _session(client)
+        headers = {"X-Session-Token": token}
+        turn = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={
+                "turn_id": str(uuid4()),
+                "transcript": "Recomiendame un restaurante y dime el clima de mañana",
+            },
+        )
+        assert turn.status_code == 200, turn.text
+        analysis = turn.json()
+        assert analysis["next_action"] == "DECLINE"
+        assert analysis["status"] == "DECLINED"
+
+        snapshot = await client.get(
+            f"/api/v1/kiosk/sessions/{session_id}",
+            headers=headers,
+        )
+        assert snapshot.status_code == 200
+        assert snapshot.json()["analysis"] == analysis
+        assert snapshot.json()["result"] is None
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+    async with TestSession() as db:
+        cases = list(await db.scalars(select(CaseRecord)))
+        tickets = list(await db.scalars(select(Ticket)))
+        assert cases == []
+        assert tickets == []

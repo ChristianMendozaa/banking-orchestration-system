@@ -88,7 +88,7 @@ class TurnAnalysisResponse(BaseModel):
     confidence: float
     clarification_question: str | None = None
     pii_types: list[str] = Field(default_factory=list)
-    next_action: Literal["CLARIFY", "CONFIRM"]
+    next_action: Literal["CLARIFY", "CONFIRM", "DECLINE"]
     speech_text: str
 
 
@@ -206,6 +206,7 @@ class ClassificationDecision(BaseModel):
     urgency_detected: bool = False
     security_incident: bool = False
     distress_detected: bool = False
+    out_of_scope: bool = False
 
 
 class TraceEventOut(ORMModel):

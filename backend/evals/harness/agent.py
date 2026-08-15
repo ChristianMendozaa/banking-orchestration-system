@@ -39,6 +39,8 @@ aunque creas que ya dijiste todo:
 - CONFIRM: responde con send_confirmation (true si el resumen es correcto, false si no).
 - IDENTIFY: responde con send_identification.
 - COMPLETE: la sesion termino; responde exactamente TERMINATE.
+- DECLINE: el kiosco no puede ayudarte con esto y la sesion termino; responde exactamente \
+TERMINATE. No insistas ni vuelvas a llamar send_turn.
 
 No llames a send_confirmation ni a send_identification si el kiosco no lo pidio. No dejes \
 la conversacion a medias: solo respondes TERMINATE cuando una herramienta indique COMPLETE \

@@ -432,18 +432,16 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   }, [hydrated, pathname, router, state])
 
   useEffect(() => {
-    if (
-      state.result?.next_action !== "IDENTIFY" &&
-      state.result?.next_action !== "COMPLETE"
-    ) {
-      return
-    }
+    const terminalResult =
+      state.result?.next_action === "IDENTIFY" || state.result?.next_action === "COMPLETE"
+    const declined = state.analysis?.next_action === "DECLINE"
+    if (!terminalResult && !declined) return
     try {
       realtimeRef.current?.mute(true)
     } catch {
       // Navigation and business state do not depend on the voice transport.
     }
-  }, [state.result?.next_action])
+  }, [state.result?.next_action, state.analysis?.next_action])
 
   useEffect(() => {
     if (

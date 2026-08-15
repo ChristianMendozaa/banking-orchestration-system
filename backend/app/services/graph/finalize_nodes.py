@@ -20,7 +20,6 @@ from app.core.errors import AppError
 from app.db.models import Requirement, Ticket, TraceEvent
 from app.domain.enums import (
     CaseStatus,
-    Category,
     ConsultationLevel,
     GroundingStatus,
     ResolutionType,
@@ -66,14 +65,24 @@ def eligibility_gate(state: OrchestrationState) -> str:
 async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
     case = state["case"]
     requirement = state["requirement"]
+    # The classifier's own single-need restatement is a sharper retrieval query than the raw
+    # masked transcript -- across a clarification round masked_text is
+    # "<vague opener>\nAclaracion: <real question>", which dilutes the embedding toward the
+    # opener. summary is already masked (the classification prompt forbids it reconstructing
+    # masked data), so it is safe to embed directly; fall back to masked_text if it is empty.
+    grounding_query = requirement.summary.strip() or requirement.masked_text
     grounded_response = await runtime.context.initial_attention.run(
         runtime.context.db,
         case.id,
         case.category,
         case.consultation_level,
-        requirement.masked_text,
+        grounding_query,
     )
-    return {"grounded_response": grounded_response}
+    # InitialAttentionAgent.run bails out immediately (no knowledge lookup at all) for any
+    # consultation level other than GENERAL, so grounding was only genuinely attempted -- as
+    # opposed to simply not applicable to this case -- when the level is GENERAL.
+    grounding_attempted = case.consultation_level == ConsultationLevel.GENERAL
+    return {"grounded_response": grounded_response, "grounding_attempted": grounding_attempted}
 
 
 def verify_grounding(state: OrchestrationState) -> str:
@@ -121,14 +130,22 @@ async def route_human(state: OrchestrationState, runtime: Runtime[GraphContext])
     case = state["case"]
     now = datetime.now(UTC)
 
+    grounding_attempted = state.get("grounding_attempted", False)
     kiosk_session.grounding_status = (
-        GroundingStatus.NO_EVIDENCE
-        if case.category == Category.CONSULTA_GENERAL
-        and case.consultation_level == ConsultationLevel.GENERAL
-        and not case.force_human
-        else GroundingStatus.NOT_APPLICABLE
+        GroundingStatus.NO_EVIDENCE if grounding_attempted else GroundingStatus.NOT_APPLICABLE
     )
     kiosk_session.citations_json = []
+    if grounding_attempted:
+        db.add(
+            TraceEvent(
+                case_id=case.id,
+                event_type="RAG_NO_EVIDENCE",
+                description=(
+                    "Consulta general enrutada a un humano: no se encontro evidencia "
+                    "suficiente en el corpus aprobado"
+                ),
+            )
+        )
     routing = await runtime.context.derivation.run(db, case.category, case.summary)
     executive = routing.executive if routing else None
     estimated_wait = (

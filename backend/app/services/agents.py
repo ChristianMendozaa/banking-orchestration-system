@@ -42,6 +42,14 @@ _NATURAL_SUMMARY_OPENING = re.compile(
     r"no\s+reconoces|notaste|identificaste)",
     re.IGNORECASE,
 )
+# Narrower than _UNNATURAL_CUSTOMER_LANGUAGE: a multi-sentence RAG answer legitimately uses
+# "puede", "necesita" or "su" to talk about the bank or the product ("el banco puede pedir tu
+# documento"), so only third-person references to the person asking, and usted-form address,
+# disqualify it.
+_UNNATURAL_THIRD_PERSON_REFERENCE = re.compile(
+    r"\busuario\b|\b(?:el|la|un|una)\s+(?:cliente|persona)\b|\b(?:usted|ustedes)\b",
+    re.IGNORECASE,
+)
 
 
 def customer_summary_for(category: Category) -> str:
@@ -50,6 +58,10 @@ def customer_summary_for(category: Category) -> str:
 
 def customer_facing_text_is_natural(text: str) -> bool:
     return not _UNNATURAL_CUSTOMER_LANGUAGE.search(text)
+
+
+def grounded_answer_is_natural(text: str) -> bool:
+    return not _UNNATURAL_THIRD_PERSON_REFERENCE.search(text)
 
 
 class ClassificationAgent:
@@ -211,20 +223,11 @@ class PrioritizationAgent:
         distress_detected: bool = False,
     ) -> Priority:
         lowered = summary.lower()
-        if (
-            category == Category.REPORTE_FRAUDE
-            or "movimiento no reconocido" in lowered
-            or security_incident
-            and urgency_detected
-        ):
+        if category == Category.REPORTE_FRAUDE or "movimiento no reconocido" in lowered:
             priority = Priority.CRITICO
-        elif (
-            category == Category.BLOQUEO_TARJETA
-            or urgency_detected
-            or any(term in lowered for term in ("urgente", "seguridad", "robada", "bloquear"))
-        ):
+        elif category == Category.BLOQUEO_TARJETA or (security_incident and urgency_detected):
             priority = Priority.ALTO
-        elif category in {Category.SOLICITUD_CREDITO, Category.BANCA_DIGITAL}:
+        elif category in {Category.SOLICITUD_CREDITO, Category.BANCA_DIGITAL} or urgency_detected:
             priority = Priority.MEDIO
         else:
             priority = Priority.BAJO
@@ -360,6 +363,7 @@ class InitialAttentionAgent:
         if level != ConsultationLevel.GENERAL:
             return None
         response = await self.knowledge.answer(db, case_id, category, masked_query)
-        if response and not customer_facing_text_is_natural(response.answer):
+        if response and not grounded_answer_is_natural(response.answer):
+            logger.warning("grounded_answer_rejected", case_id=str(case_id), category=category)
             return None
         return response

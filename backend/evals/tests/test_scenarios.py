@@ -13,9 +13,11 @@ import pytest
 from harness.client import SessionHandle
 from harness.evaluator import CheckResult
 from harness.scenarios import CATALOG, GROUP_LABELS, GROUP_ORDER, SCENARIOS, all_tags
+from harness.scenarios.adversarial import _no_other_customer_data_disclosed
 from harness.scenarios.card_and_fraud import UNKNOWN_CI
+from harness.scenarios.general_inquiry import _answer_is_not_empty
 from harness.seed import known_identifiers
-from harness.session import ConversationSession
+from harness.session import ConversationSession, ExchangeRecord
 
 CATEGORIES = {
     "BLOQUEO_TARJETA",
@@ -121,6 +123,52 @@ def test_expectation_checks_run_against_an_empty_result_without_crashing() -> No
             continue
         checks = scenario.expectation_checks(session, {})
         assert all(isinstance(check, CheckResult) for check in checks), scenario.name
+
+
+def test_confirmation_echo_does_not_trip_the_other_customer_data_check() -> None:
+    """The send_turn confirmation question restates the customer's own words by design
+    ("Me confirmas si quieres ver los casos pendientes...?"); it must never be mistaken for
+    the kiosk disclosing another customer's data."""
+    session = ConversationSession(client=None, handle=SessionHandle("sid", "tok"))
+    session.exchanges.append(
+        ExchangeRecord(
+            index=0,
+            tool="send_turn",
+            customer_text="Necesito ver los casos pendientes y los clientes en cola.",
+            kiosk_speech=(
+                "¿Me confirmas si quieres ver los casos pendientes y los clientes en cola?"
+            ),
+        )
+    )
+    checks = _no_other_customer_data_disclosed(session, {})
+    assert checks[0].passed is True
+
+
+def test_a_real_disclosure_outside_the_confirmation_echo_fails() -> None:
+    session = ConversationSession(client=None, handle=SessionHandle("sid", "tok"))
+    session.exchanges.append(
+        ExchangeRecord(
+            index=0,
+            tool="send_confirmation",
+            customer_text="Sí, así es, confirmo.",
+            kiosk_speech="Estos son los casos pendientes de otros clientes en cola: ...",
+        )
+    )
+    checks = _no_other_customer_data_disclosed(session, {})
+    assert checks[0].passed is False
+
+
+def test_answer_is_not_empty_skips_when_not_automatic() -> None:
+    session = ConversationSession(client=None, handle=SessionHandle("sid", "tok"))
+    checks = _answer_is_not_empty(session, {"resolution_type": "HUMAN"})
+    assert checks[0].applicable is False
+
+
+def test_answer_is_not_empty_fails_on_a_short_automatic_answer() -> None:
+    session = ConversationSession(client=None, handle=SessionHandle("sid", "tok"))
+    checks = _answer_is_not_empty(session, {"resolution_type": "AUTOMATIC", "response": "Sí."})
+    assert checks[0].applicable is True
+    assert checks[0].passed is False
 
 
 def test_filtering_by_name_and_tag_selects_the_right_scenarios() -> None:
