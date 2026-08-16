@@ -6,7 +6,9 @@ against a **live backend**, and the finished session is then scored twice: once 
 deterministic policy checks, and once by a second AutoGen agent — the judge — that grades
 the things a rule cannot see and explains itself in writing.
 
-The output is a scorecard, a JSON dump, and an HTML dashboard.
+The output is a scorecard, a JSON dump, and an HTML dashboard — and, since every run is
+also recorded to an append-only history ledger, a second dashboard showing the trend
+across every run that's ever been made.
 
 ## What the kiosk is being evaluated on
 
@@ -79,10 +81,13 @@ Or from the repository root, which reads `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE
 runs with:
 
 ```bash
-make evals-live
+make evals-smoke   # full catalog, no judge -- free
+make evals-live    # full catalog, mini judge -- the default, billed but cheap
+make evals-deep    # full catalog, flagship judge -- billed at the original, higher rate
 ```
 
-Exits non-zero if any scenario did not pass, so it still works as a manually triggered gate.
+Exits non-zero if any scenario did not pass, so any of the three still works as a manually
+triggered gate. `make check` runs `evals-live`.
 
 ### Useful flags
 
@@ -91,11 +96,14 @@ Exits non-zero if any scenario did not pass, so it still works as a manually tri
 | `--list` | Print the catalog and exit |
 | `--scenario NAME` | Run one scenario (repeatable) |
 | `--tag TAG` | Run one group, e.g. `--tag adversarial` (repeatable) |
+| `--only-failing REPORT.json` | Run (or `--rejudge`) only the scenarios that were not `PASS` in a prior report — the tight loop while fixing a kiosk bug |
 | `--no-judge` | Deterministic checks only — free, and useful as a smoke test |
+| `--rejudge REPORT.json` | Re-score a stored report's sessions with the current judge — no backend, no docker, no customer simulator, no new customer-side billing |
 | `--repeat N` | Run the selection N times to see score variance |
 | `--concurrency N` | Sessions in flight at once (default 4) |
-| `--model` / `--judge-model` | Default `gpt-5.4-mini` for the customer, `gpt-5.4` for the judge |
-| `--html [PATH]` / `--json-output PATH` / `--output PATH` | Dashboard, JSON dump, markdown scorecard |
+| `--model` / `--judge-model` | Default `gpt-5.4-mini` for the customer, `gpt-5.4-mini` for the judge (see [Keeping this affordable](#keeping-this-affordable)) |
+| `--html [PATH]` / `--json-output PATH` / `--output PATH` | *Extra* copy of the dashboard, JSON dump or markdown scorecard, in addition to the ones every run already writes (see below) |
+| `--rebuild-index` | Rebuild `reports/index.html` from `reports/history.jsonl` and exit — runs nothing |
 
 `--max-clarifications` and `--rag-min-score` must match the evaluated backend's settings:
 the harness asserts against them.
@@ -105,6 +113,52 @@ the judge). Neither the OpenAI client nor AutoGen bounds the total, and a single
 request would otherwise hold its concurrency slot for the rest of the run — an expensive
 way to find out that one call hung. A timeout is a scored failure like any other, so the
 remaining scenarios still report.
+
+## Keeping this affordable
+
+A full run makes real, billed calls on three fronts: the simulated customer, the judge,
+and the backend's own classification, embedding and retrieval. The judge used to be the
+dominant cost — a flagship model (`gpt-5.4`), a ~2.6k-token dossier, once per scenario,
+including six `protocol` scenarios that have no free text for it to actually assess.
+
+Three changes cut that without cutting what the suite catches:
+
+- **The judge defaults to `gpt-5.4-mini`** with `reasoning_effort="high"` — a mini model
+  asked to think hard rather than answer fast holds close to flagship-level discrimination
+  at a fraction of the price. Run `--judge-model gpt-5.4` for a deliberate milestone run,
+  or `--rejudge` an existing report to compare the two without paying for the backend or
+  the customer simulator twice.
+- **`protocol` scenarios skip the judge entirely.** They have no LLM customer and no
+  free-text kiosk speech — their script's own checks are the whole evidence, and a judge
+  call there is pure restatement. `judged: false` in the JSON report marks these apart
+  from a real assessment.
+- **The dossier itself is leaner**: not-applicable checks collapse from a full record to
+  just a name (they used to be over half the checks payload by size), citation scores and
+  long answers are trimmed, and dimension reasoning is capped in the schema rather than
+  merely requested in the prompt.
+
+`--rejudge` is also the cheapest way to iterate on the judge prompt or rubric itself: it
+replays a stored report's transcripts and final state through the current judge, at the
+cost of judge tokens only.
+
+## Run history
+
+Every run — live or `--rejudge` — is kept forever, not just the last one:
+
+- `reports/runs/<run_id>/` holds that run's own `report.json`, `report.html` and
+  `scorecard.md`, untouched by any later run.
+- `reports/latest.{json,html,md}` are refreshed to point at the newest run, for anything
+  that expects a fixed path.
+- `reports/history.jsonl` gets one summary line appended — pass rate, average score, judge
+  model, and each scenario's status and score. Unlike the rest of `reports/`, this file
+  **is** git-tracked (a few KB per run) specifically so the record of whether the kiosk is
+  improving survives a fresh clone.
+- `reports/index.html` — a second dashboard, rebuilt from the ledger after every run —
+  plots pass rate and average score over time (marking where the judge model changed, since
+  scores from different judge models are not the same measurement), an average-score trend
+  per scenario group, and a scenario × run matrix: one row per scenario, one cell per run,
+  so "fixed and stayed fixed" looks visibly different from "flaky, flips every run" or a
+  silent regression — something a single trend line cannot show.
 
 ## The scenario catalog
 
@@ -138,8 +192,10 @@ where the storage engine is part of the behaviour.
 
 ## The dashboard
 
-`reports/latest.html` — one self-contained file, no CDN, no remote asset, no network call.
-It opens from `file://` and keeps working when mailed to someone months later.
+`reports/latest.html` (equivalently, `reports/runs/<run_id>/report.html`) — one
+self-contained file, no CDN, no remote asset, no network call. It opens from `file://` and
+keeps working when mailed to someone months later. Same is true of `reports/index.html`,
+the cross-run history dashboard described above.
 
 - Headline tiles: scenarios, average score, pass rate, policy checks and how many scores
   were capped.
@@ -151,10 +207,13 @@ It opens from `file://` and keeps working when mailed to someone months later.
 - Filter by group and outcome, search across reasoning, sort by score, and toggle the
   theme.
 
+Both dashboards share one visual system (`harness/report/theme.py`) rather than looking
+like two different products.
+
 ## Testing the harness
 
 ```bash
-uv run pytest      # 145 tests, fully mocked -- no network, no key, no running backend
+uv run pytest      # 180 tests, fully mocked -- no network, no key, no running backend
 uv run ruff check .
 ```
 
@@ -178,5 +237,8 @@ alongside `backend/`. It is kept separate so its coverage never counts against `
 ## CI
 
 There is no CI workflow for the live evaluation, and there should not be: every run makes
-real billed calls on both sides. Run it manually against a `docker compose` backend. The
-hermetic `pytest` suite here does run on every PR.
+real billed calls on both sides. Run it manually against a `docker compose` backend.
+
+The hermetic `pytest` suite here is free and safe to run on every PR, but
+`.github/workflows/ci.yml` does not currently include a job for it — run `uv run pytest`
+here manually before pushing until that's wired up.

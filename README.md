@@ -719,11 +719,11 @@ make check     # everything CI runs, plus the evals suites CI doesn't, plus the 
 
 `make test` needs nothing running -- it's the fast, free path for everyday iteration. `make
 check` adds linting, typechecking, `next build`, the OpenAPI contract-drift check, and the live
-AutoGen harness described below (`evals-live`); it starts `docker compose` and reads
-`OPENAI_API_KEY`, `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` straight out of `backend/.env` -- the
-last two are policy thresholds the harness asserts against, so reading them keeps the harness and
-the system under test in agreement rather than duplicating constants in the Makefile. If the key
-is absent, `evals-live` is reported as `SKIP`
+AutoGen harness described below (`evals-live` -- one of three modes, see below); it starts
+`docker compose` and reads `OPENAI_API_KEY`, `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` straight out
+of `backend/.env` -- the last two are policy thresholds the harness asserts against, so reading
+them keeps the harness and the system under test in agreement rather than duplicating constants in
+the Makefile. If the key is absent, `evals-live` is reported as `SKIP`
 rather than failing the run. Every suite runs regardless of earlier failures, and `make check`
 ends with one summary table (suite, PASS/FAIL/SKIP, duration) and a non-zero exit if anything
 failed.
@@ -771,10 +771,10 @@ leaks into a test run). None of `make test`, `make lint`, `backend-build`, or `c
 Docker Compose or any other service running.
 
 [`backend/evals/`](backend/evals/README.md) additionally ships a separate, standalone-project
-**live** evaluation harness (`make evals-live`, or `uv run python -m harness --html` from
-`backend/evals/`). An AutoGen agent plays a customer with a specific situation and a specific
-way of speaking, and drives a real kiosk session turn by turn against a **live** backend. The
-finished session is then scored twice:
+**live** evaluation harness (`make evals-smoke` / `make evals-live` / `make evals-deep`, or
+`uv run python -m harness --html` from `backend/evals/`). An AutoGen agent plays a customer with a
+specific situation and a specific way of speaking, and drives a real kiosk session turn by turn
+against a **live** backend. The finished session is then scored twice:
 
 - A deterministic, non-LLM evaluator (`harness/evaluator.py`) checks everything decidable from
   recorded state -- did a fraud report reach `CRITICO`, was a sensitive case identified before it
@@ -789,8 +789,20 @@ finished session is then scored twice:
 
 The catalog covers 41 scenarios across all five categories, grounded and ungrounded inquiries,
 the clarification and correction loops, preferential attention, adversarial input, and the
-state-machine guards. A run produces a markdown scorecard, a JSON dump and a self-contained HTML
-dashboard at `backend/evals/reports/latest.html`.
+state-machine guards. Each run produces a markdown scorecard, a JSON dump and a self-contained
+HTML dashboard, all kept forever under `backend/evals/reports/runs/<run_id>/` (with
+`reports/latest.{json,html,md}` pointing at the newest one), plus a summary line appended to the
+git-tracked `reports/history.jsonl` ledger and a second dashboard, `reports/index.html`, showing
+pass rate and score trends across every run ever made -- see
+[Keeping this affordable](backend/evals/README.md#keeping-this-affordable) and
+[Run history](backend/evals/README.md#run-history) in the harness's own README.
+
+`evals-live` (the `make check` default) judges with `gpt-5.4-mini` rather than a flagship model --
+roughly a 90% cheaper judge with comparable discrimination -- and skips the judge entirely for the
+six `protocol` scenarios, which have no free text for it to assess. `evals-smoke` skips the judge
+altogether (deterministic checks only, free); `evals-deep` uses the original flagship judge for a
+deliberate milestone run. `--rejudge` re-scores an existing report's stored sessions with the
+current judge at the cost of judge tokens only, with no backend or customer-simulator calls.
 
 Its coverage is intentionally kept out of `backend/`'s `fail_under=90` gate, and there is no CI
 workflow for the live run -- each run makes real, billed OpenAI calls on three fronts (the

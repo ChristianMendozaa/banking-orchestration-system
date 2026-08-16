@@ -110,7 +110,13 @@ async def run_scenario(
             """
             if scenario.script:
                 return await scenario.script(session)
-            model_client = build_model_client(model)
+            # The customer is role-play plus picking one of three tools against an
+            # explicit next_action instruction -- it does not need deep reasoning, and a
+            # customer that reasons less is also less likely to second-guess its way off
+            # the persona's script. "none" is the lowest effort this model family accepts
+            # -- confirmed against a live 400 response, which listed the valid set as
+            # none/low/medium/high/xhigh and rejected "minimal" outright.
+            model_client = build_model_client(model, reasoning_effort="none")
             agent = build_customer_agent(
                 model_client=model_client, session=session, scenario=scenario
             )
@@ -126,11 +132,26 @@ async def run_scenario(
         result.final_status = str(final_state.get("status", "UNKNOWN"))
         result.actual_summary = _actual_summary(session, final_state)
         result.exchanges = session.exchanges
+        result.final_state = final_state
+        result.session_snapshot = {
+            "last_category": session.last_category,
+            "last_consultation_level": session.last_consultation_level,
+            "clarification_rounds": session.clarification_rounds,
+            "correction_rounds": session.correction_rounds,
+            "identification_attempts": session.identification_attempts,
+            "pii_types": session.pii_types,
+            "errors": session.errors,
+        }
         result.checks = [
             *evaluator.evaluate(scenario=scenario, session=session, final_state=final_state),
             *script_checks,
         ]
-        if judge:
+        # A protocol scenario has no customer utterances and no free-text kiosk speech --
+        # its script's own checks are the entire evidence, and the judge would have
+        # nothing to assess beyond restating them. `ScenarioResult.raw_score` already
+        # falls back to the deterministic score when `verdict` is None, so skipping here
+        # costs no information, only a judge call.
+        if judge and scenario.script is None:
             result.verdict = await asyncio.wait_for(
                 judge.assess(
                     scenario=scenario,

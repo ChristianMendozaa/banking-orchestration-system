@@ -34,8 +34,9 @@ doc/rag/*
 # make check / make test report
 .make-report.tsv
 
-# Reportes de una corrida del harness de evaluacion (dashboard HTML, JSON, scorecard).
-# Cada corrida produce artefactos nuevos que dependen del estado del backend y de las
-# respuestas del modelo; no se versionan.
-backend/evals/reports/
+# Reportes del harness de evaluacion: se versionan (dashboard HTML, JSON, scorecard por
+# corrida en reports/runs/<id>/, mas reports/latest.*, reports/index.html y el ledger
+# reports/history.jsonl) para conservar el historial de mejoras entre corridas. El
+# scorecard.md de la raiz de evals/ es una copia redundante de reports/latest.md y no
+# aporta nada nuevo, asi que se mantiene fuera del control de versiones.
 backend/evals/scorecard.md

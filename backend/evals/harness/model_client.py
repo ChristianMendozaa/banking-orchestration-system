@@ -33,7 +33,12 @@ def is_known_to_autogen(model: str) -> bool:
     return resolved in autogen_model_info._MODEL_INFO
 
 
-def build_model_client(model: str) -> OpenAIChatCompletionClient:
+def build_model_client(model: str, **create_args) -> OpenAIChatCompletionClient:
+    """`**create_args` (e.g. `reasoning_effort`, `verbosity`, `prompt_cache_key`) are
+    forwarded to every completion this client makes. Unknown or unsupported keys are
+    filtered by `autogen_ext`'s own `_create_args_from_config` before the request goes
+    out, so passing a parameter the pinned SDK does not recognise is a no-op rather than
+    a crash -- it just costs nothing to try."""
     if is_known_to_autogen(model):
-        return OpenAIChatCompletionClient(model=model)
-    return OpenAIChatCompletionClient(model=model, model_info=FALLBACK_MODEL_INFO)
+        return OpenAIChatCompletionClient(model=model, **create_args)
+    return OpenAIChatCompletionClient(model=model, model_info=FALLBACK_MODEL_INFO, **create_args)

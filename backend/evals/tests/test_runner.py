@@ -73,6 +73,31 @@ async def test_a_conversational_scenario_drives_the_customer_agent() -> None:
     assert any(check.name == "expected_category" for check in result.checks)
 
 
+async def test_a_scripted_scenario_is_not_sent_to_the_judge() -> None:
+    """A protocol scenario has no customer utterances and no free-text kiosk speech --
+    its script's own checks are the entire evidence, so a judge call would only restate
+    them at the price of a real one."""
+
+    async def script(session):
+        return [CheckResult("guard_held", True, "status=409")]
+
+    judge = AsyncMock()
+    result = await _run(make_scenario(tags=("protocol",), script=script), judge=judge)
+    judge.assess.assert_not_awaited()
+    assert result.verdict is None
+    assert result.score == 10  # falls back to the deterministic score, not a judge score
+
+
+async def test_a_conversational_scenario_is_still_sent_to_the_judge() -> None:
+    judge = AsyncMock()
+    judge.assess.return_value = make_verdict(8)
+    with patch("harness.runner.build_customer_agent") as build:
+        build.return_value.run = AsyncMock()
+        result = await _run(make_scenario(), judge=judge)
+    judge.assess.assert_awaited_once()
+    assert result.verdict is not None
+
+
 async def test_the_judge_sees_the_deterministic_checks() -> None:
     judge = AsyncMock()
     judge.assess.return_value = make_verdict(8)
@@ -99,6 +124,19 @@ async def test_a_crash_keeps_whatever_transcript_was_captured() -> None:
         build.return_value.run = AsyncMock(side_effect=RuntimeError("boom"))
         result = await _run(make_scenario(), session=session)
     assert result.exchanges[0].customer_text == "Me robaron la tarjeta"
+
+
+async def test_a_scenario_records_final_state_and_session_snapshot_for_rejudge() -> None:
+    """`--rejudge` rebuilds a dossier from a stored report without a second live run --
+    it needs the raw final state and these session scalars, not just the compact
+    'expected -> actual' summary strings."""
+    scenario = make_scenario(expected=ExpectedOutcome(category=("REPORTE_FRAUDE",)))
+    with patch("harness.runner.build_customer_agent") as build:
+        build.return_value.run = AsyncMock()
+        result = await _run(scenario)
+    assert result.final_state == FINAL_STATE
+    assert result.session_snapshot["last_category"] == "REPORTE_FRAUDE"
+    assert result.session_snapshot["last_consultation_level"] == "SENSIBLE"
 
 
 async def test_a_scenario_records_how_long_it_took() -> None:

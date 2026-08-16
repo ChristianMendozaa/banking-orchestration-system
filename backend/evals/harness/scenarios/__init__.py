@@ -1,6 +1,6 @@
 """The scenario catalog.
 
-Thirty scenarios across seven groups, assembled here so `--tag` and `--scenario` can select
+41 scenarios across seven groups, assembled here so `--tag` and `--scenario` can select
 across all of them and so a structural test can assert the catalog stays coherent.
 
 | Group | Tag | What it is for |

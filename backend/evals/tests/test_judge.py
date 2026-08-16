@@ -72,7 +72,7 @@ def test_dossier_carries_the_final_state_as_ground_truth() -> None:
         assert expected in dossier
 
 
-def test_dossier_labels_check_outcomes_including_not_applicable() -> None:
+def test_dossier_labels_check_outcomes_for_applicable_checks() -> None:
     scenario = make_scenario()
     dossier = build_dossier(
         scenario=scenario,
@@ -86,7 +86,38 @@ def test_dossier_labels_check_outcomes_including_not_applicable() -> None:
     )
     assert '"outcome": "PASSED"' in dossier
     assert '"outcome": "FAILED"' in dossier
-    assert '"outcome": "NOT_APPLICABLE"' in dossier
+
+
+def test_dossier_keeps_not_applicable_checks_visible_but_compact() -> None:
+    """A not-applicable check must never vanish -- the judge would otherwise be free to
+    invent an expectation the scenario never set -- but it costs only its name, not a
+    full record with a severity and detail the judge cannot act on anyway."""
+    dossier = build_dossier(
+        scenario=make_scenario(),
+        session=make_session(),
+        final_state=FINAL_STATE,
+        checks=[
+            CheckResult("a", True, "ok"),
+            CheckResult.skip("fraud_reaches_critical", "no es un reporte de fraude"),
+        ],
+    )
+    payload = json.loads(dossier.split("\n\n", 1)[1])
+    assert payload["checks_not_applicable"] == ["fraud_reaches_critical"]
+    assert "no es un reporte de fraude" not in dossier
+    names = [check["name"] for check in payload["deterministic_checks"]]
+    assert "fraud_reaches_critical" not in names
+
+
+def test_dossier_truncates_a_long_check_detail() -> None:
+    long_detail = "x" * 500
+    dossier = build_dossier(
+        scenario=make_scenario(),
+        session=make_session(),
+        final_state=FINAL_STATE,
+        checks=[CheckResult("a", False, long_detail)],
+    )
+    payload = json.loads(dossier.split("\n\n", 1)[1])
+    assert len(payload["deterministic_checks"][0]["detail"]) <= 160
 
 
 def test_dossier_omits_expectations_the_scenario_does_not_set() -> None:
@@ -103,6 +134,14 @@ def test_dossier_omits_expectations_the_scenario_does_not_set() -> None:
 def test_a_score_outside_one_to_ten_is_rejected() -> None:
     with pytest.raises(ValidationError):
         DimensionScore(score=11, reasoning="A long enough reason to pass validation.")
+
+
+def test_a_dimension_reasoning_over_the_length_cap_is_rejected() -> None:
+    """The cap on visible judge output is enforced by the schema, not just requested in
+    the prompt -- a model that ignores the 'one or two sentences' instruction must not be
+    able to blow the output-token budget anyway."""
+    with pytest.raises(ValidationError):
+        DimensionScore(score=5, reasoning="x" * 241)
 
 
 def test_the_verdict_requires_substantive_reasoning() -> None:

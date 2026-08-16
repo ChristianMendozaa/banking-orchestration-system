@@ -30,6 +30,9 @@ def to_dict(results: list[ScenarioResult], *, metadata: dict | None = None) -> d
     }
 
 
+_DECISION_KEYS = ("next_action", "category", "consultation_level", "confidence")
+
+
 def _result_to_dict(result: ScenarioResult) -> dict:
     verdict = result.verdict
     return {
@@ -49,6 +52,13 @@ def _result_to_dict(result: ScenarioResult) -> dict:
         "duration_ms": result.duration_ms,
         "error": result.error,
         "reasoning": result.reasoning,
+        # Not judged this run: either `--no-judge` was passed, or this is a scripted
+        # protocol scenario the judge has nothing to assess (no free-text kiosk speech).
+        "judged": verdict is not None,
+        # What `--rejudge` needs to rebuild the dossier without re-running the backend or
+        # the customer simulator -- see `harness/judge.py:build_dossier`.
+        "final_state": result.final_state,
+        "session_snapshot": result.session_snapshot,
         "judge": (
             {
                 "overall_score": verdict.overall_score,
@@ -82,6 +92,12 @@ def _result_to_dict(result: ScenarioResult) -> dict:
                 "kiosk": exchange.kiosk_speech,
                 "latency_ms": exchange.latency_ms,
                 "error": exchange.error,
+                "decided": {
+                    key: exchange.response[key]
+                    for key in _DECISION_KEYS
+                    if key in exchange.response
+                }
+                or None,
             }
             for exchange in result.exchanges
         ],

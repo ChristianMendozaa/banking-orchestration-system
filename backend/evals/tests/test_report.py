@@ -100,6 +100,46 @@ def test_json_output_is_serializable() -> None:
     json.dumps(json_report.to_dict(_results(), metadata=METADATA), ensure_ascii=False)
 
 
+def test_json_marks_whether_each_scenario_was_judged() -> None:
+    """A verdict-less result is either `--no-judge` or a scripted scenario the judge
+    never sees (`harness/runner.py`); either way, a 10/10 protocol row must not be
+    mistaken in the report for one a judge actually looked at."""
+    judged = make_result(name="a")
+    unjudged = make_result(name="b", verdict=None)
+    payload = json_report.to_dict([judged, unjudged], metadata=METADATA)
+    by_name = {r["scenario"]: r for r in payload["results"]}
+    assert by_name["a"]["judged"] is True
+    assert by_name["b"]["judged"] is False
+
+
+def test_json_carries_final_state_and_session_snapshot_for_rejudge() -> None:
+    result = make_result(
+        final_state={"status": "ASSIGNED"}, session_snapshot={"last_category": "REPORTE_FRAUDE"}
+    )
+    payload = json_report.to_dict([result], metadata=METADATA)
+    assert payload["results"][0]["final_state"] == {"status": "ASSIGNED"}
+    assert payload["results"][0]["session_snapshot"] == {"last_category": "REPORTE_FRAUDE"}
+
+
+def test_json_transcript_carries_the_decided_next_action() -> None:
+    from harness.session import ExchangeRecord
+
+    result = make_result(
+        exchanges=[
+            ExchangeRecord(
+                0,
+                "send_turn",
+                "Hola",
+                "¿Me confirmas?",
+                response={"next_action": "CONFIRM", "category": "CONSULTA_GENERAL", "noise": "x"},
+            )
+        ]
+    )
+    payload = json_report.to_dict([result], metadata=METADATA)
+    decided = payload["results"][0]["transcript"][0]["decided"]
+    assert decided == {"next_action": "CONFIRM", "category": "CONSULTA_GENERAL"}
+
+
 # --- html ---------------------------------------------------------------------------
 
 

@@ -2,7 +2,7 @@
 .NOTPARALLEL:
 .PHONY: help install \
 	backend-lint backend-test backend-coverage \
-	evals-lint evals-test evals-live \
+	evals-lint evals-test evals-smoke evals-live evals-deep \
 	frontend-lint frontend-typecheck frontend-test frontend-build \
 	contract \
 	services-up services-down \
@@ -102,24 +102,41 @@ services-up: ## Start postgres/redis/clamav/backend via docker compose
 services-down: ## Stop docker compose services
 	docker compose down
 
-# The harness must be told the same MAX_CLARIFICATIONS and RAG_MIN_SCORE the evaluated
-# backend runs with -- they are policy thresholds it asserts against, not preferences --
-# so both are read from backend/.env rather than duplicated as constants here.
-evals-live: ## Live AutoGen scenario harness + LLM judge against a running backend -- billed OpenAI calls
-	@openai_key=$$(grep -m1 '^OPENAI_API_KEY=' backend/.env 2>/dev/null | cut -d= -f2-); \
-	max_clar=$$(grep -m1 '^MAX_CLARIFICATIONS=' backend/.env 2>/dev/null | cut -d= -f2-); \
-	rag_min=$$(grep -m1 '^RAG_MIN_SCORE=' backend/.env 2>/dev/null | cut -d= -f2-); \
-	backend_port=$$(grep -m1 '^BACKEND_PORT=' .env 2>/dev/null | cut -d= -f2-); \
-	max_clar=$${max_clar:-2}; \
-	rag_min=$${rag_min:-0.45}; \
-	backend_port=$${backend_port:-8000}; \
-	if [ -z "$$openai_key" ]; then \
-		printf '\n\033[1m==> evals:live\033[0m\n'; \
-		echo "OPENAI_API_KEY not set in backend/.env -- skipping (harness and knowledge-bootstrap both need it)"; \
-		printf '%s\t%s\t%s\t%s\n' "evals:live" "SKIP" "0" "" >> $(REPORT); \
-	else \
-		$(call run_suite,evals:live,docker compose up -d --wait backend && (cd backend && uv run python scripts/reset_kiosk_queue.py) && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md --json-output reports/latest.json --html reports/latest.html); \
-	fi
+# Shared by evals-smoke/evals-live/evals-deep -- the three differ only in $(2), the judge
+# mode passed to the harness. The harness must be told the same MAX_CLARIFICATIONS and
+# RAG_MIN_SCORE the evaluated backend runs with -- they are policy thresholds it asserts
+# against, not preferences -- so both are read from backend/.env rather than duplicated as
+# constants here. Every invocation is recorded to reports/history.jsonl regardless of
+# mode, so evals:smoke and evals:deep runs show up in the trend dashboard too.
+#
+# No leading "@" here, same reasoning as run_suite above: this is $(call)ed after a literal
+# "@" already written at each call site below, so an embedded one here would reach the
+# shell as literal text instead of being stripped by make.
+define run_evals
+openai_key=$$(grep -m1 '^OPENAI_API_KEY=' backend/.env 2>/dev/null | cut -d= -f2-); \
+max_clar=$$(grep -m1 '^MAX_CLARIFICATIONS=' backend/.env 2>/dev/null | cut -d= -f2-); \
+rag_min=$$(grep -m1 '^RAG_MIN_SCORE=' backend/.env 2>/dev/null | cut -d= -f2-); \
+backend_port=$$(grep -m1 '^BACKEND_PORT=' .env 2>/dev/null | cut -d= -f2-); \
+max_clar=$${max_clar:-2}; \
+rag_min=$${rag_min:-0.45}; \
+backend_port=$${backend_port:-8000}; \
+if [ -z "$$openai_key" ]; then \
+	printf '\n\033[1m==> $(1)\033[0m\n'; \
+	echo "OPENAI_API_KEY not set in backend/.env -- skipping (harness and knowledge-bootstrap both need it)"; \
+	printf '%s\t%s\t%s\t%s\n' "$(1)" "SKIP" "0" "" >> $(REPORT); \
+else \
+	$(call run_suite,$(1),docker compose up -d --wait backend && (cd backend && PYTHONPATH=. uv run python scripts/reset_kiosk_queue.py) && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md $(2)); \
+fi
+endef
+
+evals-smoke: ## Full catalog, deterministic checks only -- free, no judge, no OpenAI cost on the harness side
+	@$(call run_evals,evals:smoke,--no-judge)
+
+evals-live: ## Full catalog, mini judge (default) -- billed, but ~90% cheaper than evals-deep's judge
+	@$(call run_evals,evals:live,)
+
+evals-deep: ## Full catalog, flagship judge -- billed at the harness's original (pre-cost-cut) rate
+	@$(call run_evals,evals:deep,--judge-model gpt-5.4)
 
 ## --- Aggregates. Each runs its suites through a nested `make -k` (keep-going): every
 ## suite runs even if an earlier one fails, and every failure ends up in the summary. ---

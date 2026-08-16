@@ -39,6 +39,13 @@ class ScenarioResult:
     session_id: str | None = None
     repetition: int = 1
     error: str | None = None
+    # The system's final `GET /kiosk/sessions/{id}` body, and the handful of scalars the
+    # judge's dossier reads off `ConversationSession` (category, consultation level,
+    # clarification/correction/identification counts, PII types, API errors). Carried on
+    # the result -- not just summarised into `actual_summary` -- so a stored JSON report
+    # has everything `--rejudge` needs to rebuild the dossier without a second live run.
+    final_state: dict = field(default_factory=dict)
+    session_snapshot: dict = field(default_factory=dict)
 
     @property
     def hard_failures(self) -> list[CheckResult]:
