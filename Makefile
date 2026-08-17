@@ -3,6 +3,8 @@
 .PHONY: help install \
 	backend-lint backend-test backend-coverage \
 	evals-lint evals-test evals-smoke evals-live evals-deep \
+	evals-live-claude-code evals-live-codex \
+	evals-retry evals-retry-claude-code evals-retry-codex \
 	frontend-lint frontend-typecheck frontend-test frontend-build \
 	contract \
 	services-up services-down \
@@ -13,6 +15,13 @@
 # it for the checks-count extraction below.
 SHELL := /bin/bash
 REPORT := .make-report.tsv
+
+# Extra flags appended to every evals-* harness invocation below, e.g.
+#   make evals-live-codex EVAL_ARGS="--only-failing reports/latest.json"
+#   make evals-smoke EVAL_ARGS="--tag adversarial --repeat 3"
+# `?=` so it's empty (a no-op) unless set on the command line; every evals-* target's own
+# fixed flags ($(2) in run_evals) still apply, EVAL_ARGS is appended after them.
+EVAL_ARGS ?=
 
 # Every suite target writes one PASS/FAIL/SKIP row to $(REPORT) (name, status, duration,
 # and a checks count pulled from the tool's own output where one exists -- pytest/vitest
@@ -125,7 +134,7 @@ if [ -z "$$openai_key" ]; then \
 	echo "OPENAI_API_KEY not set in backend/.env -- skipping (harness and knowledge-bootstrap both need it)"; \
 	printf '%s\t%s\t%s\t%s\n' "$(1)" "SKIP" "0" "" >> $(REPORT); \
 else \
-	$(call run_suite,$(1),docker compose up -d --wait backend && (cd backend && PYTHONPATH=. uv run python scripts/reset_kiosk_queue.py) && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md $(2)); \
+	$(call run_suite,$(1),docker compose up -d --wait backend && (cd backend && PYTHONPATH=. uv run python scripts/reset_kiosk_queue.py) && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md $(2) $(EVAL_ARGS)); \
 fi
 endef
 
@@ -137,6 +146,30 @@ evals-live: ## Full catalog, mini judge (default) -- billed, but ~90% cheaper th
 
 evals-deep: ## Full catalog, flagship judge -- billed at the harness's original (pre-cost-cut) rate
 	@$(call run_evals,evals:deep,--judge-model gpt-5.4)
+
+# Judge via a local CLI instead of an OpenAI judge call -- billed against whatever that
+# CLI is authenticated as on this machine, not OPENAI_API_KEY. The customer simulator and
+# the backend's own OpenAI calls are unaffected; only the judge moves. See
+# backend/evals/README.md#judging-with-a-local-cli-instead-of-openai_api_key.
+evals-live-claude-code: ## Full catalog, judged by the local `claude` CLI instead of OpenAI
+	@$(call run_evals,evals:live-claude-code,--judge-model claude-code --concurrency 2)
+
+evals-live-codex: ## Full catalog, judged by the local `codex` CLI instead of OpenAI
+	@$(call run_evals,evals:live-codex,--judge-model codex --concurrency 2)
+
+# --only-failing reads a prior JSON report and runs (or --rejudge's) just the scenarios
+# that were not PASS in it -- reports/latest.json is whatever the most recent evals-*
+# run wrote, so these always retry against the run you just looked at. Point at a
+# specific run's report instead with EVAL_ARGS, e.g.
+#   make evals-retry EVAL_ARGS="--only-failing reports/runs/<run_id>/report.json"
+evals-retry: ## Re-run only the scenarios that weren't PASS in reports/latest.json, mini judge
+	@$(call run_evals,evals:retry,--only-failing reports/latest.json)
+
+evals-retry-claude-code: ## Re-run only the scenarios that weren't PASS in reports/latest.json, judged by `claude`
+	@$(call run_evals,evals:retry-claude-code,--judge-model claude-code --concurrency 2 --only-failing reports/latest.json)
+
+evals-retry-codex: ## Re-run only the scenarios that weren't PASS in reports/latest.json, judged by `codex`
+	@$(call run_evals,evals:retry-codex,--judge-model codex --concurrency 2 --only-failing reports/latest.json)
 
 ## --- Aggregates. Each runs its suites through a nested `make -k` (keep-going): every
 ## suite runs even if an earlier one fails, and every failure ends up in the summary. ---

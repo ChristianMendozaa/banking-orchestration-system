@@ -1,4 +1,5 @@
-"""Builds the OpenAI model clients the customer agent and the judge use.
+"""Builds the OpenAI model clients the customer agent and the judge use, and resolves
+which provider a `--model`/`--judge-model` string points at.
 
 `OpenAIChatCompletionClient` looks the model name up in a table baked into the installed
 `autogen-ext`, and raises `ValueError: model_info is required when model name is not a
@@ -15,9 +16,33 @@ truly lacks them, the failure surfaces as an API error on the first call, with t
 name in it -- which is a far more useful signal than a constructor rejecting the name.
 """
 
+from typing import Literal
+
 from autogen_core.models import ModelFamily, ModelInfo
 from autogen_ext.models.openai import OpenAIChatCompletionClient
 from autogen_ext.models.openai import _model_info as autogen_model_info
+
+CliProvider = Literal["claude-code", "codex"]
+
+# `--model`/`--judge-model` stay a single string -- no new CLI flag -- so a CLI-backed
+# judge is selected by a sentinel prefix instead of a model name AutoGen would recognise:
+# "claude-code" / "codex" (that provider's own default model) or "claude-code:opus" /
+# "codex:gpt-5.2-codex" (an explicit underlying model). Anything else is unchanged and
+# goes to build_model_client() below, exactly as before this existed.
+_CLI_PROVIDERS: tuple[CliProvider, ...] = ("claude-code", "codex")
+
+
+def resolve_provider(model: str) -> tuple[CliProvider | None, str | None]:
+    """Splits a `--model`/`--judge-model` string into `(provider, underlying_model)`.
+
+    `(None, None)` means "not a CLI sentinel -- use the OpenAI path via
+    `build_model_client()`", which is every model name that predates this function.
+    """
+    prefix, _, rest = model.partition(":")
+    if prefix not in _CLI_PROVIDERS:
+        return None, None
+    return prefix, (rest or None)  # type: ignore[return-value]
+
 
 FALLBACK_MODEL_INFO = ModelInfo(
     vision=True,

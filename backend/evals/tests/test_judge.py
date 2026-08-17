@@ -228,6 +228,70 @@ async def test_assess_retries_once_then_records_the_failure() -> None:
     assert "upstream is down" in result.reasoning
 
 
+# --- CLI-backed providers (claude-code / codex) --------------------------------------
+
+
+def test_a_claude_code_judge_model_selects_the_cli_backend_not_openai() -> None:
+    from harness.cli_judge import ClaudeCodeJudgeBackend
+
+    judge = Judge("claude-code")
+    assert isinstance(judge._cli_backend, ClaudeCodeJudgeBackend)
+    assert judge._model_client is None
+
+
+def test_a_codex_judge_model_selects_the_cli_backend_not_openai() -> None:
+    from harness.cli_judge import CodexJudgeBackend
+
+    judge = Judge("codex:gpt-5.2-codex")
+    assert isinstance(judge._cli_backend, CodexJudgeBackend)
+    assert judge._cli_backend.underlying_model == "gpt-5.2-codex"
+    assert judge._model_client is None
+
+
+async def test_closing_a_cli_backed_judge_is_a_noop() -> None:
+    """No connection pool to close -- each CLI call is its own subprocess -- so this must
+    not raise even though there is no model client underneath."""
+    judge = Judge("claude-code")
+    await judge.close()  # must not raise
+
+
+async def test_assess_via_a_cli_backend_returns_the_structured_verdict() -> None:
+    verdict = make_verdict(9)
+    judge = Judge("claude-code")
+    judge._cli_backend.score = AsyncMock(return_value=verdict.model_dump_json())
+    result = await judge.assess(
+        scenario=make_scenario(), session=make_session(), final_state=FINAL_STATE, checks=[]
+    )
+    assert result.overall_score == 9
+    assert result.verdict == "PASS"
+
+
+async def test_assess_via_a_cli_backend_retries_then_records_the_failure() -> None:
+    from harness.cli_judge import CliJudgeError
+
+    judge = Judge("codex")
+    judge._cli_backend.score = AsyncMock(side_effect=CliJudgeError("codex exited 1"))
+    result = await judge.assess(
+        scenario=make_scenario(), session=make_session(), final_state=FINAL_STATE, checks=[]
+    )
+    assert judge._cli_backend.score.await_count == 2
+    assert result.verdict == "FAIL"
+    assert "codex exited 1" in result.reasoning
+
+
+async def test_assess_via_a_cli_backend_rejects_output_that_is_not_a_valid_verdict() -> None:
+    """The CLI's own --json-schema/--output-schema constrains the *shape*, but not
+    JudgeVerdict's stricter field constraints (score ranges, reasoning length, the
+    verdict enum) -- a schema-valid-but-JudgeVerdict-invalid response must still become a
+    scored failure, not an uncaught exception that takes the whole run down."""
+    judge = Judge("claude-code")
+    judge._cli_backend.score = AsyncMock(return_value=json.dumps({"not": "a verdict"}))
+    result = await judge.assess(
+        scenario=make_scenario(), session=make_session(), final_state=FINAL_STATE, checks=[]
+    )
+    assert result.verdict == "FAIL"
+
+
 async def test_a_judge_that_returns_the_wrong_type_is_not_trusted() -> None:
     run = AsyncMock(
         return_value=type("R", (), {"messages": [type("M", (), {"content": "just a string"})]})

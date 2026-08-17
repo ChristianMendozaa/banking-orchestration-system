@@ -28,10 +28,18 @@ import structlog
 from autogen_agentchat.agents import AssistantAgent
 from pydantic import BaseModel, Field
 
+from harness.cli_judge import CliJudgeBackend, build_cli_judge_backend
 from harness.evaluator import CheckResult
-from harness.model_client import build_model_client
+from harness.model_client import build_model_client, resolve_provider
 from harness.scenarios.models import Scenario
 from harness.session import ConversationSession
+
+# Matches runner.JUDGE_TIMEOUT_SECONDS -- the CLI backends don't import runner.py (that
+# would be a reverse dependency: runner already imports Judge), so the bound is kept here
+# as the value the two are conventionally kept equal to. asyncio.wait_for around
+# Judge.assess in both call sites (runner.py, cli.py's --rejudge) is the outer bound this
+# is meant to sit comfortably inside.
+CLI_JUDGE_TIMEOUT_SECONDS = 180.0
 
 logger = structlog.get_logger()
 
@@ -268,21 +276,34 @@ def build_dossier(
 
 
 class Judge:
-    """One model client, a fresh agent per assessment.
+    """One model client (or one CLI backend), a fresh agent per assessment.
 
     The split matters in both directions: `AssistantAgent` accumulates conversation state,
     so reusing one agent would let a scenario's verdict colour the next one's, while the
     model client owns an HTTP connection pool, so building one per call would leak a pool
     per scenario across a 41-scenario run.
+
+    `model` is resolved once, here, into either the existing OpenAI/AutoGen path or a
+    local-CLI backend (`claude-code[:alias]` / `codex[:alias]`, see `model_client.py`).
+    Every other method branches on `self._cli_backend is not None` rather than the model
+    string itself, so the rest of the class only has to know "AutoGen or not", not which
+    of the two CLIs.
     """
 
     def __init__(self, model: str) -> None:
         self.model = model
+        self._cli_backend: CliJudgeBackend | None = None
+        self._model_client = None
+        provider, underlying_model = resolve_provider(model)
+        if provider is not None:
+            self._cli_backend = build_cli_judge_backend(provider, underlying_model)
+            return
         # `reasoning_effort="high"` is what keeps a mini model's judgement close to a
         # flagship model's despite the price gap -- it is asked to think hard, not to
         # answer fast. `verbosity="low"` trims prose around the (already length-capped)
         # schema fields. `prompt_cache_key` gives every call in a run the same cache
-        # bucket for the ~1.1k-token constant `JUDGE_SYSTEM_MESSAGE` prefix.
+        # bucket for the ~1.1k-token constant `JUDGE_SYSTEM_MESSAGE` prefix. All three are
+        # Chat Completions-only parameters -- irrelevant, so skipped -- on the CLI path.
         self._model_client = build_model_client(
             model,
             reasoning_effort="high",
@@ -291,6 +312,7 @@ class Judge:
         )
 
     def build_agent(self) -> AssistantAgent:
+        assert self._model_client is not None, "build_agent() is the OpenAI-only path"
         return AssistantAgent(
             name="orchestration_judge",
             model_client=self._model_client,
@@ -299,7 +321,20 @@ class Judge:
         )
 
     async def close(self) -> None:
-        await self._model_client.close()
+        # The CLI backends hold no connection pool -- each call is its own subprocess --
+        # so there is nothing to close on that path.
+        if self._model_client is not None:
+            await self._model_client.close()
+
+    async def _assess_via_cli(self, dossier: str) -> JudgeVerdict:
+        assert self._cli_backend is not None
+        raw = await self._cli_backend.score(
+            system_message=JUDGE_SYSTEM_MESSAGE,
+            dossier=dossier,
+            schema=JudgeVerdict.model_json_schema(),
+            timeout_seconds=CLI_JUDGE_TIMEOUT_SECONDS,
+        )
+        return JudgeVerdict.model_validate_json(raw)
 
     async def assess(
         self,
@@ -315,6 +350,8 @@ class Judge:
         last_error = "unknown error"
         for attempt in range(2):
             try:
+                if self._cli_backend is not None:
+                    return await self._assess_via_cli(dossier)
                 result = await self.build_agent().run(task=dossier)
                 content = result.messages[-1].content
                 if isinstance(content, JudgeVerdict):

@@ -86,8 +86,31 @@ make evals-live    # full catalog, mini judge -- the default, billed but cheap
 make evals-deep    # full catalog, flagship judge -- billed at the original, higher rate
 ```
 
-Exits non-zero if any scenario did not pass, so any of the three still works as a manually
+Exits non-zero if any scenario did not pass, so any of these still works as a manually
 triggered gate. `make check` runs `evals-live`.
+
+`make evals-live-claude-code` / `make evals-live-codex` run the same full catalog with the
+judge routed to a local CLI instead — see
+[Judging with a local CLI](#judging-with-a-local-cli-instead-of-openai_api_key).
+
+**Retrying only what failed** — `make evals-retry[-claude-code|-codex]` re-runs just the
+scenarios that were not `PASS` in `reports/latest.json` (whatever the most recent `evals-*`
+run wrote), against the same three judge choices:
+
+```bash
+make evals-retry              # re-run failures, mini judge
+make evals-retry-claude-code  # re-run failures, judged by the local `claude` CLI
+make evals-retry-codex        # re-run failures, judged by the local `codex` CLI
+```
+
+Any `make evals-*` target also accepts extra harness flags via `EVAL_ARGS`, appended after
+that target's own — useful for anything not already wired to a target, like retrying
+against an older run's report or narrowing to one tag while iterating:
+
+```bash
+make evals-live-codex EVAL_ARGS="--only-failing reports/runs/<run_id>/report.json"
+make evals-smoke EVAL_ARGS="--tag adversarial --repeat 3"
+```
 
 ### Useful flags
 
@@ -101,7 +124,7 @@ triggered gate. `make check` runs `evals-live`.
 | `--rejudge REPORT.json` | Re-score a stored report's sessions with the current judge — no backend, no docker, no customer simulator, no new customer-side billing |
 | `--repeat N` | Run the selection N times to see score variance |
 | `--concurrency N` | Sessions in flight at once (default 4) |
-| `--model` / `--judge-model` | Default `gpt-5.4-mini` for the customer, `gpt-5.4-mini` for the judge (see [Keeping this affordable](#keeping-this-affordable)) |
+| `--model` / `--judge-model` | Default `gpt-5.4-mini` for the customer, `gpt-5.4-mini` for the judge (see [Keeping this affordable](#keeping-this-affordable) and [Judging with a local CLI instead of OPENAI_API_KEY](#judging-with-a-local-cli-instead-of-openai_api_key)) |
 | `--html [PATH]` / `--json-output PATH` / `--output PATH` | *Extra* copy of the dashboard, JSON dump or markdown scorecard, in addition to the ones every run already writes (see below) |
 | `--rebuild-index` | Rebuild `reports/index.html` from `reports/history.jsonl` and exit — runs nothing |
 
@@ -140,6 +163,38 @@ Three changes cut that without cutting what the suite catches:
 `--rejudge` is also the cheapest way to iterate on the judge prompt or rubric itself: it
 replays a stored report's transcripts and final state through the current judge, at the
 cost of judge tokens only.
+
+## Judging with a local CLI instead of `OPENAI_API_KEY`
+
+`--judge-model` also accepts two sentinels that route the judge to a local coding-agent
+CLI instead of an OpenAI API call — `claude-code` (the local `claude` CLI, i.e. Claude
+Code) and `codex` (the local `codex` CLI). Each runs its non-interactive mode
+(`claude -p ... --json-schema`, `codex exec ... --output-schema`) with the judge's
+schema, so the CLI itself enforces the `JudgeVerdict` shape rather than the harness
+prompting for JSON and hoping. Append `:<model>` to pick the underlying model the CLI
+should use, e.g. `--judge-model claude-code:opus` or `--judge-model codex:gpt-5.2-codex`;
+without it, each CLI's own default applies.
+
+```bash
+uv run python -m harness --judge-model claude-code --html
+uv run python -m harness --judge-model codex:gpt-5.2-codex --html
+```
+
+**This is judge-only.** The simulated customer needs AutoGen tool-calling for its three
+bound tools (`send_turn`/`send_confirmation`/`send_identification`); neither CLI exposes
+arbitrary user-defined function calling the way the OpenAI Chat Completions path does, so
+`--model` (the customer) still has to be an OpenAI model. Pointing `--model` at either
+sentinel is rejected at startup rather than failing deep inside AutoGen.
+
+**Not "free" just because it skips `OPENAI_API_KEY`.** These calls run under whatever the
+local `claude`/`codex` CLI is authenticated as on this machine — a Claude/ChatGPT
+subscription's usage, or an API key configured for that CLI — not the harness's own
+`OPENAI_API_KEY`. The customer simulator and the evaluated backend's own OpenAI calls are
+unaffected and still billed as usual.
+
+Each judge call now spawns a CLI process (real startup cost per scenario, plus whatever
+concurrent-session limit that CLI itself imposes), so pass a lower `--concurrency` (e.g.
+`--concurrency 2`) than you would for the OpenAI judge.
 
 ## Run history
 

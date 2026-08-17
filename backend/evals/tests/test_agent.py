@@ -8,7 +8,7 @@ from conftest import make_scenario
 
 from harness.agent import build_customer_agent, build_system_message
 from harness.client import KioskClient, SessionHandle
-from harness.model_client import build_model_client, is_known_to_autogen
+from harness.model_client import build_model_client, is_known_to_autogen, resolve_provider
 from harness.scenarios import SCENARIOS
 from harness.scenarios.models import ANGUSTIADO
 from harness.session import ConversationSession
@@ -75,3 +75,28 @@ def test_an_unrecognised_model_name_still_builds_a_client() -> None:
     client = build_model_client("definitely-not-a-real-model-name")
     assert client.model_info["structured_output"] is True
     assert client.model_info["function_calling"] is True
+
+
+# --- provider resolution (--model / --judge-model sentinels) ------------------------
+
+
+def test_an_ordinary_model_name_resolves_to_no_provider() -> None:
+    """Every model name that predates the CLI backends must keep going through
+    build_model_client() -- resolve_provider() is additive, not a new required step."""
+    assert resolve_provider("gpt-5.4-mini") == (None, None)
+
+
+def test_a_bare_cli_sentinel_resolves_to_that_providers_own_default_model() -> None:
+    assert resolve_provider("claude-code") == ("claude-code", None)
+    assert resolve_provider("codex") == ("codex", None)
+
+
+def test_a_colon_suffixed_sentinel_carries_the_underlying_model() -> None:
+    assert resolve_provider("claude-code:opus") == ("claude-code", "opus")
+    assert resolve_provider("codex:gpt-5.2-codex") == ("codex", "gpt-5.2-codex")
+
+
+def test_a_model_name_that_merely_contains_a_provider_word_is_not_a_sentinel() -> None:
+    """Only an exact "claude-code"/"codex" prefix before the colon counts -- a real model
+    name that happens to start with one must not be silently routed to the CLI path."""
+    assert resolve_provider("codex-mini-latest") == (None, None)
