@@ -17,7 +17,7 @@ SHELL := /bin/bash
 REPORT := .make-report.tsv
 
 # Extra flags appended to every evals-* harness invocation below, e.g.
-#   make evals-live-codex EVAL_ARGS="--only-failing reports/latest.json"
+#   make evals-live-codex EVAL_ARGS="--only-failing reports/runs/<run_id>/report.json"
 #   make evals-smoke EVAL_ARGS="--tag adversarial --repeat 3"
 # `?=` so it's empty (a no-op) unless set on the command line; every evals-* target's own
 # fixed flags ($(2) in run_evals) still apply, EVAL_ARGS is appended after them.
@@ -158,18 +158,22 @@ evals-live-codex: ## Full catalog, judged by the local `codex` CLI instead of Op
 	@$(call run_evals,evals:live-codex,--judge-model codex --concurrency 2)
 
 # --only-failing reads a prior JSON report and runs (or --rejudge's) just the scenarios
-# that were not PASS in it -- reports/latest.json is whatever the most recent evals-*
-# run wrote, so these always retry against the run you just looked at. Point at a
-# specific run's report instead with EVAL_ARGS, e.g.
+# that were not PASS in it. There's no reports/latest.json alias (see cli.py::_record_run),
+# so LATEST_RUN_REPORT resolves it by listing reports/runs/ -- names are
+# %Y%m%dT%H%M%SZ-<sha>, so a plain sort is chronological -- and taking the newest. Runs
+# inside run_evals's shell chain, after "cd backend/evals", so the path is relative to
+# there, not the repo root. Point at a specific run's report instead with EVAL_ARGS, e.g.
 #   make evals-retry EVAL_ARGS="--only-failing reports/runs/<run_id>/report.json"
-evals-retry: ## Re-run only the scenarios that weren't PASS in reports/latest.json, mini judge
-	@$(call run_evals,evals:retry,--only-failing reports/latest.json)
+LATEST_RUN_REPORT = reports/runs/$$(ls -1 reports/runs 2>/dev/null | sort | tail -1)/report.json
 
-evals-retry-claude-code: ## Re-run only the scenarios that weren't PASS in reports/latest.json, judged by `claude`
-	@$(call run_evals,evals:retry-claude-code,--judge-model claude-code --concurrency 2 --only-failing reports/latest.json)
+evals-retry: ## Re-run only the scenarios that weren't PASS in the most recent run, mini judge
+	@$(call run_evals,evals:retry,--only-failing $(LATEST_RUN_REPORT))
 
-evals-retry-codex: ## Re-run only the scenarios that weren't PASS in reports/latest.json, judged by `codex`
-	@$(call run_evals,evals:retry-codex,--judge-model codex --concurrency 2 --only-failing reports/latest.json)
+evals-retry-claude-code: ## Re-run only the scenarios that weren't PASS in the most recent run, judged by `claude`
+	@$(call run_evals,evals:retry-claude-code,--judge-model claude-code --concurrency 2 --only-failing $(LATEST_RUN_REPORT))
+
+evals-retry-codex: ## Re-run only the scenarios that weren't PASS in the most recent run, judged by `codex`
+	@$(call run_evals,evals:retry-codex,--judge-model codex --concurrency 2 --only-failing $(LATEST_RUN_REPORT))
 
 ## --- Aggregates. Each runs its suites through a nested `make -k` (keep-going): every
 ## suite runs even if an earlier one fails, and every failure ends up in the summary. ---

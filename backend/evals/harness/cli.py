@@ -8,10 +8,13 @@ Exits non-zero if any scenario did not pass, so it still works as a manually tri
 gate.
 
 Every run that produces results (a live run or a `--rejudge` replay) is recorded forever:
-it gets its own `reports/runs/<run_id>/` directory, `reports/latest.*` is refreshed to
-point at it, and a summary line is appended to the git-tracked `reports/history.jsonl`
-ledger. `reports/index.html`, the cross-run trend dashboard, is rebuilt from that ledger
-after every run and on demand with `--rebuild-index`.
+it gets its own `reports/runs/<run_id>/` directory -- report.json/report.html/scorecard.md,
+the complete and only copy, no separate `reports/latest.*` alias -- and a summary line is
+appended to the `reports/history.jsonl` ledger. `reports/index.html`, the cross-run trend
+dashboard, is rebuilt from that ledger after every run and on demand with
+`--rebuild-index`, and links straight to each run's own `report.html`. All of `reports/`
+is git-tracked (see the repo root `.gitignore`), to keep the record of whether the kiosk
+is improving across runs even after a fresh clone.
 """
 
 import argparse
@@ -114,7 +117,11 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         nargs="?",
         const="",
         default=None,
-        help="Extra path for the HTML dashboard (reports/latest.html is always written).",
+        help=(
+            "Extra path for the HTML dashboard, in addition to the one every run already "
+            "writes under reports/runs/<run_id>/report.html (defaults to "
+            "reports/dashboard.html if given with no path)."
+        ),
     )
     parser.add_argument(
         "--rejudge",
@@ -137,9 +144,9 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
 
 
 def _write(path: Path, content: str) -> None:
-    """Every output path creates its own directory. `reports/` is gitignored (besides the
-    ledger), so on a fresh clone it does not exist and the default paths would otherwise
-    fail."""
+    """Every output path creates its own directory. `reports/runs/` in particular does not
+    exist on a fresh clone until the first run creates it, so the default paths would
+    otherwise fail."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
@@ -147,7 +154,7 @@ def _write(path: Path, content: str) -> None:
 def _resolve_html_path(value: str | None) -> Path | None:
     if value is None:
         return None
-    return Path(value) if value else REPORTS_DIR / "latest.html"
+    return Path(value) if value else REPORTS_DIR / "dashboard.html"
 
 
 def _print_catalog() -> None:
@@ -352,10 +359,16 @@ def _run_hrefs(runs: list[dict]) -> dict[str, str]:
 
 
 def _record_run(results: list[ScenarioResult], metadata: dict) -> None:
-    """Writes the timestamped run directory, refreshes `latest.*`, appends the ledger and
-    rebuilds the trend dashboard -- every run, unconditionally, regardless of what
-    `--output`/`--json-output`/`--html` were passed. Those flags add an *extra* copy
-    somewhere else; they no longer gate whether history is kept at all."""
+    """Writes the timestamped run directory, appends the ledger and rebuilds the trend
+    dashboard -- every run, unconditionally, regardless of what `--output`/`--json-output`/
+    `--html` were passed. Those flags add an *extra* copy somewhere else; they no longer
+    gate whether history is kept at all.
+
+    No `reports/latest.*` copy: `reports/runs/<run_id>/` is already the full, permanent
+    record of every run, and `reports/index.html` (the trend dashboard, rebuilt below)
+    already links straight to each run's own `report.html` via `_run_hrefs` -- a
+    "latest" alias would only ever be a stale duplicate the moment the next run starts.
+    """
     git_sha = history.current_git_sha()
     git_dirty = history.working_tree_is_dirty()
     metadata = {**metadata, "git_sha": git_sha, "git_dirty": git_dirty}
@@ -371,9 +384,6 @@ def _record_run(results: list[ScenarioResult], metadata: dict) -> None:
     _write(run_dir / "scorecard.md", scorecard)
     _write(run_dir / "report.json", json_payload)
     _write(run_dir / "report.html", html_page)
-    _write(REPORTS_DIR / "latest.md", scorecard)
-    _write(REPORTS_DIR / "latest.json", json_payload)
-    _write(REPORTS_DIR / "latest.html", html_page)
 
     record = history.build_run_record(
         results, run_id=run_id, metadata=metadata, git_sha=git_sha, git_dirty=git_dirty

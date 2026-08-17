@@ -73,7 +73,7 @@ cd backend/evals
 uv sync
 
 export OPENAI_API_KEY=...
-uv run python -m harness --html            # 41 scenarios, dashboard at reports/latest.html
+uv run python -m harness           # 41 scenarios, dashboard at reports/runs/<run_id>/report.html
 ```
 
 Or from the repository root, which reads `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` out of
@@ -94,8 +94,9 @@ judge routed to a local CLI instead — see
 [Judging with a local CLI](#judging-with-a-local-cli-instead-of-openai_api_key).
 
 **Retrying only what failed** — `make evals-retry[-claude-code|-codex]` re-runs just the
-scenarios that were not `PASS` in `reports/latest.json` (whatever the most recent `evals-*`
-run wrote), against the same three judge choices:
+scenarios that were not `PASS` in the most recent run under `reports/runs/` (there's no
+`reports/latest.json` alias — each target resolves it by listing `reports/runs/`, whose
+names sort chronologically), against the same three judge choices:
 
 ```bash
 make evals-retry              # re-run failures, mini judge
@@ -201,13 +202,14 @@ concurrent-session limit that CLI itself imposes), so pass a lower `--concurrenc
 Every run — live or `--rejudge` — is kept forever, not just the last one:
 
 - `reports/runs/<run_id>/` holds that run's own `report.json`, `report.html` and
-  `scorecard.md`, untouched by any later run.
-- `reports/latest.{json,html,md}` are refreshed to point at the newest run, for anything
-  that expects a fixed path.
+  `scorecard.md` — the complete and only copy, untouched by any later run. There is no
+  `reports/latest.*` alias to a fixed path; `reports/index.html` (below) always links
+  straight to the run you actually want.
 - `reports/history.jsonl` gets one summary line appended — pass rate, average score, judge
-  model, and each scenario's status and score. Unlike the rest of `reports/`, this file
-  **is** git-tracked (a few KB per run) specifically so the record of whether the kiosk is
-  improving survives a fresh clone.
+  model, and each scenario's status and score.
+- All of `reports/` (the ledger, `runs/<run_id>/`, `index.html`) is git-tracked — a few KB
+  per run — specifically so the record of whether the kiosk is improving survives a fresh
+  clone.
 - `reports/index.html` — a second dashboard, rebuilt from the ledger after every run —
   plots pass rate and average score over time (marking where the judge model changed, since
   scores from different judge models are not the same measurement), an average-score trend
@@ -247,10 +249,10 @@ where the storage engine is part of the behaviour.
 
 ## The dashboard
 
-`reports/latest.html` (equivalently, `reports/runs/<run_id>/report.html`) — one
-self-contained file, no CDN, no remote asset, no network call. It opens from `file://` and
-keeps working when mailed to someone months later. Same is true of `reports/index.html`,
-the cross-run history dashboard described above.
+`reports/runs/<run_id>/report.html` — one self-contained file, no CDN, no remote asset, no
+network call. It opens from `file://` and keeps working when mailed to someone months
+later. Same is true of `reports/index.html`, the cross-run history dashboard described
+above.
 
 - Headline tiles: scenarios, average score, pass rate, policy checks and how many scores
   were capped.

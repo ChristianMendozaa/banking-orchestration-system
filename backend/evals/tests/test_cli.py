@@ -1,5 +1,5 @@
 """The CLI's own logic: `--rejudge` replay, `--only-failing` selection, and recording a
-run to the timestamped directory + `latest.*` + the ledger.
+run to the timestamped directory + the ledger.
 
 Never touches a real backend or a real model -- `Judge.assess` is patched wherever a
 verdict is needed, same pattern as `tests/test_judge.py`.
@@ -189,7 +189,7 @@ async def test_rejudge_combines_with_only_failing(tmp_path, real_scenario_name) 
 # --- recording a run ----------------------------------------------------------------------
 
 
-def test_record_run_writes_the_run_directory_and_refreshes_latest(tmp_path, monkeypatch) -> None:
+def test_record_run_writes_only_the_run_directory_and_the_index(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(cli, "REPORTS_DIR", tmp_path)
     monkeypatch.setattr(cli, "LEDGER_PATH", tmp_path / "history.jsonl")
     monkeypatch.setattr(cli.history, "current_git_sha", lambda: "abc1234")
@@ -205,9 +205,6 @@ def test_record_run_writes_the_run_directory_and_refreshes_latest(tmp_path, monk
     }
     cli._record_run(results, metadata)
 
-    assert (tmp_path / "latest.json").exists()
-    assert (tmp_path / "latest.html").exists()
-    assert (tmp_path / "latest.md").exists()
     assert (tmp_path / "index.html").exists()
     ledger_lines = (tmp_path / "history.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(ledger_lines) == 1
@@ -215,9 +212,9 @@ def test_record_run_writes_the_run_directory_and_refreshes_latest(tmp_path, monk
     assert (tmp_path / "runs" / run_id / "report.json").exists()
     assert (tmp_path / "runs" / run_id / "report.html").exists()
     assert (tmp_path / "runs" / run_id / "scorecard.md").exists()
-    # latest.json is the same content as the run directory's copy, not a separate render
-    run_json = (tmp_path / "runs" / run_id / "report.json").read_text()
-    assert (tmp_path / "latest.json").read_text() == run_json
+    # No reports/latest.* alias -- reports/runs/<run_id>/ is the only copy, so nothing at
+    # REPORTS_DIR's top level besides the ledger and the index should exist yet.
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["history.jsonl", "index.html", "runs"]
 
 
 def test_record_run_appends_rather_than_overwrites_the_ledger(tmp_path, monkeypatch) -> None:
