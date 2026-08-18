@@ -18,10 +18,12 @@ import traceback
 import structlog
 
 from harness.agent import build_customer_agent
+from harness.cli_customer import build_cli_customer_backend
 from harness.client import KioskClient
 from harness.evaluator import CheckResult, Evaluator
 from harness.judge import Judge, JudgeVerdict
-from harness.model_client import build_model_client
+from harness.mcp_kiosk_server import serve_kiosk_tools
+from harness.model_client import build_model_client, resolve_provider
 from harness.scenarios import SCENARIOS
 from harness.scenarios.models import Scenario
 from harness.scoring import ScenarioResult
@@ -110,6 +112,22 @@ async def run_scenario(
             """
             if scenario.script:
                 return await scenario.script(session)
+            provider, underlying_model = resolve_provider(model)
+            if provider is not None:
+                # Same 3 tools, same session, same INITIAL_TASK -- just handed to a
+                # local CLI over MCP instead of AutoGen's native OpenAI tool-calling.
+                # `session` is mutated in place by the tool calls either way, so nothing
+                # below this branch needs to know which path ran.
+                backend = build_cli_customer_backend(provider, underlying_model)
+                async with serve_kiosk_tools(session) as mcp_url:
+                    await backend.run(
+                        scenario=scenario,
+                        session=session,
+                        mcp_url=mcp_url,
+                        initial_task=INITIAL_TASK,
+                        timeout_seconds=SCENARIO_TIMEOUT_SECONDS,
+                    )
+                return []
             # The customer is role-play plus picking one of three tools against an
             # explicit next_action instruction -- it does not need deep reasoning, and a
             # customer that reasons less is also less likely to second-guess its way off

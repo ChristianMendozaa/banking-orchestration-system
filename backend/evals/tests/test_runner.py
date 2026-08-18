@@ -36,10 +36,10 @@ def _session(final_state: dict | None = None) -> ConversationSession:
     return session
 
 
-async def _run(scenario, *, session=None, judge=None):
+async def _run(scenario, *, session=None, judge=None, model="gpt-5.4-mini"):
     session = session or _session()
     with patch.object(ConversationSession, "start", AsyncMock(return_value=session)):
-        return await run_scenario(AsyncMock(), Evaluator(), judge, scenario, model="gpt-5.4-mini")
+        return await run_scenario(AsyncMock(), Evaluator(), judge, scenario, model=model)
 
 
 async def test_a_protocol_scenario_runs_its_script_and_keeps_its_checks() -> None:
@@ -71,6 +71,27 @@ async def test_a_conversational_scenario_drives_the_customer_agent() -> None:
     assert client.model_info is not None  # the caller owns the client's lifecycle now
     assert result.final_status == "ASSIGNED"
     assert any(check.name == "expected_category" for check in result.checks)
+
+
+async def test_a_conversational_scenario_on_a_cli_provider_uses_the_mcp_bridge() -> None:
+    """`--model claude-code`/`codex` must route through the MCP bridge
+    (`serve_kiosk_tools` + a CLI customer backend), never AutoGen's `build_customer_agent`
+    -- the two paths are mutually exclusive per scenario."""
+    scenario = make_scenario(expected=ExpectedOutcome(category=("REPORTE_FRAUDE",)))
+    backend = AsyncMock()
+    with (
+        patch("harness.runner.build_customer_agent") as build_agent,
+        patch("harness.runner.build_cli_customer_backend", return_value=backend) as build_backend,
+        patch("harness.runner.serve_kiosk_tools") as serve,
+    ):
+        serve.return_value.__aenter__ = AsyncMock(return_value="http://127.0.0.1:1/mcp")
+        serve.return_value.__aexit__ = AsyncMock(return_value=False)
+        result = await _run(scenario, model="claude-code")
+    build_agent.assert_not_called()
+    build_backend.assert_called_once_with("claude-code", None)
+    backend.run.assert_awaited_once()
+    assert backend.run.call_args.kwargs["mcp_url"] == "http://127.0.0.1:1/mcp"
+    assert result.final_status == "ASSIGNED"
 
 
 async def test_a_scripted_scenario_is_not_sent_to_the_judge() -> None:

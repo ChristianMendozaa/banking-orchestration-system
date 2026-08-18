@@ -32,7 +32,6 @@ import structlog
 from harness.client import SessionHandle
 from harness.evaluator import CheckResult
 from harness.judge import Judge
-from harness.model_client import resolve_provider
 from harness.report import history, html, json_report, markdown
 from harness.runner import JUDGE_TIMEOUT_SECONDS, run_all
 from harness.scenarios import CATALOG, all_tags
@@ -176,18 +175,6 @@ def _failing_scenario_names(report: dict) -> list[str]:
 
 
 async def _run(args: argparse.Namespace) -> tuple[list[ScenarioResult], dict]:
-    provider, _ = resolve_provider(args.model)
-    if provider is not None:
-        # The simulated customer needs AutoGen tool-calling for its three bound tools
-        # (send_turn/send_confirmation/send_identification) -- neither local CLI exposes
-        # arbitrary user-defined function calling the way the Chat Completions API does,
-        # so only --judge-model may point at one. Caught here, at argument-parsing time,
-        # rather than letting it fail deep inside AutoGen with a confusing error.
-        raise SystemExit(
-            f"--model {args.model!r} is judge-only: the simulated customer needs OpenAI "
-            "tool-calling, which claude-code/codex CLIs don't expose. Use --judge-model "
-            f"{args.model!r} instead, and pick an OpenAI model for --model."
-        )
     names = list(args.scenario) if args.scenario else None
     if args.only_failing:
         failing = _failing_scenario_names(_load_report(args.only_failing))

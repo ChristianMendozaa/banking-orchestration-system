@@ -147,15 +147,17 @@ evals-live: ## Full catalog, mini judge (default) -- billed, but ~90% cheaper th
 evals-deep: ## Full catalog, flagship judge -- billed at the harness's original (pre-cost-cut) rate
 	@$(call run_evals,evals:deep,--judge-model gpt-5.4)
 
-# Judge via a local CLI instead of an OpenAI judge call -- billed against whatever that
-# CLI is authenticated as on this machine, not OPENAI_API_KEY. The customer simulator and
-# the backend's own OpenAI calls are unaffected; only the judge moves. See
+# Full customer + judge eval on a local CLI instead of OpenAI -- billed against whatever
+# that CLI is authenticated as on this machine, not OPENAI_API_KEY. OPENAI_API_KEY is
+# still used for one thing in every mode: the kiosk backend under test itself
+# (classification/RAG/embeddings) -- that's the system being evaluated, not something
+# these providers stand in for. See
 # backend/evals/README.md#judging-with-a-local-cli-instead-of-openai_api_key.
-evals-live-claude-code: ## Full catalog, judged by the local `claude` CLI instead of OpenAI
-	@$(call run_evals,evals:live-claude-code,--judge-model claude-code --concurrency 2)
+evals-live-claude-code: ## Full catalog, customer + judge on the local `claude` CLI instead of OpenAI
+	@$(call run_evals,evals:live-claude-code,--model claude-code --judge-model claude-code --concurrency 4)
 
-evals-live-codex: ## Full catalog, judged by the local `codex` CLI instead of OpenAI
-	@$(call run_evals,evals:live-codex,--judge-model codex --concurrency 2)
+evals-live-codex: ## Full catalog, customer + judge on the local `codex` CLI instead of OpenAI
+	@$(call run_evals,evals:live-codex,--model codex --judge-model codex --concurrency 4)
 
 # --only-failing reads a prior JSON report and runs (or --rejudge's) just the scenarios
 # that were not PASS in it. There's no reports/latest.json alias (see cli.py::_record_run),
@@ -169,11 +171,11 @@ LATEST_RUN_REPORT = reports/runs/$$(ls -1 reports/runs 2>/dev/null | sort | tail
 evals-retry: ## Re-run only the scenarios that weren't PASS in the most recent run, mini judge
 	@$(call run_evals,evals:retry,--only-failing $(LATEST_RUN_REPORT))
 
-evals-retry-claude-code: ## Re-run only the scenarios that weren't PASS in the most recent run, judged by `claude`
-	@$(call run_evals,evals:retry-claude-code,--judge-model claude-code --concurrency 2 --only-failing $(LATEST_RUN_REPORT))
+evals-retry-claude-code: ## Re-run only the scenarios that weren't PASS in the most recent run, customer + judge on `claude`
+	@$(call run_evals,evals:retry-claude-code,--model claude-code --judge-model claude-code --concurrency 4 --only-failing $(LATEST_RUN_REPORT))
 
-evals-retry-codex: ## Re-run only the scenarios that weren't PASS in the most recent run, judged by `codex`
-	@$(call run_evals,evals:retry-codex,--judge-model codex --concurrency 2 --only-failing $(LATEST_RUN_REPORT))
+evals-retry-codex: ## Re-run only the scenarios that weren't PASS in the most recent run, customer + judge on `codex`
+	@$(call run_evals,evals:retry-codex,--model codex --judge-model codex --concurrency 4 --only-failing $(LATEST_RUN_REPORT))
 
 ## --- Aggregates. Each runs its suites through a nested `make -k` (keep-going): every
 ## suite runs even if an earlier one fails, and every failure ends up in the summary. ---

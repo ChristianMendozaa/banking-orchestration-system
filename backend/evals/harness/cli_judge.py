@@ -23,16 +23,18 @@ here means a broken CLI invocation degrades exactly like a broken API call alrea
 rather than needing its own failure handling.
 """
 
-import asyncio
 import json
 import tempfile
 from pathlib import Path
 from typing import Protocol
 
+from harness.cli_subprocess import CliError, run_cli
 
-class CliJudgeError(RuntimeError):
-    """Wraps a CLI failure (non-zero exit, timeout, or unparsable output) with enough of
-    the process's own output to debug from the harness's structured logs alone."""
+# `run_cli` is now shared with `cli_customer.py` (see cli_subprocess.py); kept as module
+# attributes here under their original names so existing call sites and tests --
+# `patch("harness.cli_judge._run", ...)` -- keep working unchanged.
+CliJudgeError = CliError
+_run = run_cli
 
 
 class CliJudgeBackend(Protocol):
@@ -43,37 +45,6 @@ class CliJudgeBackend(Protocol):
         `JudgeVerdict`; that happens once, in `judge.py`, the same place it already
         happens for the OpenAI path."""
         ...
-
-
-async def _run(*args: str, stdin: str | None, timeout_seconds: float, label: str) -> str:
-    """One subprocess, argv-only (never `shell=True` -- the dossier is arbitrary JSON and
-    must never be interpolated into a shell string), stdout captured and returned."""
-    process = await asyncio.create_subprocess_exec(
-        *args,
-        stdin=asyncio.subprocess.PIPE if stdin is not None else None,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        stdout, stderr = await asyncio.wait_for(
-            process.communicate(stdin.encode() if stdin is not None else None),
-            timeout=timeout_seconds,
-        )
-    except TimeoutError as exc:
-        process.kill()
-        await process.wait()
-        raise CliJudgeError(f"{label} timed out after {timeout_seconds:.0f}s") from exc
-    if process.returncode != 0:
-        # Confirmed live: codex's `--json` mode reports its own errors (e.g. a rejected
-        # response-format schema) as JSON events on *stdout*, not stderr -- surfacing
-        # stderr alone silently dropped the one line that explained the failure. Include
-        # both; whichever stream a given CLI actually uses, the real message survives.
-        raise CliJudgeError(
-            f"{label} exited {process.returncode} "
-            f"stderr={stderr.decode(errors='replace')[:500]!r} "
-            f"stdout={stdout.decode(errors='replace')[:500]!r}"
-        )
-    return stdout.decode(errors="replace")
 
 
 class ClaudeCodeJudgeBackend:

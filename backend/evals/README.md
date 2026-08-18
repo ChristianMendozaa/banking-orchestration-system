@@ -89,19 +89,19 @@ make evals-deep    # full catalog, flagship judge -- billed at the original, hig
 Exits non-zero if any scenario did not pass, so any of these still works as a manually
 triggered gate. `make check` runs `evals-live`.
 
-`make evals-live-claude-code` / `make evals-live-codex` run the same full catalog with the
-judge routed to a local CLI instead — see
-[Judging with a local CLI](#judging-with-a-local-cli-instead-of-openai_api_key).
+`make evals-live-claude-code` / `make evals-live-codex` run the same full catalog with
+*both* the simulated customer and the judge routed to a local CLI instead of OpenAI — see
+[Running on a local CLI instead of OpenAI](#running-on-a-local-cli-instead-of-openai).
 
 **Retrying only what failed** — `make evals-retry[-claude-code|-codex]` re-runs just the
 scenarios that were not `PASS` in the most recent run under `reports/runs/` (there's no
 `reports/latest.json` alias — each target resolves it by listing `reports/runs/`, whose
-names sort chronologically), against the same three judge choices:
+names sort chronologically), against the same three provider choices:
 
 ```bash
-make evals-retry              # re-run failures, mini judge
-make evals-retry-claude-code  # re-run failures, judged by the local `claude` CLI
-make evals-retry-codex        # re-run failures, judged by the local `codex` CLI
+make evals-retry              # re-run failures, all-OpenAI
+make evals-retry-claude-code  # re-run failures, customer + judge on the local `claude` CLI
+make evals-retry-codex        # re-run failures, customer + judge on the local `codex` CLI
 ```
 
 Any `make evals-*` target also accepts extra harness flags via `EVAL_ARGS`, appended after
@@ -125,7 +125,7 @@ make evals-smoke EVAL_ARGS="--tag adversarial --repeat 3"
 | `--rejudge REPORT.json` | Re-score a stored report's sessions with the current judge — no backend, no docker, no customer simulator, no new customer-side billing |
 | `--repeat N` | Run the selection N times to see score variance |
 | `--concurrency N` | Sessions in flight at once (default 4) |
-| `--model` / `--judge-model` | Default `gpt-5.4-mini` for the customer, `gpt-5.4-mini` for the judge (see [Keeping this affordable](#keeping-this-affordable) and [Judging with a local CLI instead of OPENAI_API_KEY](#judging-with-a-local-cli-instead-of-openai_api_key)) |
+| `--model` / `--judge-model` | Default `gpt-5.4-mini` for both. Either can independently point at a local CLI instead — see [Keeping this affordable](#keeping-this-affordable) and [Running on a local CLI instead of OpenAI](#running-on-a-local-cli-instead-of-openai) |
 | `--html [PATH]` / `--json-output PATH` / `--output PATH` | *Extra* copy of the dashboard, JSON dump or markdown scorecard, in addition to the ones every run already writes (see below) |
 | `--rebuild-index` | Rebuild `reports/index.html` from `reports/history.jsonl` and exit — runs nothing |
 
@@ -165,37 +165,77 @@ Three changes cut that without cutting what the suite catches:
 replays a stored report's transcripts and final state through the current judge, at the
 cost of judge tokens only.
 
-## Judging with a local CLI instead of `OPENAI_API_KEY`
+## Running on a local CLI instead of OpenAI
 
-`--judge-model` also accepts two sentinels that route the judge to a local coding-agent
-CLI instead of an OpenAI API call — `claude-code` (the local `claude` CLI, i.e. Claude
-Code) and `codex` (the local `codex` CLI). Each runs its non-interactive mode
-(`claude -p ... --json-schema`, `codex exec ... --output-schema`) with the judge's
-schema, so the CLI itself enforces the `JudgeVerdict` shape rather than the harness
-prompting for JSON and hoping. Append `:<model>` to pick the underlying model the CLI
-should use, e.g. `--judge-model claude-code:opus` or `--judge-model codex:gpt-5.2-codex`;
-without it, each CLI's own default applies.
+Both `--model` (the simulated customer) and `--judge-model` independently accept two
+sentinels that route to a local coding-agent CLI instead of an OpenAI API call —
+`claude-code` (the local `claude` CLI, i.e. Claude Code) and `codex` (the local `codex`
+CLI). Append `:<model>` to pick the underlying model the CLI should use, e.g.
+`--model claude-code:opus` or `--judge-model codex:gpt-5.2-codex`; without it, each CLI's
+own default applies. Set both to the same provider for a genuine all-claude or all-codex
+eval, or mix them (e.g. OpenAI customer, `claude-code` judge) to compare judges in
+isolation:
 
 ```bash
-uv run python -m harness --judge-model claude-code --html
-uv run python -m harness --judge-model codex:gpt-5.2-codex --html
+uv run python -m harness --model claude-code --judge-model claude-code --html   # all-claude
+uv run python -m harness --model codex --judge-model codex --html               # all-codex
+uv run python -m harness --judge-model claude-code --html                       # judge only
 ```
 
-**This is judge-only.** The simulated customer needs AutoGen tool-calling for its three
-bound tools (`send_turn`/`send_confirmation`/`send_identification`); neither CLI exposes
-arbitrary user-defined function calling the way the OpenAI Chat Completions path does, so
-`--model` (the customer) still has to be an OpenAI model. Pointing `--model` at either
-sentinel is rejected at startup rather than failing deep inside AutoGen.
+**The judge** is one stateless call — the dossier in, `JudgeVerdict` JSON out. Each CLI's
+non-interactive mode (`claude -p ... --json-schema`, `codex exec ... --output-schema`)
+enforces that shape natively, so there's no "please return only JSON" prompting involved.
+
+**The simulated customer** is a live, multi-turn session — it needs real tool-calling for
+its three bound tools (`send_turn`/`send_confirmation`/`send_identification`). Neither CLI
+accepts arbitrary caller-defined tools as a request parameter the way the OpenAI Chat
+Completions API does, so the harness stands up a small MCP server per scenario
+(`harness/mcp_kiosk_server.py`, in-process, localhost-only, torn down with the scenario)
+exposing those same 3 tools, and points the CLI at it (`harness/cli_customer.py`) — the
+CLI's own agentic loop then drives the session exactly as AutoGen does today, just over
+MCP instead of native tool-calling.
 
 **Not "free" just because it skips `OPENAI_API_KEY`.** These calls run under whatever the
 local `claude`/`codex` CLI is authenticated as on this machine — a Claude/ChatGPT
 subscription's usage, or an API key configured for that CLI — not the harness's own
-`OPENAI_API_KEY`. The customer simulator and the evaluated backend's own OpenAI calls are
-unaffected and still billed as usual.
+`OPENAI_API_KEY`. **`OPENAI_API_KEY` is still required in every mode** for one thing: the
+kiosk backend under test's own classification/RAG/embedding calls (`OpenAIProvider`) —
+that's the system being evaluated, not something these providers stand in for.
 
-Each judge call now spawns a CLI process (real startup cost per scenario, plus whatever
-concurrent-session limit that CLI itself imposes), so pass a lower `--concurrency` (e.g.
-`--concurrency 2`) than you would for the OpenAI judge.
+**The CLI customer defaults to a fast model, not each CLI's own default.** `claude-code`
+defaults to `haiku` (not `claude-sonnet-5`), `codex` to `gpt-5.4-mini` (not `gpt-5.6-sol`
+— the same model the OpenAI customer already defaults to, confirmed available via `codex
+debug models`), both at low reasoning effort, forced regardless of which model is chosen
+— same rationale the OpenAI customer already uses (`reasoning_effort="none"` in
+`runner.py`): role-play plus picking one of 3 tools against an explicit `next_action`
+doesn't need deep reasoning. `--model claude-code:opus` / `codex:gpt-5.2-codex` still
+overrides the model if you want the customer on something heavier; effort stays low
+either way. **The judge keeps its own model/effort choice untouched** — judgment quality
+matters more there, so nothing about it changed.
+
+None of this touches your personal CLI config. Every flag here — model, effort, the MCP
+server, the isolation flags below — is passed per-invocation on the one subprocess call
+the harness spawns for that scenario; nothing is read from or written to
+`~/.claude/settings.json` or `~/.codex/config.toml` (the harness explicitly excludes both
+via `--setting-sources ""` / `--ignore-user-config`). Your interactive sessions keep
+whatever you've set there.
+
+Each customer/judge call still spawns a CLI process (real startup cost per scenario, plus
+whatever concurrent-session limit that CLI itself imposes) — confirmed live at
+`--concurrency 4` (what the Make targets use): 4 scenarios genuinely ran in parallel with
+no errors, so that's the current default rather than a cautious lower one. Push higher at
+your own risk — it hasn't been tested past 4, and the kiosk backend's own session-creation
+endpoint is rate-limited to 30 requests/minute per client IP (`app/main.py`) regardless of
+which provider is driving the customer.
+
+**Isolation posture differs between the two CLIs** — worth knowing before trusting either
+with anything beyond this repo's own kiosk tools. Claude Code allowlists tool *and*
+permission access down to exactly the 3 kiosk MCP tools (`--tools`/`--allowedTools`), so
+nothing else — no bash, no file access — is ever reachable. Codex has no equivalent
+per-tool allowlist; auto-approving its MCP tool calls (`--approve-for-me`, required —
+without it every call is silently denied with no TTY to approve it) implies a
+`workspace-write` sandbox, so the harness scopes it to a fresh, empty temp directory per
+call (`-C`) rather than the repo, as the containment measure.
 
 ## Run history
 
