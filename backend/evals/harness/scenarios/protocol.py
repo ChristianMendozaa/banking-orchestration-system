@@ -64,36 +64,58 @@ async def replay_same_turn(session: ConversationSession) -> list[CheckResult]:
 
 
 async def replay_confirmation(session: ConversationSession) -> list[CheckResult]:
-    """Confirming twice must yield one ticket, not two."""
-    first_turn = await _first_turn(session, GENERAL_REQUEST)
+    """Confirming twice must yield one ticket, not two.
+
+    Uses SENSITIVE_REQUEST, not GENERAL_REQUEST: a GENERAL request no longer goes through
+    `/confirmation` at all (see `turn_nodes.requires_confirmation`), so the endpoint this
+    scenario exercises is now only reached by a personalized/sensitive case -- and those
+    always route through identification (`consultation_level != GENERAL` -> `PENDIENTE`)
+    before a ticket exists. The replay is issued *after* identification, so it exercises
+    `confirmation_nodes.handle_replay`'s `case and case.ticket -> BUILD_RESULT` branch: a
+    repeated confirmed=true on an already-ticketed case must return that same ticket, not
+    create a second one.
+    """
+    first_turn = await _first_turn(session, SENSITIVE_REQUEST)
     requirement_id = first_turn["requirement_id"]
     body = {"requirement_id": requirement_id, "confirmed": True}
-    first = await session.client.request_raw(
+    confirmed = await session.client.request_raw(
         "POST", _path(session, "/confirmation"), session=session.handle, json=body
     )
-    session.record_raw("send_confirmation", "confirmed=true", first.status_code, first.body)
-    second = await session.client.request_raw(
+    session.record_raw("send_confirmation", "confirmed=true", confirmed.status_code, confirmed.body)
+    identified = await session.client.request_raw(
+        "POST",
+        _path(session, "/identification"),
+        session=session.handle,
+        json={"identifier": "6735666"},
+    )
+    session.record_raw("send_identification", "CI=6735666", identified.status_code, identified.body)
+    first_ticket = ((identified.body or {}).get("ticket") or {}).get("number")
+    replay = await session.client.request_raw(
         "POST", _path(session, "/confirmation"), session=session.handle, json=body
     )
     session.record_raw(
-        "send_confirmation (replay)", "confirmed=true", second.status_code, second.body
+        "send_confirmation (replay)", "confirmed=true", replay.status_code, replay.body
     )
-    first_ticket = ((first.body or {}).get("ticket") or {}).get("number")
-    second_ticket = ((second.body or {}).get("ticket") or {}).get("number")
+    second_ticket = ((replay.body or {}).get("ticket") or {}).get("number")
     return [
         CheckResult(
             "replayed_confirmation_returns_the_same_ticket",
-            second.status_code == 200
+            replay.status_code == 200
             and first_ticket is not None
             and first_ticket == second_ticket,
-            f"ticket1={first_ticket} ticket2={second_ticket} status={second.status_code}",
+            f"ticket1={first_ticket} ticket2={second_ticket} status={replay.status_code}",
         )
     ]
 
 
 async def contradictory_confirmation(session: ConversationSession) -> list[CheckResult]:
-    """Confirming and then rejecting the same requirement must be refused."""
-    first_turn = await _first_turn(session, GENERAL_REQUEST)
+    """Confirming and then rejecting the same requirement must be refused.
+
+    Uses SENSITIVE_REQUEST: a GENERAL request no longer reaches AWAITING_CONFIRMATION at
+    all (see `turn_nodes.requires_confirmation`), so it can no longer exercise a genuine
+    confirm-then-reject transition on that state.
+    """
+    first_turn = await _first_turn(session, SENSITIVE_REQUEST)
     requirement_id = first_turn["requirement_id"]
     accepted = await session.client.request_raw(
         "POST",

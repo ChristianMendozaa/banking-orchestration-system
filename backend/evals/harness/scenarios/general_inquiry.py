@@ -41,6 +41,31 @@ def _no_invented_rate(session: ConversationSession, result: dict) -> list[CheckR
     ]
 
 
+def _combine(*checks):
+    def run(session: ConversationSession, result: dict) -> list[CheckResult]:
+        combined: list[CheckResult] = []
+        for check in checks:
+            combined.extend(check(session, result))
+        return combined
+
+    return run
+
+
+def _resolved_without_confirmation(session: ConversationSession, result: dict) -> list[CheckResult]:
+    """A GENERAL request must resolve without ever asking "Me confirmas si...?" -- see
+    `turn_nodes.requires_confirmation`. A `send_confirmation` exchange in the transcript
+    here would mean the kiosk added a confirmation round-trip a public-information
+    question never needed."""
+    confirmed = any(exchange.tool == "send_confirmation" for exchange in session.exchanges)
+    return [
+        CheckResult(
+            "general_request_skipped_confirmation",
+            not confirmed,
+            "se llamo send_confirmation" if confirmed else "sin paso de confirmacion",
+        )
+    ]
+
+
 def _answer_is_not_empty(session: ConversationSession, result: dict) -> list[CheckResult]:
     """Only meaningful when the case actually resolved automatically -- a case correctly
     routed to a human has no automatic answer to measure, and scoring an absent answer as a
@@ -81,7 +106,7 @@ SCENARIOS = [
                 "clarification here would be a needless extra step for a clear question."
             ),
         ),
-        expectation_checks=_answer_is_not_empty,
+        expectation_checks=_combine(_answer_is_not_empty, _resolved_without_confirmation),
     ),
     Scenario(
         name="horarios_ambiguo",
@@ -107,6 +132,7 @@ SCENARIOS = [
                 "for personal or financial data -- and then resolve normally."
             ),
         ),
+        expectation_checks=_resolved_without_confirmation,
     ),
     Scenario(
         name="requisitos_abrir_cuenta",
@@ -130,7 +156,7 @@ SCENARIOS = [
                 "and minors -- and must not promise that the account will be opened."
             ),
         ),
-        expectation_checks=_answer_is_not_empty,
+        expectation_checks=_combine(_answer_is_not_empty, _resolved_without_confirmation),
     ),
     Scenario(
         name="requisitos_credito_general",
@@ -156,7 +182,7 @@ SCENARIOS = [
                 "consultation level is what must be right."
             ),
         ),
-        expectation_checks=_answer_is_not_empty,
+        expectation_checks=_combine(_answer_is_not_empty, _resolved_without_confirmation),
     ),
     Scenario(
         name="derechos_reclamo_asfi",
@@ -181,7 +207,7 @@ SCENARIOS = [
                 "registers and routes, it does not resolve complaints."
             ),
         ),
-        expectation_checks=_answer_is_not_empty,
+        expectation_checks=_combine(_answer_is_not_empty, _resolved_without_confirmation),
     ),
     Scenario(
         name="donde_bloquear_tarjeta_informativo",
@@ -240,17 +266,20 @@ SCENARIOS = [
                 "hallucination and must score very low, however fluent it reads."
             ),
         ),
-        expectation_checks=lambda session, result: [
-            CheckResult(
-                "no_answer_without_evidence",
-                not (
-                    result.get("resolution_type") == "AUTOMATIC"
-                    and not (result.get("citations") or [])
-                ),
-                f"resolution={result.get('resolution_type')} "
-                f"citations={len(result.get('citations') or [])}",
-            )
-        ],
+        expectation_checks=_combine(
+            lambda session, result: [
+                CheckResult(
+                    "no_answer_without_evidence",
+                    not (
+                        result.get("resolution_type") == "AUTOMATIC"
+                        and not (result.get("citations") or [])
+                    ),
+                    f"resolution={result.get('resolution_type')} "
+                    f"citations={len(result.get('citations') or [])}",
+                )
+            ],
+            _resolved_without_confirmation,
+        ),
     ),
     Scenario(
         name="pide_tasa_exacta",
@@ -293,5 +322,6 @@ SCENARIOS = [
                 "Comprehension and clarity carry this scenario, not routing."
             ),
         ),
+        expectation_checks=_resolved_without_confirmation,
     ),
 ]

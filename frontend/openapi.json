@@ -2331,7 +2331,8 @@
             "enum": [
               "CLARIFY",
               "CONFIRM",
-              "DECLINE"
+              "DECLINE",
+              "COMPLETE"
             ],
             "title": "Next Action",
             "type": "string"
@@ -2350,6 +2351,16 @@
             "format": "uuid",
             "title": "Requirement Id",
             "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FlowResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "speech_text": {
             "title": "Speech Text",

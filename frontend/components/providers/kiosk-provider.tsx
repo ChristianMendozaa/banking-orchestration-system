@@ -657,6 +657,36 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
               )
               agentRequirementId = response.requirement_id
               if (!isBusinessSessionCurrent()) return response
+              // A confident GENERAL request resolves on this same turn -- no confirmation
+              // round-trip -- and next_action is COMPLETE with the answer embedded in
+              // `result`. Store it exactly like confirmRequirement / submitIdentification
+              // store a completed flow, so routing, terminal mute/completion-countdown and
+              // the transition-speech effect (all keyed off state.result) apply unchanged.
+              if (response.next_action === "COMPLETE" && response.result) {
+                const completed = response.result
+                if (
+                  !shouldApplyFlowResponse(
+                    stateRef.current,
+                    completed,
+                    startingRequirementId ?? completed.requirement_id,
+                    businessRevisionRef.current !== requestRevision,
+                  )
+                ) {
+                  return response
+                }
+                setVoiceError(null)
+                clarificationRef.current = false
+                updateState((stored) => ({
+                  ...stored,
+                  session: stored.session
+                    ? { ...stored.session, status: completed.status }
+                    : stored.session,
+                  analysis: null,
+                  result: completed,
+                  isClarification: false,
+                }))
+                return response
+              }
               if (
                 !shouldApplyAnalysisResponse(
                   stateRef.current,
@@ -1364,6 +1394,25 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         throw reason
       }
       if (stateRef.current.session?.session_id !== activeSession.session_id) {
+        return response
+      }
+      // A confident GENERAL request resolves on this same turn -- see the matching branch
+      // in connectVoice's analyzeRequirement callback for why this stores into `result`
+      // (a real FlowResult) instead of `analysis`.
+      if (response.next_action === "COMPLETE" && response.result) {
+        const completed = response.result
+        clarificationRef.current = false
+        setVoiceError(null)
+        updateState((stored) => ({
+          ...stored,
+          session: stored.session
+            ? { ...stored.session, status: completed.status }
+            : stored.session,
+          analysis: null,
+          result: completed,
+          isClarification: false,
+        }))
+        syncTextExchange(activeSession, transcript.trim(), response.speech_text)
         return response
       }
       const isClarification = response.next_action === "CLARIFY"

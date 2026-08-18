@@ -29,6 +29,9 @@ async def _session(client: AsyncClient) -> tuple[str, str]:
 
 
 async def test_general_query_is_masked_and_resolved_automatically(client: AsyncClient) -> None:
+    """A GENERAL-level request never asks "Me confirmas si...?" -- see
+    `turn_nodes.requires_confirmation` -- so it must resolve straight from `/turns`, with
+    `next_action="COMPLETE"` and the answer embedded in `result`."""
     session_id, token = await _session(client)
     headers = {"X-Session-Token": token}
     transcript = "Mi correo es cliente@example.com y quiero conocer el horario de atencion"
@@ -39,17 +42,11 @@ async def test_general_query_is_masked_and_resolved_automatically(client: AsyncC
     )
     assert turn.status_code == 200, turn.text
     analysis = turn.json()
-    assert analysis["next_action"] == "CONFIRM"
+    assert analysis["next_action"] == "COMPLETE"
     assert analysis["category"] == "CONSULTA_GENERAL"
     assert "EMAIL" in analysis["pii_types"]
 
-    confirmation = await client.post(
-        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
-        headers=headers,
-        json={"requirement_id": analysis["requirement_id"], "confirmed": True},
-    )
-    assert confirmation.status_code == 200, confirmation.text
-    result = confirmation.json()
+    result = analysis["result"]
     assert result["resolution_type"] == "AUTOMATIC"
     assert result["grounding_status"] == "GROUNDED"
     assert result["citations"][0]["title"] == "Horarios de atención"
@@ -60,8 +57,64 @@ async def test_general_query_is_masked_and_resolved_automatically(client: AsyncC
     async with TestSession() as db:
         requirement = await db.scalar(select(Requirement))
         assert requirement is not None
+        assert requirement.confirmation_decision is True
         assert "cliente@example.com" not in requirement.masked_text
         assert "[EMAIL]" in requirement.masked_text
+
+
+async def test_replayed_turn_after_automatic_resolution_returns_the_same_result(
+    client: AsyncClient,
+) -> None:
+    """A retried request with the same turn_id must not raise TURN_ALREADY_COMPLETED once
+    the session has auto-resolved -- it should hand back the already-built result, same as
+    the pre-existing AWAITING_CONFIRMATION replay guard did before GENERAL requests skipped
+    confirmation."""
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    turn_id = str(uuid4())
+    transcript = "Quiero conocer el horario de atencion"
+    payload = {"turn_id": turn_id, "transcript": transcript}
+
+    first = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns", headers=headers, json=payload
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["next_action"] == "COMPLETE"
+
+    replay = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns", headers=headers, json=payload
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["requirement_id"] == first.json()["requirement_id"]
+    assert replay.json()["result"]["ticket"]["number"] == first.json()["result"]["ticket"]["number"]
+
+    async with TestSession() as db:
+        tickets = list(await db.scalars(select(Ticket)))
+        assert len(tickets) == 1
+
+
+async def test_new_turn_after_automatic_resolution_is_rejected(client: AsyncClient) -> None:
+    """`cases.session_id` and `tickets.case_id` are both DB-unique -- a kiosk session owns
+    exactly one case and one ticket, ever -- so a genuinely new question (a different
+    turn_id) after an automatic resolution cannot be served in the same session; it must
+    be rejected the same way a new turn after a human handoff already is."""
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    first = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Quiero conocer el horario de atencion"},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["next_action"] == "COMPLETE"
+
+    second = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Ahora quiero saber sobre creditos"},
+    )
+    assert second.status_code == 409
+    assert second.json()["code"] == "INVALID_SESSION_STATE"
 
 
 async def test_ambiguous_query_requests_clarification(client: AsyncClient) -> None:
@@ -97,13 +150,8 @@ async def test_general_query_without_rag_evidence_is_routed_to_human(
     )
     assert turn.status_code == 200
     analysis = turn.json()
-    confirmation = await client.post(
-        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
-        headers=headers,
-        json={"requirement_id": analysis["requirement_id"], "confirmed": True},
-    )
-    assert confirmation.status_code == 200
-    result = confirmation.json()
+    assert analysis["next_action"] == "COMPLETE"
+    result = analysis["result"]
     assert result["resolution_type"] == "HUMAN"
     assert result["grounding_status"] == "NO_EVIDENCE"
     assert result["citations"] == []
@@ -131,14 +179,9 @@ async def test_general_inquiry_outside_consulta_general_reports_true_no_evidence
     analysis = turn.json()
     assert analysis["category"] == "SOLICITUD_CREDITO"
     assert analysis["consultation_level"] == "GENERAL"
+    assert analysis["next_action"] == "COMPLETE"
 
-    confirmation = await client.post(
-        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
-        headers=headers,
-        json={"requirement_id": analysis["requirement_id"], "confirmed": True},
-    )
-    assert confirmation.status_code == 200, confirmation.text
-    result = confirmation.json()
+    result = analysis["result"]
     assert result["resolution_type"] == "HUMAN"
     assert result["grounding_status"] == "NO_EVIDENCE"
 

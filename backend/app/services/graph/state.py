@@ -71,6 +71,7 @@ class OrchestrationState(TypedDict, total=False):
     decision: ClassificationDecision
     classification_source: str
     force_human: bool
+    auto_resolve: bool
 
     # Shared across graphs once known.
     requirement: Requirement

@@ -211,6 +211,15 @@ export function shouldApplyFlowResponse(
 }
 
 export function analysisToolOutput(response: TurnAnalysis): Record<string, unknown> {
+  // A confident GENERAL request now resolves on this same turn (see
+  // turn_nodes.requires_confirmation on the backend) and next_action is COMPLETE with the
+  // answer embedded in `result`. That is exactly the shape confirmRequirement /
+  // submitIdentification already report when they finish a flow, so route it through the
+  // same tool-output shape and transition key (flowToolOutput / flowTransitionKey) instead
+  // of a second, differently-keyed "analysis" transition for the same event.
+  if (response.next_action === "COMPLETE" && response.result) {
+    return flowToolOutput(response.result)
+  }
   return {
     ok: true,
     requirement_id: response.requirement_id,

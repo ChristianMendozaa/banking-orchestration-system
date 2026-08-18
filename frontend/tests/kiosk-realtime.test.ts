@@ -2,6 +2,7 @@ import { isBackgroundResult } from "@openai/agents/realtime"
 import { describe, expect, it, vi } from "vitest"
 
 import {
+  analysisToolOutput,
   APPLICATION_EVENT_PREFIX,
   analysisTransitionKey,
   businessTransitionKey,
@@ -9,6 +10,7 @@ import {
   captionsFromHistory,
   controlledTransitionFromToolResult,
   explicitConfirmation,
+  flowToolOutput,
   flowTransitionKey,
   requestControlledResponse,
   shouldApplyAnalysisResponse,
@@ -241,6 +243,17 @@ describe("transition keys", () => {
   it("correlates analysis and tickets with stable keys", () => {
     expect(analysisTransitionKey(analysis)).toBe("requirement-1:CONFIRM")
     expect(flowTransitionKey(completed)).toBe("ticket:ticket-1")
+  })
+
+  it("routes a COMPLETE analysis (GENERAL, no confirmation step) through the flow tool output", () => {
+    const autoResolved: TurnAnalysis = {
+      ...analysis,
+      consultation_level: "GENERAL",
+      next_action: "COMPLETE",
+      speech_text: completed.speech_text,
+      result: completed,
+    }
+    expect(analysisToolOutput(autoResolved)).toEqual(flowToolOutput(completed))
   })
 
   it("extracts only controllable results and detects closure", () => {

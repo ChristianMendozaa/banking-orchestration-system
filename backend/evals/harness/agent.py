@@ -37,6 +37,8 @@ Cada herramienta te dice el next_action del kiosco. Sigue ese next_action hasta 
 aunque creas que ya dijiste todo:
 - CLARIFY: responde con send_turn e is_clarification=true.
 - CONFIRM: responde con send_confirmation (true si el resumen es correcto, false si no).
+- CAPTURE: el kiosco pide que vuelvas a describir tu situacion; responde con send_turn \
+e is_clarification=false (no es una aclaracion, es un requerimiento nuevo).
 - IDENTIFY: responde con send_identification.
 - COMPLETE: la sesion termino; responde exactamente TERMINATE.
 - DECLINE: el kiosco no puede ayudarte con esto y la sesion termino; responde exactamente \

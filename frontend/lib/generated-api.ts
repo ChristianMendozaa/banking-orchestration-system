@@ -1339,7 +1339,7 @@ export interface components {
              * Next Action
              * @enum {string}
              */
-            next_action: "CLARIFY" | "CONFIRM" | "DECLINE";
+            next_action: "CLARIFY" | "CONFIRM" | "DECLINE" | "COMPLETE";
             /** Pii Types */
             pii_types?: string[];
             priority: components["schemas"]["Priority"];
@@ -1348,6 +1348,7 @@ export interface components {
              * Format: uuid
              */
             requirement_id: string;
+            result?: components["schemas"]["FlowResult"] | null;
             /** Speech Text */
             speech_text: string;
             status: components["schemas"]["SessionStatus"];

@@ -12,11 +12,65 @@ from langgraph.graph import END
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
-from app.db.models import CaseRecord, Requirement, TraceEvent
+from app.db.models import CaseRecord, KioskSession, Requirement, TraceEvent
 from app.domain.enums import CaseStatus, ConsultationLevel, IdentificationStatus, SessionStatus
 from app.services.graph.state import GraphContext, OrchestrationState
+
+
+async def create_case_for_requirement(
+    db: AsyncSession, kiosk_session: KioskSession, requirement: Requirement
+) -> CaseRecord:
+    """Creates the `CaseRecord` for a confirmed (explicitly or implicitly) requirement,
+    plus its `REQUIREMENT_CAPTURED` / `PII_MASKED` / `CASE_CLASSIFIED` trace events. Shared
+    by the confirmation-graph acceptance path (`apply_confirmation`) and the turn-graph
+    auto-resolve path (`auto_capture`) so a GENERAL request that skips confirmation still
+    produces the exact same case shape as one that went through it."""
+    identification_status = (
+        IdentificationStatus.ANONIMO
+        if requirement.consultation_level == ConsultationLevel.GENERAL
+        else IdentificationStatus.PENDIENTE
+    )
+    case = CaseRecord(
+        session_id=kiosk_session.id,
+        requirement_id=requirement.id,
+        category=requirement.category,
+        consultation_level=requirement.consultation_level,
+        identification_status=identification_status,
+        summary=requirement.summary,
+        preferential_attention=kiosk_session.preferential_attention,
+        status=CaseStatus.CLASSIFIED,
+        force_human=requirement.force_human,
+    )
+    db.add(case)
+    await db.flush()
+    db.add_all(
+        [
+            TraceEvent(
+                case_id=case.id,
+                event_type="REQUIREMENT_CAPTURED",
+                description="Requerimiento capturado y confirmado",
+            ),
+            TraceEvent(
+                case_id=case.id,
+                event_type="PII_MASKED",
+                description="Datos sensibles enmascarados antes del procesamiento interno",
+                metadata_json={"pii_types": requirement.pii_metadata.get("types", [])},
+            ),
+            TraceEvent(
+                case_id=case.id,
+                event_type="CASE_CLASSIFIED",
+                description=f"Caso clasificado como {case.category.value}",
+                metadata_json={
+                    "confidence": requirement.confidence,
+                    "source": requirement.classification_source,
+                },
+            ),
+        ]
+    )
+    return case
 
 
 async def load_and_guard(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
@@ -143,48 +197,7 @@ async def apply_confirmation(state: OrchestrationState, runtime: Runtime[GraphCo
         return Command(goto=END, update={"next_action": "CAPTURE"})
 
     if not case:
-        identification_status = (
-            IdentificationStatus.ANONIMO
-            if requirement.consultation_level == ConsultationLevel.GENERAL
-            else IdentificationStatus.PENDIENTE
-        )
-        case = CaseRecord(
-            session_id=kiosk_session.id,
-            requirement_id=requirement.id,
-            category=requirement.category,
-            consultation_level=requirement.consultation_level,
-            identification_status=identification_status,
-            summary=requirement.summary,
-            preferential_attention=kiosk_session.preferential_attention,
-            status=CaseStatus.CLASSIFIED,
-            force_human=requirement.force_human,
-        )
-        db.add(case)
-        await db.flush()
-        db.add_all(
-            [
-                TraceEvent(
-                    case_id=case.id,
-                    event_type="REQUIREMENT_CAPTURED",
-                    description="Requerimiento capturado y confirmado",
-                ),
-                TraceEvent(
-                    case_id=case.id,
-                    event_type="PII_MASKED",
-                    description="Datos sensibles enmascarados antes del procesamiento interno",
-                    metadata_json={"pii_types": requirement.pii_metadata.get("types", [])},
-                ),
-                TraceEvent(
-                    case_id=case.id,
-                    event_type="CASE_CLASSIFIED",
-                    description=f"Caso clasificado como {case.category.value}",
-                    metadata_json={
-                        "confidence": requirement.confidence,
-                        "source": requirement.classification_source,
-                    },
-                ),
-            ]
-        )
+        case = await create_case_for_requirement(db, kiosk_session, requirement)
 
     if case.identification_status == IdentificationStatus.PENDIENTE:
         kiosk_session.status = SessionStatus.AWAITING_IDENTIFICATION

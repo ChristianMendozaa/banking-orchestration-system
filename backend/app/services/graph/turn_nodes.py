@@ -14,7 +14,21 @@ from langgraph.types import Command
 from app.core.errors import AppError
 from app.db.models import Requirement
 from app.domain.enums import Category, ConsultationLevel, SessionStatus
+from app.domain.schemas import ClassificationDecision
+from app.services.graph import confirmation_nodes
 from app.services.graph.state import GraphContext, OrchestrationState
+
+
+def requires_confirmation(decision: ClassificationDecision) -> bool:
+    """Confirmation is friction that only earns its keep when something happens after it
+    that can't be undone -- identification, or a human handoff. GENERAL is exactly the
+    consultation level that never needs identification (`create_case_for_requirement`
+    below always makes it ANONIMO) and the only level `InitialAttentionAgent` will ground
+    at all -- so a confident GENERAL classification resolves on this same turn instead of
+    asking "Me confirmas si...?" for a question the kiosk is about to just answer or
+    forward on its own. (The `force_human` fallback never reaches this predicate -- it is
+    a low-confidence guess routed straight to its own always-confirms node below.)"""
+    return decision.consultation_level != ConsultationLevel.GENERAL
 
 
 async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) -> Command:
@@ -35,6 +49,23 @@ async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) 
         if pending:
             return Command(goto=END, update={"requirement": pending})
     if existing:
+        # A GENERAL request now resolves -- and moves the session to RESOLVED_AUTOMATIC /
+        # ASSIGNED -- on its very first turn (see accept/auto_capture below), so a retried
+        # request with the same turn_id no longer lands while the session is still
+        # AWAITING_CONFIRMATION the way the branch above handles. Replay it the same way:
+        # hand back the already-built result instead of raising TURN_ALREADY_COMPLETED for
+        # a request the client may simply be retrying after a dropped response. This is
+        # replay of the *same* turn_id only -- a genuinely new question is still rejected
+        # below by allowed_statuses, because `cases.session_id` and `tickets.case_id` are
+        # both DB-unique: this kiosk session already owns its one case and one ticket, and
+        # there is no row for a second automatic resolution to occupy.
+        if existing.confirmation_decision is True and kiosk_session.status in {
+            SessionStatus.RESOLVED_AUTOMATIC,
+            SessionStatus.ASSIGNED,
+        }:
+            return Command(
+                goto=END, update={"requirement": existing, "next_action": "BUILD_RESULT"}
+            )
         raise AppError(
             "TURN_ALREADY_COMPLETED",
             "Ese turno ya fue procesado y el flujo avanzó",
@@ -127,8 +158,14 @@ async def force_human(state: OrchestrationState) -> dict:
 
 
 async def accept(state: OrchestrationState) -> dict:
-    state["kiosk_session"].status = SessionStatus.AWAITING_CONFIRMATION
-    return {}
+    kiosk_session = state["kiosk_session"]
+    if requires_confirmation(state["decision"]):
+        kiosk_session.status = SessionStatus.AWAITING_CONFIRMATION
+        return {"auto_resolve": False}
+    # GENERAL and confident: skip the confirmation round-trip entirely. The session status
+    # is set later, inside the shared finalize subgraph (automatic_ticket / route_human),
+    # exactly as it would be for a confirmed requirement -- see auto_capture below.
+    return {"auto_resolve": True}
 
 
 async def decline(state: OrchestrationState) -> dict:
@@ -187,3 +224,21 @@ async def persist_requirement(state: OrchestrationState, runtime: Runtime[GraphC
     runtime.context.db.add(requirement)
     await runtime.context.db.flush()
     return {"requirement": requirement}
+
+
+def route_after_persist(state: OrchestrationState) -> str:
+    return "auto_capture" if state.get("auto_resolve") else "end"
+
+
+async def auto_capture(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
+    """Only reached from `accept` when `requires_confirmation` said no: the requirement is
+    treated as implicitly confirmed -- same as the confirmation_graph's explicit
+    `confirmed=true` path -- so a customer who somehow revisits it later hits the ordinary
+    replay-healing logic in `confirmation_nodes.heal_decision` / `handle_replay` instead of
+    a state this graph never expected."""
+    requirement = state["requirement"]
+    requirement.confirmation_decision = True
+    case = await confirmation_nodes.create_case_for_requirement(
+        runtime.context.db, state["kiosk_session"], requirement
+    )
+    return {"case": case}

@@ -15,7 +15,7 @@ from harness.evaluator import CheckResult
 from harness.scenarios import CATALOG, GROUP_LABELS, GROUP_ORDER, SCENARIOS, all_tags
 from harness.scenarios.adversarial import _no_other_customer_data_disclosed
 from harness.scenarios.card_and_fraud import UNKNOWN_CI
-from harness.scenarios.general_inquiry import _answer_is_not_empty
+from harness.scenarios.general_inquiry import _answer_is_not_empty, _resolved_without_confirmation
 from harness.seed import known_identifiers
 from harness.session import ConversationSession, ExchangeRecord
 
@@ -168,6 +168,27 @@ def test_answer_is_not_empty_fails_on_a_short_automatic_answer() -> None:
     session = ConversationSession(client=None, handle=SessionHandle("sid", "tok"))
     checks = _answer_is_not_empty(session, {"resolution_type": "AUTOMATIC", "response": "Sí."})
     assert checks[0].applicable is True
+    assert checks[0].passed is False
+
+
+def test_resolved_without_confirmation_passes_when_no_confirmation_happened() -> None:
+    session = ConversationSession(client=None, handle=SessionHandle("sid", "tok"))
+    session.exchanges.append(
+        ExchangeRecord(index=0, tool="send_turn", customer_text="x", kiosk_speech="y")
+    )
+    checks = _resolved_without_confirmation(session, {})
+    assert checks[0].passed is True
+
+
+def test_resolved_without_confirmation_fails_when_confirmation_was_used() -> None:
+    session = ConversationSession(client=None, handle=SessionHandle("sid", "tok"))
+    session.exchanges.append(
+        ExchangeRecord(index=0, tool="send_turn", customer_text="x", kiosk_speech="y")
+    )
+    session.exchanges.append(
+        ExchangeRecord(index=1, tool="send_confirmation", customer_text="Sí", kiosk_speech="Listo")
+    )
+    checks = _resolved_without_confirmation(session, {})
     assert checks[0].passed is False
 
 

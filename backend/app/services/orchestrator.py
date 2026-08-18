@@ -108,7 +108,35 @@ class OrchestratorService:
             {"kiosk_session": kiosk_session, "turn_payload": payload},
             context=self._graph_context(db),
         )
+        # Set only when a confident GENERAL classification skipped confirmation and ran
+        # straight through the shared finalize subgraph (turn_nodes.auto_capture) or when
+        # guard_turn replayed an already-resolved turn_id -- every other path here still
+        # ends in NEEDS_CLARIFICATION / AWAITING_CONFIRMATION / DECLINED, handled below.
+        if final_state.get("next_action") == "BUILD_RESULT":
+            result = await self._build_result(db, kiosk_session.id)
+            return self._completed_analysis_response(
+                kiosk_session, final_state["requirement"], result
+            )
         return self._analysis_response(final_state["kiosk_session"], final_state["requirement"])
+
+    @staticmethod
+    def _completed_analysis_response(
+        kiosk_session: KioskSession, requirement: Requirement, result: FlowResult
+    ) -> TurnAnalysisResponse:
+        return TurnAnalysisResponse(
+            requirement_id=requirement.id,
+            status=kiosk_session.status,
+            summary=requirement.summary,
+            customer_summary=requirement.customer_summary,
+            category=requirement.category,
+            priority=requirement.proposed_priority,
+            consultation_level=requirement.consultation_level,
+            confidence=requirement.confidence,
+            pii_types=requirement.pii_metadata.get("types", []),
+            next_action="COMPLETE",
+            speech_text=result.speech_text,
+            result=result,
+        )
 
     def _analysis_response(
         self, kiosk_session: KioskSession, requirement: Requirement

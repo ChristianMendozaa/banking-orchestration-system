@@ -12,6 +12,7 @@ transient API error would be the worst possible failure mode for a suite this ex
 """
 
 import asyncio
+import contextlib
 import time
 import traceback
 
@@ -22,7 +23,7 @@ from harness.cli_customer import build_cli_customer_backend
 from harness.client import KioskClient
 from harness.evaluator import CheckResult, Evaluator
 from harness.judge import Judge, JudgeVerdict
-from harness.mcp_kiosk_server import serve_kiosk_tools
+from harness.mcp_kiosk_server import KioskMcpServerPool, serve_kiosk_pool
 from harness.model_client import build_model_client, resolve_provider
 from harness.scenarios import SCENARIOS
 from harness.scenarios.models import Scenario
@@ -82,6 +83,7 @@ async def run_scenario(
     scenario: Scenario,
     *,
     model: str,
+    mcp_pool: KioskMcpServerPool | None = None,
     repetition: int = 1,
 ) -> ScenarioResult:
     started = time.monotonic()
@@ -117,9 +119,17 @@ async def run_scenario(
                 # Same 3 tools, same session, same INITIAL_TASK -- just handed to a
                 # local CLI over MCP instead of AutoGen's native OpenAI tool-calling.
                 # `session` is mutated in place by the tool calls either way, so nothing
-                # below this branch needs to know which path ran.
+                # below this branch needs to know which path ran. Borrowed from the
+                # shared pool rather than a fresh per-scenario server -- see
+                # `mcp_kiosk_server.serve_kiosk_pool` for why a fresh server per
+                # scenario doesn't work against these CLIs in practice.
+                if mcp_pool is None:
+                    raise RuntimeError(
+                        f"model={model!r} needs a running kiosk MCP pool "
+                        "(run_all should have started one)"
+                    )
                 backend = build_cli_customer_backend(provider, underlying_model)
-                async with serve_kiosk_tools(session) as mcp_url:
+                async with mcp_pool.acquire(session) as mcp_url:
                     await backend.run(
                         scenario=scenario,
                         session=session,
@@ -229,15 +239,31 @@ async def run_all(
     evaluator = Evaluator(max_clarifications=max_clarifications, rag_min_score=rag_min_score)
     judge = Judge(judge_model) if judge_model else None
     selected = scenarios if scenarios is not None else SCENARIOS
-    semaphore = asyncio.Semaphore(max(1, concurrency))
+    concurrency = max(1, concurrency)
+    semaphore = asyncio.Semaphore(concurrency)
+    # Only the CLI-customer path (claude-code / codex) needs a kiosk MCP pool -- the
+    # native OpenAI customer calls the same 3 methods directly, no MCP involved. One
+    # pool, sized to `concurrency`, for the whole run: see
+    # `mcp_kiosk_server.serve_kiosk_pool` for why it must be reused across scenarios
+    # rather than rebuilt per scenario.
+    customer_provider, _ = resolve_provider(model)
+    pool_cm = serve_kiosk_pool(concurrency) if customer_provider is not None else None
 
     try:
-        async with KioskClient(base_url) as client:
+        async with contextlib.AsyncExitStack() as stack:
+            client = await stack.enter_async_context(KioskClient(base_url))
+            mcp_pool = await stack.enter_async_context(pool_cm) if pool_cm else None
 
             async def guarded(scenario: Scenario, repetition: int) -> ScenarioResult:
                 async with semaphore:
                     return await run_scenario(
-                        client, evaluator, judge, scenario, model=model, repetition=repetition
+                        client,
+                        evaluator,
+                        judge,
+                        scenario,
+                        model=model,
+                        mcp_pool=mcp_pool,
+                        repetition=repetition,
                     )
 
             tasks = [

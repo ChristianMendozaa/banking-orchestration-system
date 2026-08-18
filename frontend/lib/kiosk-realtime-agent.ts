@@ -29,6 +29,10 @@ FLUJO OBLIGATORIO:
 2. Si la tool devuelve CLARIFY, la aplicación pronunciará speech_text. Tras la respuesta,
    vuelve a llamar analizar_requerimiento solo con esa aclaración; el backend conserva el contexto.
 3. Si devuelve CONFIRM, la aplicación pronunciará speech_text; espera un sí o no inequívoco.
+3b. Si analizar_requerimiento devuelve COMPLETE, la petición era información pública y ya
+    quedó resuelta sin necesitar confirmación. La aplicación pronunciará speech_text con la
+    respuesta o el número de ticket. No pidas confirmación, no llames más herramientas y no
+    continúes la conversación.
 4. Solo llama confirmar_requerimiento cuando recibas una confirmación o rechazo
    explícita. Copia sus palabras en user_response y no infieras una confirmación.
 5. La aplicación pronunciará el resultado de cada herramienta. Llama la herramienta directamente:

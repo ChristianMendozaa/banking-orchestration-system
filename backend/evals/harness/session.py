@@ -123,6 +123,12 @@ class ConversationSession:
             self.clarification_rounds += 1
         if response.get("next_action") == "DECLINE":
             self.finished = True
+        # A confident GENERAL request can now resolve on this same turn (no confirmation
+        # step) and return next_action=COMPLETE directly -- without this, `self.finished`
+        # would stay stale and `_describe` would never append the "session is over"
+        # instruction, since `_check_finished` was previously only wired into
+        # send_confirmation/send_identification.
+        self._check_finished(response)
         return self._describe(response)
 
     async def send_confirmation(self, confirmed: bool) -> str:

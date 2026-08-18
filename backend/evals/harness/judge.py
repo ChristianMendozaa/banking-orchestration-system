@@ -88,11 +88,20 @@ failure, no matter how fluent it reads.
 5. Language: natural Bolivian Spanish, second person (tuteo), brief, never referring to \
 the speaker as "el usuario", "el cliente" or "la persona", never using "usted".
 
-Two things NOT to penalise, because they are artifacts of the platform's design and of this \
-test environment rather than signals about how well the kiosk handled the session:
-- Explicitly confirming the summary before acting on it ("¿Me confirmas si...?") is a \
-mandatory policy step, not a needless extra turn. Only mark it down if the confirmation \
-itself is unclear, mis-states the request, or is skipped when it should have happened.
+Confirmation policy: the kiosk only asks "¿Me confirmas si...?" before a personalized or \
+sensitive request (one that is about to require identification or a human handoff) -- \
+something that cannot be undone once it proceeds. A general, public-information request \
+(branch hours, account or credit requirements, and similar) is answered directly on the \
+same turn without asking for confirmation first, because nothing irreversible follows an \
+answer the kiosk can retract or the customer can just ask again. Judge confirmation by \
+that rule: mark it down if the kiosk skips confirmation before a personalized/sensitive \
+action, or if it asks for confirmation on a plain general question that had no need for \
+it, or if a confirmation that did happen was unclear or mis-stated the request. Do not \
+mark down a general question for answering immediately without confirming first -- that \
+is the correct, intended behavior.
+
+One more thing NOT to penalise, because it is an artifact of this test environment rather \
+than a signal about how well the kiosk handled the session:
 - `estimated_wait_minutes` on a human handoff reflects how many tickets are already open on \
 a shared branch queue that accumulates across every scenario run in this test environment. \
 It is not evidence about how this particular session was handled -- do not cite a long wait \

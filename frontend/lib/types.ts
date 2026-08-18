@@ -17,10 +17,17 @@ export type User = Schemas["UserSummary"]
 export type TokenResponse = Schemas["TokenResponse"]
 export type PublicSystemConfig = Schemas["PublicSystemConfig"]
 export type KioskSession = Schemas["SessionCreatedResponse"]
-export type TurnAnalysis = Schemas["TurnAnalysisResponse"]
 export type KnowledgeCitation = Schemas["KnowledgeCitation"]
 export type FlowResult = Omit<Schemas["FlowResult"], "citations"> & {
   citations: Schemas["KnowledgeCitation"][]
+}
+// A confident GENERAL request now resolves on the same turn (see
+// turn_nodes.requires_confirmation on the backend): next_action can be "COMPLETE" with the
+// answer embedded in `result`. Reshaped the same way as the top-level FlowResult above so
+// `analysis.result` and a `/confirmation` FlowResult are interchangeable everywhere in the
+// frontend instead of `result.citations` being separately optional here.
+export type TurnAnalysis = Omit<Schemas["TurnAnalysisResponse"], "result"> & {
+  result?: FlowResult | null
 }
 export type KioskSessionStatus = Omit<
   Schemas["SessionStatusResponse"],

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from reportlab.lib import colors
@@ -23,7 +24,8 @@ ROOT = Path(__file__).resolve().parents[2]
 SEED = ROOT / "backend" / "seed" / "operational_seed.json"
 RAG_DIR = ROOT / "doc" / "rag"
 OPERATIONS_DIR = ROOT / "doc" / "operacion"
-VERSION = "2026.07.1"
+VERSION = "2026.08"
+VIGENTE_DESDE = "18/08/2026"
 
 BLUE = colors.HexColor("#0B4F8A")
 LIGHT_BLUE = colors.HexColor("#EAF4FC")
@@ -126,16 +128,24 @@ def render_document(
     sections: list[tuple[str, str]],
     *,
     sources: list[str] | None = None,
-) -> None:
+) -> list[str]:
+    """Renders one RAG document and returns the exact heading strings it wrote, in order
+    -- including "Fuentes consultadas" when `sources` is given. The chunker in
+    `app/knowledge/chunking.py` splits a document by exact (case-insensitive) match
+    against `manifest.json`'s `sections` list, so returning the real headings here lets
+    the manifest be generated from what was actually rendered instead of hand-copied --
+    the two can no longer drift apart, which is what silently dropped content out of the
+    index before."""
     target.parent.mkdir(parents=True, exist_ok=True)
     document_styles = styles()
     story = [
         Paragraph(title, document_styles["DocumentTitle"]),
         Paragraph(
-            f"Versión {VERSION} · Vigente desde el 17/07/2026",
+            f"Versión {VERSION} · Vigente desde el {VIGENTE_DESDE}",
             document_styles["DocumentSubtitle"],
         ),
     ]
+    headings = [heading for heading, _ in sections]
     for heading, content in sections:
         story.extend(
             [
@@ -148,6 +158,7 @@ def render_document(
         for source in sources:
             story.append(Paragraph(source, document_styles["SmallOperational"]))
             story.append(Spacer(1, 1.5 * mm))
+        headings.append("Fuentes consultadas")
 
     document = SimpleDocTemplate(
         str(target),
@@ -161,10 +172,178 @@ def render_document(
         invariant=1,
     )
     document.build(story, onFirstPage=footer, onLaterPages=footer)
+    return headings
 
 
-def render_rag_documents() -> None:
-    render_document(
+def render_rag_documents() -> dict[str, list[str]]:
+    """Renders every RAG document and returns `{slug: headings}` for `update_manifest`."""
+    sections: dict[str, list[str]] = {}
+
+    sections["canales-atencion-bmsc"] = render_document(
+        RAG_DIR / "01_canales_y_atencion_bmsc.pdf",
+        "Canales y atención del Banco Mercantil Santa Cruz",
+        [
+            (
+                "Canales de atención",
+                "El Banco Mercantil Santa Cruz ofrece Banca Móvil, Banca por Internet, "
+                "cajeros automáticos, agencias y Contact Center. La Banca Móvil y la Banca "
+                "por Internet permiten realizar consultas y operaciones sin acudir a una "
+                "agencia. La red de agencias tiene cobertura en los nueve departamentos de "
+                "Bolivia.",
+            ),
+            (
+                "Contact Center",
+                "La Línea Móvil 788-12000 está publicada como disponible las 24 horas. La "
+                "línea gratuita 800-17-0777 atiende de lunes a sábado, de 09:00 a 18:00. El "
+                "canal de WhatsApp 6377-0777 atiende de lunes a domingo, de 07:00 a 23:00. "
+                "Estos canales pueden orientar sobre productos, activar o bloquear "
+                "tarjetas, restablecer accesos digitales y registrar o seguir reclamos.",
+            ),
+            (
+                "Atención en agencias",
+                "En agencias se pueden realizar transferencias, pagos de servicios, "
+                "retiros, depósitos, giros y solicitudes de crédito.",
+            ),
+            (
+                "Horarios de agencias",
+                "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados "
+                "de 09:00 a 13:00. En Santa Cruz de la Sierra, las agencias de la Av. "
+                "Cristo Redentor y del Segundo Anillo atienden de lunes a viernes de 08:30 "
+                "a 19:00 y sábados de 09:00 a 13:00; la agencia del Plan 3000 atiende de "
+                "lunes a viernes de 08:30 a 18:00, sin atención sabatina. En La Paz, la "
+                "agencia El Prado atiende de lunes a viernes de 08:30 a 18:30 y sábados de "
+                "09:30 a 13:00. En Cochabamba, la agencia Av. Ballivián atiende de lunes a "
+                "viernes de 08:30 a 18:30 y sábados de 09:00 a 13:00. Los horarios pueden "
+                "variar en feriados y fechas especiales; se recomienda confirmar el "
+                "horario de la agencia específica antes de una visita en esas fechas.",
+            ),
+            (
+                "Orientación del kiosco",
+                "Para consultas generales, el kiosco puede informar el canal apropiado y "
+                "generar un ticket si la persona desea atención presencial. No debe "
+                "prometer que un trámite podrá completarse por un canal determinado sin "
+                "verificar la documentación y las condiciones vigentes del producto.",
+            ),
+        ],
+        sources=[
+            "https://www.bmsc.com.bo/tech",
+            "https://www.bmsc.com.bo/help",
+            "https://www.bmsc.com.bo/clientBenefitDetails?key=detalle-beneficio-cinco",
+        ],
+    )
+
+    sections["cuentas-requisitos-bmsc"] = render_document(
+        RAG_DIR / "02_cuentas_y_requisitos_bmsc.pdf",
+        "Cuentas de ahorro y requisitos generales del BMSC",
+        [
+            (
+                "Apertura y documentación",
+                "Para abrir un producto de ahorro publicado por el BMSC se solicita: (1) "
+                "documento de identidad vigente -- cédula de identidad boliviana, o "
+                "cédula de extranjero o documento especial de identificación para "
+                "personas extranjeras; (2) un comprobante de domicilio con antigüedad no "
+                "mayor a 90 días cuando el titular no cuenta con historial previo en el "
+                "banco; y (3), para personas extranjeras, respaldo de su actividad "
+                "económica, como independientes o mediante boleta de pago como "
+                "dependientes.",
+            ),
+            (
+                "Súper Makro Cuenta",
+                "La Súper Makro Cuenta puede abrirse en moneda nacional con monto mínimo "
+                "publicado de Bs. 0. Permite participar en sorteos según el saldo y el "
+                "reglamento vigente. Incluye acceso a Banca Móvil, Banca por Internet, "
+                "cajeros y agencias.",
+            ),
+            (
+                "Cuenta Rinde+",
+                "La Cuenta de Ahorro Rinde+ publica un monto mínimo de apertura en agencia "
+                "de Bs. 2.000 y apertura en línea sin monto mínimo. Las tasas, beneficios "
+                "y montos pueden cambiar; antes de contratar se debe revisar el tarifario "
+                "y reglamento vigente.",
+            ),
+            (
+                "Cuenta de ahorro para menores de edad",
+                "La Cuenta de Ahorro para Menores puede abrirse desde el nacimiento hasta "
+                "los 17 años, siempre a nombre del menor y bajo la representación de un "
+                "padre, madre o tutor legal. Se solicita: documento de identificación del "
+                "menor -- cédula de identidad, o certificado de nacimiento cuando el "
+                "documento no identifica a los padres; documento de identidad vigente del "
+                "padre, madre o tutor que realiza la apertura; y, si existe tutor "
+                "designado judicialmente, la resolución judicial correspondiente. El "
+                "monto mínimo de apertura publicado es de Bs. 50. El padre, madre o tutor "
+                "mantiene la administración de la cuenta hasta que el menor cumple 18 "
+                "años, momento en el que la cuenta se convierte automáticamente en una "
+                "cuenta de ahorro regular a su nombre.",
+            ),
+            (
+                "Límite de la orientación",
+                "El kiosco brinda información general. No confirma apertura, tasas "
+                "definitivas, saldos ni elegibilidad. Las condiciones contractuales deben "
+                "ser verificadas por el banco y aceptadas por el cliente mediante los "
+                "canales habilitados.",
+            ),
+        ],
+        sources=[
+            "https://www.bmsc.com.bo/accountDetails/?key=super-mackrocuenta-detalle",
+            "https://www.bmsc.com.bo/accountDetails?key=rendimax-plus-detalle",
+            "https://www.bmsc.com.bo/",
+        ],
+    )
+
+    sections["creditos-bmsc"] = render_document(
+        RAG_DIR / "03_creditos_bmsc.pdf",
+        "Orientación sobre créditos del Banco Mercantil Santa Cruz",
+        [
+            (
+                "Crédito de consumo",
+                "El BMSC publica créditos de consumo con garantía de depósito a plazo "
+                "fijo, garantía personal o a sola firma, sujetos a evaluación. La "
+                "solicitud puede iniciarse en línea. La aprobación, tasa, plazo y "
+                "garantía dependen del análisis crediticio y de las condiciones vigentes.",
+            ),
+            (
+                "Requisitos generales",
+                "Para solicitar un crédito de consumo se requiere: (1) ser mayor de 18 "
+                "años y presentar documento de identidad vigente; (2) para ingresos "
+                "fijos, las últimas tres boletas de pago, o para ingresos variables, las "
+                "últimas seis; (3) alternativamente, extractos de AFP o de la cuenta "
+                "donde se recibe el salario; (4) para personas independientes, respaldo "
+                "de compras o ventas del último año; y (5), si existen otros préstamos "
+                "vigentes, el plan de pagos correspondiente.",
+            ),
+            (
+                "Tasas y condiciones",
+                "La tasa de interés, el plazo y la garantía exigida se determinan "
+                "mediante el análisis crediticio individual de cada solicitud y las "
+                "condiciones vigentes publicadas por el banco en el momento de la "
+                "evaluación; no existe una tasa única aplicable a todas las solicitudes. "
+                "Un ejecutivo de créditos comunica la tasa y las condiciones exactas una "
+                "vez completado el análisis. El kiosco no calcula ni informa una tasa "
+                "definitiva.",
+            ),
+            (
+                "Cuenta para desembolso",
+                "El desembolso requiere una cuenta de ahorro o corriente en el banco. Si "
+                "el solicitante no tiene una, puede recibir orientación para abrirla. El "
+                "kiosco no debe declarar que una solicitud fue aprobada ni calcular una "
+                "cuota definitiva.",
+            ),
+            (
+                "Derecho a información",
+                "El consumidor puede solicitar explicaciones claras sobre condiciones, "
+                "cargos y cálculo de cuotas. Si un crédito es rechazado, la normativa "
+                "reconoce el derecho a recibir por escrito los motivos. Los tiempos "
+                "publicados no incluyen demoras causadas por documentación externa "
+                "pendiente.",
+            ),
+        ],
+        sources=[
+            "https://www.bmsc.com.bo/loanDetails?key=prestamo-consumo-detalle",
+            "https://asfi.gob.bo/pb/tiempos-maximos-atencion-creditos",
+        ],
+    )
+
+    sections["banca-digital-seguridad"] = render_document(
         RAG_DIR / "04_banca_digital_y_seguridad.pdf",
         "Banca digital y seguridad del BMSC",
         [
@@ -204,7 +383,48 @@ def render_rag_documents() -> None:
             "https://www.bmsc.com.bo/",
         ],
     )
-    render_document(
+
+    sections["tarjetas-bloqueo-fraude"] = render_document(
+        RAG_DIR / "05_tarjetas_bloqueo_y_fraude.pdf",
+        "Tarjetas, bloqueo y reporte de fraude",
+        [
+            (
+                "Bloqueo de tarjeta",
+                "La activación y el bloqueo de tarjetas están incluidos entre las "
+                "gestiones del Contact Center. Una tarjeta perdida, robada o posiblemente "
+                "comprometida debe tratarse como caso de prioridad alta y derivarse sin "
+                "solicitar PIN ni claves.",
+            ),
+            (
+                "Movimiento no reconocido",
+                "Un movimiento no reconocido o indicio de fraude se clasifica como caso "
+                "crítico. El kiosco registra un resumen enmascarado, evita mostrar "
+                "información financiera y deriva al perfil de prevención de fraude. No "
+                "confirma que el banco devolverá fondos ni determina responsabilidades.",
+            ),
+            (
+                "Canales inmediatos",
+                "Para soporte se puede usar la Línea Móvil 788-12000, publicada como "
+                "disponible las 24 horas, o la línea gratuita 800-17-0777 en su horario. "
+                "También se puede acudir a una agencia. No se debe esperar el turno del "
+                "kiosco si existe riesgo inmediato.",
+            ),
+            (
+                "Seguros asociados",
+                "El banco publica seguros opcionales de protección para tarjetas con "
+                "coberturas sujetas a certificado, condiciones, costo y requisitos. El "
+                "hecho de reportar un evento no implica cobertura automática; la "
+                "evaluación corresponde a la aseguradora.",
+            ),
+        ],
+        sources=[
+            "https://www.bmsc.com.bo/tech",
+            "https://www.bmsc.com.bo/",
+            "https://www.bmsc.com.bo/insuranceDetails?key=Tarjeta-Debito-detalle",
+        ],
+    )
+
+    sections["reclamos-derechos"] = render_document(
         RAG_DIR / "06_reclamos_y_derechos.pdf",
         "Reclamos y derechos del consumidor financiero",
         [
@@ -242,7 +462,8 @@ def render_rag_documents() -> None:
             "Ley%20N%C2%B0%20393%20de%20Servicios%20Financieros.pdf",
         ],
     )
-    render_document(
+
+    sections["manual-operativo-sucursal"] = render_document(
         RAG_DIR / "07_manual_operativo_sucursal.pdf",
         "Manual operativo de atención presencial",
         [
@@ -282,6 +503,62 @@ def render_rag_documents() -> None:
         ],
     )
 
+    sections["preguntas-frecuentes-bmsc"] = render_document(
+        RAG_DIR / "08_preguntas_frecuentes_bmsc.pdf",
+        "Preguntas frecuentes de atención bancaria",
+        [
+            (
+                "¿Qué necesito para abrir una cuenta?",
+                "Como orientación general se solicita documento de identidad vigente -- "
+                "cédula de identidad boliviana, o cédula de extranjero para personas "
+                "extranjeras -- y, si no tienes historial previo en el banco, un "
+                "comprobante de domicilio reciente. Los extranjeros pueden requerir "
+                "respaldo de actividad económica, y los menores de edad, su documento de "
+                "identificación junto con el documento del padre, madre o tutor. Los "
+                "requisitos exactos dependen del producto elegido.",
+            ),
+            (
+                "¿En qué horarios atienden las agencias?",
+                "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados "
+                "de 09:00 a 13:00. Otras agencias en Santa Cruz, La Paz y Cochabamba "
+                "tienen horarios similares, con variaciones puntuales según el punto de "
+                "atención. La Línea Móvil 788-12000 está disponible las 24 horas para "
+                "consultas y gestiones que no requieren presencia física.",
+            ),
+            (
+                "¿Dónde puedo bloquear una tarjeta?",
+                "El Contact Center atiende activación y bloqueo de tarjetas. La Línea Móvil "
+                "788-12000 está publicada con atención de 24 horas. Una pérdida o robo se "
+                "deriva con prioridad alta sin pedir PIN ni contraseña.",
+            ),
+            (
+                "¿Qué hago si no reconozco un movimiento?",
+                "No comparta claves ni códigos. Use inmediatamente los canales oficiales o "
+                "una agencia. El kiosco clasifica el caso como crítico, enmascara los "
+                "datos y lo deriva a prevención de fraude.",
+            ),
+            (
+                "¿Cómo recupero el acceso digital?",
+                "El banco publica flujos de restablecimiento y ofrece orientación en "
+                "Contact Center. El kiosco no recibe contraseñas, PIN, tokens ni códigos "
+                "de verificación.",
+            ),
+            (
+                "¿Cómo presento un reclamo?",
+                "Presente primero el reclamo ante el banco y conserve el seguimiento. Si "
+                "concluye la primera instancia y no está conforme, puede acudir a la "
+                "Defensoría del Consumidor Financiero de ASFI.",
+            ),
+        ],
+        sources=[
+            "https://www.bmsc.com.bo/tech",
+            "https://www.bmsc.com.bo/",
+            "https://asfi.gob.bo/la/derechos-del-consumidor-financiero",
+        ],
+    )
+
+    return sections
+
 
 def skill_label(value: str) -> str:
     return value.replace("_", " ").title()
@@ -293,7 +570,7 @@ def render_executive_catalog(data: dict) -> None:
     story = [
         Paragraph("Catálogo operativo de perfiles ejecutivos", document_styles["DocumentTitle"]),
         Paragraph(
-            f"{catalog['bank']} · {catalog['branch']} · Vigente desde el 17/07/2026",
+            f"{catalog['bank']} · {catalog['branch']} · Vigente desde el {VIGENTE_DESDE}",
             document_styles["DocumentSubtitle"],
         ),
         Paragraph("Criterio de asignación", document_styles["Section"]),
@@ -374,33 +651,33 @@ def render_executive_catalog(data: dict) -> None:
     document.build(story, onFirstPage=footer, onLaterPages=footer)
 
 
-def update_manifest() -> None:
+# Every RAG slug is now managed by this script (see `render_rag_documents`). Only the
+# fields that differ from the OFFICIAL/90-day-review default need stating here;
+# `update_manifest` fills verified_at/review_after/version/sha256/sections for all of them.
+_INTERNAL_SLUGS = {"manual-operativo-sucursal"}
+_REVIEW_WINDOW_DAYS = {"manual-operativo-sucursal": 365}
+
+
+def update_manifest(rendered_sections: dict[str, list[str]]) -> None:
     manifest_path = RAG_DIR / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    managed = {
-        "banca-digital-seguridad": {
-            "verified_at": "2026-07-17T00:00:00+00:00",
-            "review_after": "2026-10-15T00:00:00+00:00",
-        },
-        "reclamos-derechos": {
-            "verified_at": "2026-07-17T00:00:00+00:00",
-            "review_after": "2026-10-15T00:00:00+00:00",
-        },
-        "manual-operativo-sucursal": {
-            "verified_at": "2026-07-17T00:00:00+00:00",
-            "review_after": "2027-07-17T00:00:00+00:00",
-            "source_type": "INTERNAL",
-        },
-    }
-    manifest["generated_at"] = "2026-07-17T00:00:00+00:00"
+    verified_at = datetime.strptime(VIGENTE_DESDE, "%d/%m/%Y").replace(tzinfo=UTC)
+    manifest["generated_at"] = verified_at.isoformat()
+
     for specification in manifest["documents"]:
-        changes = managed.get(specification["slug"])
-        if not changes:
+        slug = specification["slug"]
+        if slug not in rendered_sections:
             continue
-        specification.update(changes)
+        window_days = _REVIEW_WINDOW_DAYS.get(slug, 90)
         specification["version"] = VERSION
+        specification["sections"] = rendered_sections[slug]
+        specification["verified_at"] = verified_at.isoformat()
+        specification["review_after"] = (verified_at + timedelta(days=window_days)).isoformat()
+        if slug in _INTERNAL_SLUGS:
+            specification["source_type"] = "INTERNAL"
         pdf_path = RAG_DIR / specification["file_name"]
         specification["sha256"] = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
+
     manifest_path.write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
@@ -409,12 +686,11 @@ def update_manifest() -> None:
 
 def main() -> None:
     data = json.loads(SEED.read_text(encoding="utf-8"))
-    render_rag_documents()
+    rendered_sections = render_rag_documents()
     render_executive_catalog(data)
-    update_manifest()
-    print(RAG_DIR / "04_banca_digital_y_seguridad.pdf")
-    print(RAG_DIR / "06_reclamos_y_derechos.pdf")
-    print(RAG_DIR / "07_manual_operativo_sucursal.pdf")
+    update_manifest(rendered_sections)
+    for pdf_path in sorted(RAG_DIR.glob("*.pdf")):
+        print(pdf_path)
     print(OPERATIONS_DIR / "catalogo_perfiles_ejecutivos.pdf")
 
 

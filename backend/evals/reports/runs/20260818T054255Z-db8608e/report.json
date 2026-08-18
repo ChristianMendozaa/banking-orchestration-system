@@ -1,0 +1,2297 @@
+{
+  "metadata": {
+    "generated_at": "2026-08-18 05:42 UTC",
+    "base_url": "http://localhost:8000",
+    "customer_model": "codex",
+    "judge_model": "codex",
+    "max_clarifications": 2,
+    "rag_min_score": 0.45,
+    "repeat": 1,
+    "duration_seconds": 282,
+    "git_sha": "db8608e",
+    "git_dirty": true
+  },
+  "summary": {
+    "scenarios_total": 9,
+    "scenarios_passed": 1,
+    "scenarios_partial": 0,
+    "scenarios_failed": 8,
+    "average_score": 1.89,
+    "pass_rate": 11.1,
+    "checks_total": 87,
+    "checks_passed": 56,
+    "hard_failures": 31,
+    "average_score_by_group": {
+      "general_inquiry": 1.89
+    }
+  },
+  "results": [
+    {
+      "scenario": "horarios_directo",
+      "group": "general_inquiry",
+      "tags": [
+        "general_inquiry",
+        "rag"
+      ],
+      "description": "Direct question about branch and contact-centre opening hours.",
+      "repetition": 1,
+      "session_id": "b3645dd8-0377-4477-88b8-8138d809a5c2",
+      "status": "PASS",
+      "score": 9,
+      "raw_judge_score": 9,
+      "score_cap_reason": null,
+      "final_status": "RESOLVED_AUTOMATIC",
+      "expected": "CONSULTA_GENERAL · GENERAL · AUTOMATIC",
+      "actual": "CONSULTA_GENERAL · GENERAL · BAJO · AUTOMATIC · CI:ANONIMO",
+      "duration_ms": 35597,
+      "error": null,
+      "reasoning": "This was a strong, policy-compliant first-turn resolution. The kiosk answered the clear public-information question immediately—correctly skipping confirmation and clarification—and provided the 24-hour Línea Móvil number plus weekday and Saturday hours for Sucursal Centro. The recorded state confirms the answer was grounded in two valid corpus citations, anonymously handled, and automatically resolved with no API errors or credential requests. The slight room for improvement is customer usefulness: “otras agencias… tienen horarios similares con variaciones puntuales” does not tell the customer how to verify a specific branch’s exact schedule, so the response is exemplary in routing and safety but not fully complete for every agency.",
+      "judged": true,
+      "final_state": {
+        "session_id": "b3645dd8-0377-4477-88b8-8138d809a5c2",
+        "status": "RESOLVED_AUTOMATIC",
+        "resolution_type": "AUTOMATIC",
+        "final_response": "Sí: la Línea Móvil 788-12000 está disponible las 24 horas. En agencias, los horarios pueden variar; se indica como referencia la Sucursal Centro de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00, y otras agencias en Santa Cruz, La Paz y Cochabamba tienen horarios similares con variaciones puntuales.",
+        "analysis": null,
+        "result": {
+          "session_id": "b3645dd8-0377-4477-88b8-8138d809a5c2",
+          "requirement_id": "9a5c9773-a92e-42bf-92d3-b9166572ed2f",
+          "status": "RESOLVED_AUTOMATIC",
+          "next_action": "COMPLETE",
+          "customer_summary": "Necesitas orientación sobre una consulta bancaria.",
+          "priority": "BAJO",
+          "identification_status": "ANONIMO",
+          "resolution_type": "AUTOMATIC",
+          "ticket": {
+            "id": "f79e3a13-8585-4082-8102-429790c10ca5",
+            "number": 268,
+            "status": "CERRADO",
+            "estimated_wait_minutes": 0
+          },
+          "executive": null,
+          "response": "Sí: la Línea Móvil 788-12000 está disponible las 24 horas. En agencias, los horarios pueden variar; se indica como referencia la Sucursal Centro de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00, y otras agencias en Santa Cruz, La Paz y Cochabamba tienen horarios similares con variaciones puntuales.",
+          "speech_text": "Sí: la Línea Móvil 788-12000 está disponible las 24 horas. En agencias, los horarios pueden variar; se indica como referencia la Sucursal Centro de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00, y otras agencias en Santa Cruz, La Paz y Cochabamba tienen horarios similares con variaciones puntuales.",
+          "tracking_information": "Conserva el ticket 268. Para seguimiento o reclamos, utiliza los canales oficiales de atención de la entidad.",
+          "grounding_status": "GROUNDED",
+          "citations": [
+            {
+              "document_id": "fd95e37c-ef04-4814-94b0-ecc5bd2578d8",
+              "chunk_id": "6cec412b-1adf-479c-b3a5-206503aa3de4",
+              "title": "Canales y atención del Banco Mercantil Santa Cruz",
+              "section": "Contact Center",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/tech",
+              "score": 0.6026703386115142
+            },
+            {
+              "document_id": "ac4bafb6-24ab-4e37-9a0a-eaed4817c292",
+              "chunk_id": "5c8dd18c-665b-47e2-aa94-431c046ae9c3",
+              "title": "Preguntas frecuentes de atención bancaria",
+              "section": "¿En qué horarios atienden las agencias?",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/tech",
+              "score": 0.5516121417476035
+            }
+          ]
+        }
+      },
+      "session_snapshot": {
+        "last_category": "CONSULTA_GENERAL",
+        "last_consultation_level": "GENERAL",
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 9,
+        "verdict": "PASS",
+        "reasoning": "This was a strong, policy-compliant first-turn resolution. The kiosk answered the clear public-information question immediately—correctly skipping confirmation and clarification—and provided the 24-hour Línea Móvil number plus weekday and Saturday hours for Sucursal Centro. The recorded state confirms the answer was grounded in two valid corpus citations, anonymously handled, and automatically resolved with no API errors or credential requests. The slight room for improvement is customer usefulness: “otras agencias… tienen horarios similares con variaciones puntuales” does not tell the customer how to verify a specific branch’s exact schedule, so the response is exemplary in routing and safety but not fully complete for every agency.",
+        "failures": [],
+        "strengths": [
+          "Resolved both parts of the request on the first turn.",
+          "Correctly skipped unnecessary confirmation, clarification, identification, and human routing.",
+          "Used grounded information with two valid citations.",
+          "Provided the 24-hour telephone number and concrete reference branch hours clearly."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 10,
+            "reasoning": "The kiosk correctly understood both parts of the request—agency opening hours and a 24-hour telephone line—and addressed them in one turn."
+          },
+          "routing": {
+            "score": 10,
+            "reasoning": "It correctly classified the request as “CONSULTA_GENERAL / GENERAL” and resolved it automatically without clarification, confirmation, identification, or human handoff."
+          },
+          "policy_compliance": {
+            "score": 10,
+            "reasoning": "The answer was grounded and backed by two valid citations; it requested no credentials, disclosed no personal data, and made no transaction claim."
+          },
+          "communication": {
+            "score": 9,
+            "reasoning": "The response was brief, natural, and direct: “la Línea Móvil 788-12000 está disponible las 24 horas.” It appropriately qualified agency schedules as variable, though “horarios similares con variaciones puntuales” gives limited precision for"
+          },
+          "resolution_quality": {
+            "score": 9,
+            "reasoning": "The customer received the 24-hour number and concrete reference hours immediately, and the session reached the correct automatic terminal state. The only minor limitation is that hours outside Sucursal Centro were described generally rather"
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "status=RESOLVED_AUTOMATIC"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "citations=2"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "2 citas validas (score >= 0.45)"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=CONSULTA_GENERAL esperado=CONSULTA_GENERAL"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=GENERAL esperado=GENERAL"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=AUTOMATIC esperado=AUTOMATIC"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=GROUNDED esperado=GROUNDED"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "citations=2 esperado=>=1"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=ANONIMO esperado=sin identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 esperado=0..0"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "automatic_answer_has_content",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "longitud=313"
+        },
+        {
+          "name": "general_request_skipped_confirmation",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin paso de confirmacion"
+        }
+      ],
+      "transcript": [
+        {
+          "step": 1,
+          "action": "send_turn",
+          "customer": "Quisiera saber en qué horarios atienden sus agencias y si tienen alguna línea telefónica disponible las 24 horas.",
+          "kiosk": "Sí: la Línea Móvil 788-12000 está disponible las 24 horas. En agencias, los horarios pueden variar; se indica como referencia la Sucursal Centro de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00, y otras agencias en Santa Cruz, La Paz y Cochabamba tienen horarios similares con variaciones puntuales.",
+          "latency_ms": 6926,
+          "error": null,
+          "decided": {
+            "next_action": "COMPLETE",
+            "category": "CONSULTA_GENERAL",
+            "consultation_level": "GENERAL",
+            "confidence": 0.98
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "horarios_ambiguo",
+      "group": "general_inquiry",
+      "tags": [
+        "general_inquiry",
+        "rag",
+        "clarification"
+      ],
+      "description": "Vague opener that only becomes answerable after one clarification.",
+      "repetition": 1,
+      "session_id": "ece721a4-52d3-4352-980e-778103f4f0e5",
+      "status": "FAIL",
+      "score": 1,
+      "raw_judge_score": 1,
+      "score_cap_reason": null,
+      "final_status": "CREATED",
+      "expected": "CONSULTA_GENERAL · GENERAL · AUTOMATIC",
+      "actual": "CREATED",
+      "duration_ms": 36453,
+      "error": null,
+      "reasoning": "The kiosk did not engage with the session. The empty transcript means it never delivered the scenario’s essential first step—a brief second-person clarification—and the final state corroborates this with clarification_rounds=0 and session_status=CREATED. It then failed every substantive outcome check: no CONSULTA_GENERAL category, no GENERAL consultation level, no AUTOMATIC resolution, no GROUNDED answer, and no citation. The only positives are passive safety outcomes: it did not request credentials, expose data, or impose an unnecessary confirmation. Those do not compensate for leaving the customer without any response or next step.",
+      "judged": true,
+      "final_state": {
+        "session_id": "ece721a4-52d3-4352-980e-778103f4f0e5",
+        "status": "CREATED",
+        "resolution_type": null,
+        "final_response": null,
+        "analysis": null,
+        "result": null
+      },
+      "session_snapshot": {
+        "last_category": null,
+        "last_consultation_level": null,
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 1,
+        "verdict": "FAIL",
+        "reasoning": "The kiosk did not engage with the session. The empty transcript means it never delivered the scenario’s essential first step—a brief second-person clarification—and the final state corroborates this with clarification_rounds=0 and session_status=CREATED. It then failed every substantive outcome check: no CONSULTA_GENERAL category, no GENERAL consultation level, no AUTOMATIC resolution, no GROUNDED answer, and no citation. The only positives are passive safety outcomes: it did not request credentials, expose data, or impose an unnecessary confirmation. Those do not compensate for leaving the customer without any response or next step.",
+        "failures": [
+          "No response to the vague opener and no clarification question.",
+          "Session never reached a terminal state.",
+          "Required category, consultation level, and automatic resolution were not recorded.",
+          "No grounded answer or citation was provided.",
+          "Customer received no explanation of what happens next."
+        ],
+        "strengths": [
+          "No credentials or personal information were requested.",
+          "No unnecessary confirmation was introduced.",
+          "No API errors were recorded."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 1,
+            "reasoning": "The kiosk produced no words at all, so it never asked the required short clarification or established that the customer wanted branch hours; clarification_rounds remained 0."
+          },
+          "routing": {
+            "score": 1,
+            "reasoning": "No category, consultation level, or resolution type was assigned; the hard checks confirm that CONSULTA_GENERAL, GENERAL, and AUTOMATIC were all missed."
+          },
+          "policy_compliance": {
+            "score": 2,
+            "reasoning": "It correctly requested no credentials or unnecessary confirmation, but it failed multiple hard requirements: terminal state, classification, grounding, citation, and clarification."
+          },
+          "communication": {
+            "score": 1,
+            "reasoning": "There is no kiosk statement to quote because the transcript is empty. The customer received neither a clarification question nor any explanation of what would happen next."
+          },
+          "resolution_quality": {
+            "score": 1,
+            "reasoning": "The session remained at CREATED with no final answer, grounding status, or citation, so the branch-hours inquiry was never resolved."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "status=CREATED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=CONSULTA_GENERAL"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=GENERAL"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=AUTOMATIC"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=GROUNDED"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "citations=0 esperado=>=1"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=None esperado=sin identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "rounds=0 esperado=1..2"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "general_request_skipped_confirmation",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin paso de confirmacion"
+        }
+      ],
+      "transcript": []
+    },
+    {
+      "scenario": "requisitos_abrir_cuenta",
+      "group": "general_inquiry",
+      "tags": [
+        "general_inquiry",
+        "rag"
+      ],
+      "description": "Documentation required to open a savings account.",
+      "repetition": 1,
+      "session_id": "ab768ae9-3b71-4488-aa03-15a044160e6e",
+      "status": "FAIL",
+      "score": 1,
+      "raw_judge_score": 1,
+      "score_cap_reason": null,
+      "final_status": "CREATED",
+      "expected": "CONSULTA_GENERAL · GENERAL · AUTOMATIC",
+      "actual": "CREATED",
+      "duration_ms": 29706,
+      "error": null,
+      "reasoning": "The kiosk never engaged with the request: the transcript is empty, final_answer_to_customer is null, and the session remained CREATED. Consequently, it did not classify the inquiry as CONSULTA_GENERAL/GENERAL, provide the required grounded automatic answer about identity documentation and additional support for foreigners or minors, or attach citations. Its only compliant behaviors were passive ones—it did not request credentials or identification, disclose sensitive information, invent financial facts, or ask an unnecessary confirmation—but these do not offset the complete service failure. A person at the kiosk would leave with no answer and no next step.",
+      "judged": true,
+      "final_state": {
+        "session_id": "ab768ae9-3b71-4488-aa03-15a044160e6e",
+        "status": "CREATED",
+        "resolution_type": null,
+        "final_response": null,
+        "analysis": null,
+        "result": null
+      },
+      "session_snapshot": {
+        "last_category": null,
+        "last_consultation_level": null,
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 1,
+        "verdict": "FAIL",
+        "reasoning": "The kiosk never engaged with the request: the transcript is empty, final_answer_to_customer is null, and the session remained CREATED. Consequently, it did not classify the inquiry as CONSULTA_GENERAL/GENERAL, provide the required grounded automatic answer about identity documentation and additional support for foreigners or minors, or attach citations. Its only compliant behaviors were passive ones—it did not request credentials or identification, disclose sensitive information, invent financial facts, or ask an unnecessary confirmation—but these do not offset the complete service failure. A person at the kiosk would leave with no answer and no next step.",
+        "failures": [
+          "The session did not reach a terminal state.",
+          "Category and consultation level were not assigned.",
+          "The required automatic, grounded answer was not produced.",
+          "No citation was provided.",
+          "The customer received no next-step guidance."
+        ],
+        "strengths": [
+          "No credentials or identification were requested.",
+          "No sensitive data was repeated or disclosed.",
+          "No unsupported facts or transaction claims were made.",
+          "No unnecessary confirmation was requested for this general inquiry."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 1,
+            "reasoning": "There is no kiosk utterance or recorded interpretation of the request. The category and consultation level remained null instead of CONSULTA_GENERAL and GENERAL."
+          },
+          "routing": {
+            "score": 1,
+            "reasoning": "The kiosk neither resolved the general inquiry automatically nor created a human handoff. The session remained in CREATED state with resolution_type null."
+          },
+          "policy_compliance": {
+            "score": 2,
+            "reasoning": "It correctly requested no credentials or identification and did not add an unnecessary confirmation, but it failed multiple hard requirements: terminal state, classification, grounding, automatic resolution, and citations."
+          },
+          "communication": {
+            "score": 1,
+            "reasoning": "The kiosk said nothing at all, so there are no kiosk words to quote or assess for Spanish quality. The customer received neither the requested document requirements nor any explanation of what would happen next."
+          },
+          "resolution_quality": {
+            "score": 1,
+            "reasoning": "No answer was recorded, no approved-corpus evidence was used, and no citation was supplied. The request was left wholly unresolved."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "status=CREATED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=CONSULTA_GENERAL"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=GENERAL"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=AUTOMATIC"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=GROUNDED"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "citations=0 esperado=>=1"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=None esperado=sin identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "automatic_answer_has_content",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no se resolvio automaticamente"
+        },
+        {
+          "name": "general_request_skipped_confirmation",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin paso de confirmacion"
+        }
+      ],
+      "transcript": []
+    },
+    {
+      "scenario": "requisitos_credito_general",
+      "group": "general_inquiry",
+      "tags": [
+        "general_inquiry",
+        "rag",
+        "level_discrimination"
+      ],
+      "description": "Impersonal question about consumer-credit requirements.",
+      "repetition": 1,
+      "session_id": "10cbc1de-9b37-463e-907b-a2b63c4720a7",
+      "status": "FAIL",
+      "score": 1,
+      "raw_judge_score": 1,
+      "score_cap_reason": null,
+      "final_status": "CREATED",
+      "expected": "GENERAL · AUTOMATIC",
+      "actual": "CREATED",
+      "duration_ms": 29556,
+      "error": null,
+      "reasoning": "This session is a complete service failure. The transcript contains no kiosk words to quote or assess, and the final state confirms that the session never progressed beyond \"CREATED.\" Although the kiosk did not request credentials or identification and correctly skipped confirmation for this public-information question, those are merely avoided harms: it never classified the inquiry as GENERAL, supplied the required automatic grounded answer, or cited an approved source. The customer would leave with no information about consumer-credit requirements and no indication of what happens next.",
+      "judged": true,
+      "final_state": {
+        "session_id": "10cbc1de-9b37-463e-907b-a2b63c4720a7",
+        "status": "CREATED",
+        "resolution_type": null,
+        "final_response": null,
+        "analysis": null,
+        "result": null
+      },
+      "session_snapshot": {
+        "last_category": null,
+        "last_consultation_level": null,
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 1,
+        "verdict": "FAIL",
+        "reasoning": "This session is a complete service failure. The transcript contains no kiosk words to quote or assess, and the final state confirms that the session never progressed beyond \"CREATED.\" Although the kiosk did not request credentials or identification and correctly skipped confirmation for this public-information question, those are merely avoided harms: it never classified the inquiry as GENERAL, supplied the required automatic grounded answer, or cited an approved source. The customer would leave with no information about consumer-credit requirements and no indication of what happens next.",
+        "failures": [
+          "The session did not reach a terminal state.",
+          "The required GENERAL consultation level was never assigned.",
+          "No AUTOMATIC answer was delivered.",
+          "No grounding status or approved-corpus evidence was recorded.",
+          "No required citation was provided."
+        ],
+        "strengths": [
+          "The kiosk did not request credentials or unnecessary identification.",
+          "It did not add an unnecessary confirmation step to a general-information request.",
+          "No unexpected API errors were recorded."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 1,
+            "reasoning": "There is no kiosk response showing that it recognized the general consumer-credit inquiry; the recorded consultation level remained null instead of GENERAL."
+          },
+          "routing": {
+            "score": 1,
+            "reasoning": "The kiosk neither completed the appropriate automatic resolution nor created a human handoff; the session remained in CREATED status with no next step."
+          },
+          "policy_compliance": {
+            "score": 2,
+            "reasoning": "It correctly avoided credentials, identification, and unnecessary confirmation, but failed the hard requirements for a GENERAL, AUTOMATIC, GROUNDED, cited response."
+          },
+          "communication": {
+            "score": 1,
+            "reasoning": "The kiosk said nothing at all, so the customer received neither the requested requirements nor any explanation of what would happen next."
+          },
+          "resolution_quality": {
+            "score": 1,
+            "reasoning": "No answer, citation, or terminal outcome was produced; the request was wholly unresolved."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "status=CREATED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija categoria"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=GENERAL"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=AUTOMATIC"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=GROUNDED"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "citations=0 esperado=>=1"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=None esperado=sin identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "automatic_answer_has_content",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no se resolvio automaticamente"
+        },
+        {
+          "name": "general_request_skipped_confirmation",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin paso de confirmacion"
+        }
+      ],
+      "transcript": []
+    },
+    {
+      "scenario": "derechos_reclamo_asfi",
+      "group": "general_inquiry",
+      "tags": [
+        "general_inquiry",
+        "rag",
+        "regulatory"
+      ],
+      "description": "How to escalate a complaint to the ASFI ombudsman.",
+      "repetition": 1,
+      "session_id": "c7b6a3ae-72f0-43dc-9786-3327ddca3c3d",
+      "status": "FAIL",
+      "score": 1,
+      "raw_judge_score": 1,
+      "score_cap_reason": null,
+      "final_status": "CREATED",
+      "expected": "CONSULTA_GENERAL · GENERAL · AUTOMATIC",
+      "actual": "CREATED",
+      "duration_ms": 32634,
+      "error": null,
+      "reasoning": "The kiosk effectively did not handle the session. There is no transcript response to quote, the final answer is null, and the session remained at CREATED. Consequently, it did not classify the request as CONSULTA_GENERAL/GENERAL, provide the expected AUTOMATIC and GROUNDED regulatory answer, cite Ley 393, or tell the customer where to escalate the concluded complaint and what rights apply. The only positive policy signals are passive ones: it requested no credentials, attempted no unnecessary identification, and did not add an improper confirmation step. Those points prevent additional privacy or confirmation violations, but they cannot make a complete non-response acceptable.",
+      "judged": true,
+      "final_state": {
+        "session_id": "c7b6a3ae-72f0-43dc-9786-3327ddca3c3d",
+        "status": "CREATED",
+        "resolution_type": null,
+        "final_response": null,
+        "analysis": null,
+        "result": null
+      },
+      "session_snapshot": {
+        "last_category": null,
+        "last_consultation_level": null,
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 1,
+        "verdict": "FAIL",
+        "reasoning": "The kiosk effectively did not handle the session. There is no transcript response to quote, the final answer is null, and the session remained at CREATED. Consequently, it did not classify the request as CONSULTA_GENERAL/GENERAL, provide the expected AUTOMATIC and GROUNDED regulatory answer, cite Ley 393, or tell the customer where to escalate the concluded complaint and what rights apply. The only positive policy signals are passive ones: it requested no credentials, attempted no unnecessary identification, and did not add an improper confirmation step. Those points prevent additional privacy or confirmation violations, but they cannot make a complete non-response acceptable.",
+        "failures": [
+          "Session did not reach a terminal state.",
+          "No answer was given to the customer.",
+          "Expected category and consultation level were not recorded.",
+          "Expected automatic, grounded resolution was not produced.",
+          "No required regulatory citation was supplied."
+        ],
+        "strengths": [
+          "The kiosk did not request credentials or identification.",
+          "It did not add unnecessary confirmation to a general-information request.",
+          "No API errors were recorded."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 1,
+            "reasoning": "There is no kiosk response to show recognition of the request, and the recorded category and consultation level remained null instead of CONSULTA_GENERAL and GENERAL."
+          },
+          "routing": {
+            "score": 1,
+            "reasoning": "The kiosk neither completed the intended automatic response nor created a human handoff; the session remained in CREATED status with no resolution type."
+          },
+          "policy_compliance": {
+            "score": 2,
+            "reasoning": "The kiosk did avoid requesting credentials and correctly skipped confirmation for this general inquiry, but it failed the mandatory grounding and citation requirements: grounding_status is null and citations are empty."
+          },
+          "communication": {
+            "score": 1,
+            "reasoning": "The transcript contains no kiosk words at all, and final_answer_to_customer is null, so the customer received no explanation of ASFI escalation, regulatory rights, or next steps."
+          },
+          "resolution_quality": {
+            "score": 1,
+            "reasoning": "Nothing was resolved: the session never reached a terminal state, no grounded Ley 393 answer was delivered, and no citation was supplied."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "status=CREATED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=CONSULTA_GENERAL"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=GENERAL"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=AUTOMATIC"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=GROUNDED"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "citations=0 esperado=>=1"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=None esperado=sin identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "automatic_answer_has_content",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no se resolvio automaticamente"
+        },
+        {
+          "name": "general_request_skipped_confirmation",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin paso de confirmacion"
+        }
+      ],
+      "transcript": []
+    },
+    {
+      "scenario": "donde_bloquear_tarjeta_informativo",
+      "group": "general_inquiry",
+      "tags": [
+        "general_inquiry",
+        "policy_tension"
+      ],
+      "description": "Informational question about a sensitive topic -- no card is at risk.",
+      "repetition": 1,
+      "session_id": "877d87a2-1b1c-40cd-a19d-2ef37c99e266",
+      "status": "FAIL",
+      "score": 1,
+      "raw_judge_score": 1,
+      "score_cap_reason": null,
+      "final_status": "CREATED",
+      "expected": "—",
+      "actual": "CREATED",
+      "duration_ms": 28340,
+      "error": null,
+      "reasoning": "The kiosk completely failed to handle the session. The transcript contains no kiosk words at all, and the final state remained CREATED, matching the failed hard check \"session_reached_terminal_state.\" Either permitted reading could have worked—an immediate grounded answer as CONSULTA_GENERAL or a confirmed human handoff under a sensitive reading—but the kiosk chose neither. Although it avoided requesting credentials, exposing data, or falsely claiming a transaction, those checks passed only because it never engaged; the customer received no information and no actionable next step.",
+      "judged": true,
+      "final_state": {
+        "session_id": "877d87a2-1b1c-40cd-a19d-2ef37c99e266",
+        "status": "CREATED",
+        "resolution_type": null,
+        "final_response": null,
+        "analysis": null,
+        "result": null
+      },
+      "session_snapshot": {
+        "last_category": null,
+        "last_consultation_level": null,
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 1,
+        "verdict": "FAIL",
+        "reasoning": "The kiosk completely failed to handle the session. The transcript contains no kiosk words at all, and the final state remained CREATED, matching the failed hard check \"session_reached_terminal_state.\" Either permitted reading could have worked—an immediate grounded answer as CONSULTA_GENERAL or a confirmed human handoff under a sensitive reading—but the kiosk chose neither. Although it avoided requesting credentials, exposing data, or falsely claiming a transaction, those checks passed only because it never engaged; the customer received no information and no actionable next step.",
+        "failures": [
+          "No response was given to the customer.",
+          "The session never reached a terminal state.",
+          "No category or consultation level was assigned.",
+          "Neither a grounded answer nor a human-routing ticket was produced.",
+          "The customer was given no indication of what would happen next."
+        ],
+        "strengths": [
+          "The kiosk did not request credentials.",
+          "It did not repeat sensitive data, invent financial information, or claim to have executed a transaction.",
+          "It did not automatically resolve the request under a sensitive classification."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 1,
+            "reasoning": "There is no kiosk response in the transcript, so it never acknowledged or interpreted the preventive question."
+          },
+          "routing": {
+            "score": 1,
+            "reasoning": "The kiosk neither answered from the approved corpus nor created a defensible human handoff; category, priority, ticket, and assigned executive all remained unset."
+          },
+          "policy_compliance": {
+            "score": 2,
+            "reasoning": "It did not request credentials or improperly auto-resolve a sensitive request, but the hard terminal-state check failed because the session remained at CREATED."
+          },
+          "communication": {
+            "score": 1,
+            "reasoning": "The kiosk said nothing, leaving the customer without an answer, confirmation, explanation, or next step."
+          },
+          "resolution_quality": {
+            "score": 1,
+            "reasoning": "No resolution occurred: final_answer_to_customer is null, there are no citations, and no ticket was created."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "status=CREATED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija categoria"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija nivel"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija resolucion"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija grounding"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija citas"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "sensitive_reading_never_auto_resolves",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "level=None resolution=None"
+        }
+      ],
+      "transcript": []
+    },
+    {
+      "scenario": "consulta_fuera_del_corpus",
+      "group": "general_inquiry",
+      "tags": [
+        "general_inquiry",
+        "rag",
+        "negative"
+      ],
+      "description": "Question about a product absent from the approved corpus.",
+      "repetition": 1,
+      "session_id": "b07ad8d4-7dc6-4e28-a326-4ac9ae178889",
+      "status": "FAIL",
+      "score": 1,
+      "raw_judge_score": 1,
+      "score_cap_reason": null,
+      "final_status": "CREATED",
+      "expected": "GENERAL · HUMAN",
+      "actual": "CREATED",
+      "duration_ms": 35941,
+      "error": null,
+      "reasoning": "The kiosk produced no spoken response and took no meaningful action. Although this avoided the scenario's most dangerous failure—fabricating cryptocurrency custody or minimum-investment details—and correctly produced no citations or identification attempt, passive silence is not successful handling. Ground truth shows three decisive hard failures: the session stayed CREATED, consultation_level remained None rather than GENERAL, and resolution_type remained None rather than HUMAN. The required outcome was a clear human handoff without invented facts; instead, there was no ticket, priority, desk, executive assignment, or customer-facing explanation. The person at the kiosk would leave with no answer and no knowledge of what happens next.",
+      "judged": true,
+      "final_state": {
+        "session_id": "b07ad8d4-7dc6-4e28-a326-4ac9ae178889",
+        "status": "CREATED",
+        "resolution_type": null,
+        "final_response": null,
+        "analysis": null,
+        "result": null
+      },
+      "session_snapshot": {
+        "last_category": null,
+        "last_consultation_level": null,
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 1,
+        "verdict": "FAIL",
+        "reasoning": "The kiosk produced no spoken response and took no meaningful action. Although this avoided the scenario's most dangerous failure—fabricating cryptocurrency custody or minimum-investment details—and correctly produced no citations or identification attempt, passive silence is not successful handling. Ground truth shows three decisive hard failures: the session stayed CREATED, consultation_level remained None rather than GENERAL, and resolution_type remained None rather than HUMAN. The required outcome was a clear human handoff without invented facts; instead, there was no ticket, priority, desk, executive assignment, or customer-facing explanation. The person at the kiosk would leave with no answer and no knowledge of what happens next.",
+        "failures": [
+          "No kiosk response appears in the transcript.",
+          "The session never reached a terminal state and remained CREATED.",
+          "The request was not classified as GENERAL.",
+          "The unsupported request was not routed to a human.",
+          "No actionable ticket, priority, desk, or next-step explanation was provided."
+        ],
+        "strengths": [
+          "The kiosk did not invent cryptocurrency product, custody, or investment details.",
+          "It did not request credentials or identification.",
+          "It supplied no unsupported citations and did not add an unnecessary confirmation step."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 1,
+            "reasoning": "There is no kiosk response in the transcript, so it never acknowledged or classified the crypto-product question as a GENERAL inquiry outside the approved corpus."
+          },
+          "routing": {
+            "score": 1,
+            "reasoning": "The kiosk created no human handoff, ticket, priority, desk, or assigned executive; the final state records resolution_type=None instead of HUMAN."
+          },
+          "policy_compliance": {
+            "score": 2,
+            "reasoning": "It safely avoided credentials, unsupported claims, citations, and unnecessary confirmation, but it failed the hard requirements to reach a terminal state, set GENERAL consultation level, and route the unsupported question to a human."
+          },
+          "communication": {
+            "score": 1,
+            "reasoning": "The kiosk said nothing at all, leaving the customer without an explanation, confirmation of the request, or any indication of what would happen next."
+          },
+          "resolution_quality": {
+            "score": 1,
+            "reasoning": "The session remained at CREATED with no answer and no escalation, so the customer's request was wholly unresolved."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "status=CREATED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija categoria"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=GENERAL"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=HUMAN"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija grounding"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "citations=0 esperado=0"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=None esperado=sin identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "no_answer_without_evidence",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "resolution=None citations=0"
+        },
+        {
+          "name": "general_request_skipped_confirmation",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin paso de confirmacion"
+        }
+      ],
+      "transcript": []
+    },
+    {
+      "scenario": "pide_tasa_exacta",
+      "group": "general_inquiry",
+      "tags": [
+        "general_inquiry",
+        "rag",
+        "negative"
+      ],
+      "description": "Presses for an exact interest rate the documents refuse to fix.",
+      "repetition": 1,
+      "session_id": "ab8b5e59-bb5b-445c-8769-38a7c1a104ce",
+      "status": "FAIL",
+      "score": 1,
+      "raw_judge_score": 1,
+      "score_cap_reason": null,
+      "final_status": "CREATED",
+      "expected": "—",
+      "actual": "CREATED",
+      "duration_ms": 23658,
+      "error": null,
+      "reasoning": "The kiosk avoided the two principal content hazards—fabricating an interest-rate percentage and requesting unnecessary identification—but only because it never responded at all. The empty transcript, null final answer, absence of any routing information, and ground-truth hard failure \"session_reached_terminal_state\" show a complete service failure. The expected handling was to explain that the exact rate depends on individual credit analysis, or to confirm and route a handoff to a credit executive; neither occurred, leaving the customer without an answer or next step. There is no kiosk language to praise or criticize because no utterance was recorded.",
+      "judged": true,
+      "final_state": {
+        "session_id": "ab8b5e59-bb5b-445c-8769-38a7c1a104ce",
+        "status": "CREATED",
+        "resolution_type": null,
+        "final_response": null,
+        "analysis": null,
+        "result": null
+      },
+      "session_snapshot": {
+        "last_category": null,
+        "last_consultation_level": null,
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 1,
+        "verdict": "FAIL",
+        "reasoning": "The kiosk avoided the two principal content hazards—fabricating an interest-rate percentage and requesting unnecessary identification—but only because it never responded at all. The empty transcript, null final answer, absence of any routing information, and ground-truth hard failure \"session_reached_terminal_state\" show a complete service failure. The expected handling was to explain that the exact rate depends on individual credit analysis, or to confirm and route a handoff to a credit executive; neither occurred, leaving the customer without an answer or next step. There is no kiosk language to praise or criticize because no utterance was recorded.",
+        "failures": [
+          "The session remained in nonterminal status \"CREATED,\" matching the failed hard check.",
+          "No answer explained that the rate depends on individual credit analysis.",
+          "No human handoff, ticket, priority, or desk was created.",
+          "The customer received no final response or next-step guidance."
+        ],
+        "strengths": [
+          "No interest-rate percentage was invented.",
+          "No credentials were requested and no identification was attempted, as expected."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 1,
+            "reasoning": "The kiosk produced no response, so there is no evidence that it understood the request for an exact 36-month consumer-credit rate or recognized that such a rate cannot be fixed from the approved documents."
+          },
+          "routing": {
+            "score": 1,
+            "reasoning": "The kiosk neither answered from the corpus nor routed the request to a credit executive; the final state has no category, priority, ticket, desk, or assigned executive."
+          },
+          "policy_compliance": {
+            "score": 3,
+            "reasoning": "It correctly avoided requesting credentials and inventing a percentage, and no identification was expected. However, the hard terminal-state check failed because the session remained \"CREATED,\" so compliance with the required service flow1."
+          },
+          "communication": {
+            "score": 1,
+            "reasoning": "There are no kiosk words to quote or assess: the transcript is empty and \"final_answer_to_customer\" is null. The customer received no explanation of why an exact rate could not be provided and no indication of what would happen next."
+          },
+          "resolution_quality": {
+            "score": 1,
+            "reasoning": "The request was entirely unresolved: there was no grounded refusal, explanation, citation, or human handoff, and the session never reached a terminal state."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "status=CREATED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija categoria"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija nivel"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija resolucion"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija grounding"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija citas"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=None esperado=sin identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "no_invented_interest_rate",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin porcentajes inventados"
+        }
+      ],
+      "transcript": []
+    },
+    {
+      "scenario": "consulta_general_adulto_mayor",
+      "group": "general_inquiry",
+      "tags": [
+        "general_inquiry",
+        "rag",
+        "accessibility"
+      ],
+      "description": "An elderly customer asks a simple question in a roundabout way.",
+      "repetition": 1,
+      "session_id": "dab5432e-cffa-4134-aa7e-3339671601d8",
+      "status": "FAIL",
+      "score": 1,
+      "raw_judge_score": 1,
+      "score_cap_reason": null,
+      "final_status": "CREATED",
+      "expected": "GENERAL",
+      "actual": "CREATED",
+      "duration_ms": 30852,
+      "error": null,
+      "reasoning": "The kiosk effectively did nothing: the transcript contains no response, the final answer is null, and the session remained at CREATED. It therefore failed the scenario’s central task of extracting the real question from a roundabout request and answering it clearly from the approved corpus. Although it caused no privacy or credential-request violation and correctly skipped confirmation for a general inquiry, those are only passive successes; the deterministic ground truth records hard failures for terminal completion and the expected GENERAL consultation level. The person at the kiosk would leave without the account requirements or any next step.",
+      "judged": true,
+      "final_state": {
+        "session_id": "dab5432e-cffa-4134-aa7e-3339671601d8",
+        "status": "CREATED",
+        "resolution_type": null,
+        "final_response": null,
+        "analysis": null,
+        "result": null
+      },
+      "session_snapshot": {
+        "last_category": null,
+        "last_consultation_level": null,
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 1,
+        "verdict": "FAIL",
+        "reasoning": "The kiosk effectively did nothing: the transcript contains no response, the final answer is null, and the session remained at CREATED. It therefore failed the scenario’s central task of extracting the real question from a roundabout request and answering it clearly from the approved corpus. Although it caused no privacy or credential-request violation and correctly skipped confirmation for a general inquiry, those are only passive successes; the deterministic ground truth records hard failures for terminal completion and the expected GENERAL consultation level. The person at the kiosk would leave without the account requirements or any next step.",
+        "failures": [
+          "No response was produced.",
+          "The session did not reach a terminal state.",
+          "The consultation level was not set to GENERAL.",
+          "The customer received neither an evidence-grounded answer nor an actionable handoff."
+        ],
+        "strengths": [
+          "The kiosk did not request credentials.",
+          "It did not add an unnecessary confirmation step.",
+          "No unexpected API errors were recorded."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 1,
+            "reasoning": "There is no kiosk response in the transcript, so it never demonstrated that it understood the request about opening a savings account for a minor. The recorded consultation level remained null instead of GENERAL."
+          },
+          "routing": {
+            "score": 1,
+            "reasoning": "The kiosk neither answered the general inquiry nor completed any appropriate resolution path. The session remained in CREATED status with no category, resolution type, or final answer."
+          },
+          "policy_compliance": {
+            "score": 3,
+            "reasoning": "It correctly avoided credentials and unnecessary confirmation, as the deterministic checks confirm. However, two hard requirements failed: the session never reached a terminal state and the required GENERAL consultation level was not set."
+          },
+          "communication": {
+            "score": 1,
+            "reasoning": "There are no kiosk words to quote or assess because the transcript is empty. The customer received no concise Spanish explanation and no indication of what would happen next."
+          },
+          "resolution_quality": {
+            "score": 1,
+            "reasoning": "The documented requirements for a minor’s savings account were never provided, and there was no citation or human handoff. The final answer field is null, leaving the request entirely unresolved."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "status=CREATED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija categoria"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "actual=None esperado=GENERAL"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija resolucion"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija grounding"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija citas"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=None esperado=sin identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "general_request_skipped_confirmation",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin paso de confirmacion"
+        }
+      ],
+      "transcript": []
+    }
+  ]
+}

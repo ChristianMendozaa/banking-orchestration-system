@@ -5,9 +5,12 @@ Each graph is compiled once at import time and reused across requests; the only
 per-request state is the `OrchestrationState` dict and `GraphContext` passed to
 `ainvoke()`.
 
-`finalize_subgraph` is compiled once and added as a node to both `confirmation_graph`
-and `identification_graph` -- the same compiled instance, mirroring how the pre-graph
-`_finalize` method was called from both `confirm()` and `identify()`.
+`finalize_subgraph` is compiled once and added as a node to `turn_graph`,
+`confirmation_graph` and `identification_graph` -- the same compiled instance in all three.
+For `confirmation_graph` / `identification_graph` this mirrors how the pre-graph
+`_finalize` method was called from both `confirm()` and `identify()`; `turn_graph` reaches
+it too, via `auto_capture`, when a confident GENERAL classification resolves on its first
+turn without a confirmation step (see `turn_nodes.requires_confirmation`).
 """
 
 from langgraph.graph import END, START, StateGraph
@@ -21,7 +24,7 @@ from app.services.graph import (
 from app.services.graph.state import GraphContext, OrchestrationState
 
 
-def build_turn_graph():
+def build_turn_graph(finalize_subgraph):
     builder = StateGraph(OrchestrationState, context_schema=GraphContext)
     builder.add_node("guard_turn", turn_nodes.guard_turn, destinations=("mask_pii", END))
     builder.add_node("mask_pii", turn_nodes.mask_pii)
@@ -31,6 +34,8 @@ def build_turn_graph():
     builder.add_node("accept", turn_nodes.accept)
     builder.add_node("decline", turn_nodes.decline)
     builder.add_node("persist_requirement", turn_nodes.persist_requirement)
+    builder.add_node("auto_capture", turn_nodes.auto_capture)
+    builder.add_node("finalize", finalize_subgraph)
 
     builder.add_edge(START, "guard_turn")
     builder.add_edge("mask_pii", "classify")
@@ -48,7 +53,17 @@ def build_turn_graph():
     builder.add_edge("force_human", "persist_requirement")
     builder.add_edge("accept", "persist_requirement")
     builder.add_edge("decline", "persist_requirement")
-    builder.add_edge("persist_requirement", END)
+    # A confident GENERAL classification (see turn_nodes.requires_confirmation) skips the
+    # confirmation round-trip and runs straight through the same finalize subgraph a
+    # confirmed requirement uses -- clarify/force_human/decline never set auto_resolve, so
+    # they always take the "end" edge, exactly as before this branch existed.
+    builder.add_conditional_edges(
+        "persist_requirement",
+        turn_nodes.route_after_persist,
+        {"auto_capture": "auto_capture", "end": END},
+    )
+    builder.add_edge("auto_capture", "finalize")
+    builder.add_edge("finalize", END)
 
     return builder.compile(name="turn_graph")
 
@@ -134,7 +149,7 @@ def build_identification_graph(finalize_subgraph):
     return builder.compile(name="identification_graph")
 
 
-turn_graph = build_turn_graph()
 finalize_subgraph = build_finalize_subgraph()
+turn_graph = build_turn_graph(finalize_subgraph)
 confirmation_graph = build_confirmation_graph(finalize_subgraph)
 identification_graph = build_identification_graph(finalize_subgraph)

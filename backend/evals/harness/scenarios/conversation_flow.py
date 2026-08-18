@@ -80,11 +80,12 @@ SCENARIOS = [
         tags=("flow", "correction", "coverage_gap"),
         description="Customer rejects the kiosk's summary and restates a different need.",
         goal=(
-            "Empieza diciendo que quieres informacion sobre cuentas de ahorro. Cuando el "
-            "kiosco te proponga su resumen y te pida confirmarlo, RECHAZALO con "
-            "send_confirmation(confirmed=false) porque en realidad te equivocaste. "
-            "Despues explica lo que de verdad necesitas: bloquear tu tarjeta de debito "
-            "porque la perdiste. Confirma solo el segundo resumen."
+            "Empieza diciendo que no puedes acceder a tu cuenta de banca digital porque "
+            "se te olvido la clave. Cuando el kiosco te proponga su resumen y te pida "
+            "confirmarlo, RECHAZALO con send_confirmation(confirmed=false) porque en "
+            "realidad te equivocaste. Despues explica lo que de verdad necesitas: "
+            "bloquear tu tarjeta de debito porque la perdiste. Confirma solo el segundo "
+            "resumen."
         ),
         style=CALMADO,
         identifier="6735666",
@@ -97,7 +98,7 @@ SCENARIOS = [
                 "The correction loop is what makes confirmation meaningful. Rejecting the "
                 "summary must return the session to listening and start a fresh "
                 "requirement; the final case must reflect the corrected intent (card block), "
-                "not the abandoned one (savings accounts). The kiosk must accept the "
+                "not the abandoned one (digital banking access). The kiosk must accept the "
                 "correction gracefully rather than arguing with the customer."
             ),
         ),

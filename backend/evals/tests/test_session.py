@@ -124,6 +124,24 @@ async def test_a_completed_flow_tells_the_agent_to_stop() -> None:
     assert "TERMINATE" in description
 
 
+async def test_send_turn_completing_on_its_own_tells_the_agent_to_stop() -> None:
+    """A confident GENERAL request now resolves on the same turn (no confirmation step)
+    and returns next_action=COMPLETE directly from send_turn -- this must mark the session
+    finished exactly like a COMPLETE from send_confirmation does."""
+    session = _session(
+        _fake_client(
+            send_turn={
+                "next_action": "COMPLETE",
+                "requirement_id": "r",
+                "speech_text": "Las agencias atienden de 09:00 a 20:00.",
+            }
+        )
+    )
+    description = await session.send_turn("horarios de atencion", False)
+    assert session.finished is True
+    assert "TERMINATE" in description
+
+
 async def test_an_api_error_is_recorded_and_reported_back_instead_of_raising() -> None:
     """Aborting the agent loop on a mid-flow 409 would discard the transcript that
     explains it, so the error becomes a tool result and a scored failure."""

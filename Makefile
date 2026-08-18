@@ -134,7 +134,7 @@ if [ -z "$$openai_key" ]; then \
 	echo "OPENAI_API_KEY not set in backend/.env -- skipping (harness and knowledge-bootstrap both need it)"; \
 	printf '%s\t%s\t%s\t%s\n' "$(1)" "SKIP" "0" "" >> $(REPORT); \
 else \
-	$(call run_suite,$(1),docker compose up -d --wait backend && (cd backend && PYTHONPATH=. uv run python scripts/reset_kiosk_queue.py) && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md $(2) $(EVAL_ARGS)); \
+	$(call run_suite,$(1),docker compose up -d --build --wait backend && (cd backend && PYTHONPATH=. uv run python scripts/reset_kiosk_queue.py) && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md $(2) $(EVAL_ARGS)); \
 fi
 endef
 

@@ -88,8 +88,9 @@ class TurnAnalysisResponse(BaseModel):
     confidence: float
     clarification_question: str | None = None
     pii_types: list[str] = Field(default_factory=list)
-    next_action: Literal["CLARIFY", "CONFIRM", "DECLINE"]
+    next_action: Literal["CLARIFY", "CONFIRM", "DECLINE", "COMPLETE"]
     speech_text: str
+    result: "FlowResult | None" = None
 
 
 class ConfirmationRequest(BaseModel):
