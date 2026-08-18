@@ -24,7 +24,10 @@ ROOT = Path(__file__).resolve().parents[2]
 SEED = ROOT / "backend" / "seed" / "operational_seed.json"
 RAG_DIR = ROOT / "doc" / "rag"
 OPERATIONS_DIR = ROOT / "doc" / "operacion"
-VERSION = "2026.08"
+# Bumped on every content revision: `KnowledgeIngestionService._ingest_document` refuses
+# to re-ingest a slug whose bytes changed while its version stayed the same, so an
+# edit here without a bump is a failed corpus bootstrap rather than a silent swap.
+VERSION = "2026.08.1"
 VIGENTE_DESDE = "18/08/2026"
 
 BLUE = colors.HexColor("#0B4F8A")
@@ -276,6 +279,25 @@ def render_rag_documents() -> dict[str, list[str]]:
                 "cuenta de ahorro regular a su nombre.",
             ),
             (
+                "Abono de rentas y pagos periódicos",
+                "El BMSC recibe el abono de rentas, jubilaciones y otros pagos periódicos "
+                "en cuentas de ahorro a nombre del propio beneficiario; no se acreditan "
+                "rentas en cuentas de terceros. El trámite se inicia en cualquier agencia "
+                "y requiere: (1) cédula de identidad vigente del beneficiario; (2) una "
+                "cuenta de ahorro activa a su nombre en el banco, que puede abrirse en la "
+                "misma visita; y (3) el documento que acredita la renta o el pago "
+                "periódico, emitido por la entidad pagadora. Con esos documentos la "
+                "agencia emite la constancia con el número de cuenta que el beneficiario "
+                "presenta ante la entidad pagadora para registrar o cambiar la cuenta de "
+                "abono. La acreditación queda habilitada a partir del siguiente ciclo de "
+                "pago de la entidad pagadora; el banco no define ni adelanta esa fecha. "
+                "Una vez acreditada, la renta puede cobrarse en cajeros, agencias y "
+                "puntos habilitados, y consultarse por Banca Móvil y Banca por Internet. "
+                "Quien no pueda acudir personalmente puede realizar el trámite mediante "
+                "poder notarial vigente. Las personas adultas mayores acceden a atención "
+                "preferencial en agencia para este trámite.",
+            ),
+            (
                 "Límite de la orientación",
                 "El kiosco brinda información general. No confirma apertura, tasas "
                 "definitivas, saldos ni elegibilidad. Las condiciones contractuales deben "
@@ -361,6 +383,30 @@ def render_rag_documents() -> dict[str, list[str]]:
                 "restablecimiento de contraseña. El Contact Center también orienta sobre "
                 "habilitación, desbloqueo y restablecimiento de contraseñas de Banca Móvil y "
                 "Banca por Internet.",
+            ),
+            (
+                "Bloqueo por intentos fallidos",
+                "El acceso a Banca Móvil y Banca por Internet se bloquea de forma "
+                "preventiva después de varios intentos fallidos de ingreso consecutivos. El "
+                "desbloqueo lo realiza el banco: se gestiona en agencia con cédula de "
+                "identidad vigente del titular, o a través del Contact Center, que verifica "
+                "la identidad antes de habilitar nuevamente el acceso. El personal del "
+                "banco no solicita ni recibe la contraseña en ningún momento del trámite; "
+                "el titular define una nueva clave por sí mismo al reingresar. Un acceso "
+                "bloqueado no afecta los fondos ni las tarjetas asociadas a la cuenta.",
+            ),
+            (
+                "Transferencias que no se completan",
+                "Una transferencia puede no completarse por límites diarios o por operación "
+                "configurados en el canal, por datos de cuenta destino incorrectos, por "
+                "fondos insuficientes o por una interrupción del servicio. En todos esos "
+                "casos la operación no se registra y el dinero permanece en la cuenta de "
+                "origen. Cuando el intento se repite, corresponde revisarlo con un ejecutivo "
+                "en agencia, con cédula de identidad vigente del titular y el detalle de "
+                "fecha, hora y monto de los intentos; el ejecutivo verifica los límites "
+                "configurados y el estado del canal. El titular no debe reintentar la "
+                "operación de forma indefinida ni compartir sus credenciales con nadie para "
+                "que la realice en su nombre.",
             ),
             (
                 "Protección de credenciales",
@@ -482,6 +528,20 @@ def render_rag_documents() -> dict[str, list[str]]:
                 "un nivel los casos bajos o medios, sin superar casos críticos de seguridad.",
             ),
             (
+                "Atención preferencial",
+                "Corresponde atención preferencial a personas adultas mayores, mujeres "
+                "embarazadas, personas con discapacidad y personas con niñas o niños en "
+                "brazos. No se exige acreditación documental para otorgarla: basta con que "
+                "la persona lo solicite o con que el personal lo advierta. El kiosco marca "
+                "la sesión como preferente y esa marca acompaña al caso hasta la ventanilla, "
+                "de modo que el turno se antepone a los turnos ordinarios de la misma "
+                "prioridad sin desplazar los casos críticos de seguridad. En agencia, la "
+                "persona con atención preferencial no hace fila general y puede pedir "
+                "acompañamiento del personal para completar formularios. Cuando la persona "
+                "llega acompañada, el acompañante puede permanecer con ella, pero los datos "
+                "y la firma corresponden siempre al titular.",
+            ),
+            (
                 "Verificación protegida",
                 "Las consultas generales pueden procesarse sin identificación. Las consultas "
                 "personalizadas o sensibles solicitan el CI del cliente escrito en el campo "
@@ -548,6 +608,35 @@ def render_rag_documents() -> dict[str, list[str]]:
                 "Presente primero el reclamo ante el banco y conserve el seguimiento. Si "
                 "concluye la primera instancia y no está conforme, puede acudir a la "
                 "Defensoría del Consumidor Financiero de ASFI.",
+            ),
+            (
+                "¿Cómo hago para que me depositen mi renta o jubilación en el banco?",
+                "El abono de rentas y jubilaciones se registra en una cuenta de ahorro a "
+                "nombre del propio beneficiario. El trámite se hace en cualquier agencia con "
+                "cédula de identidad vigente, una cuenta de ahorro activa a su nombre -- que "
+                "puede abrirse en la misma visita -- y el documento de la entidad pagadora "
+                "que acredita la renta. La agencia emite una constancia con el número de "
+                "cuenta para presentarla ante la entidad pagadora, y la acreditación empieza "
+                "en el siguiente ciclo de pago de esa entidad. Las personas adultas mayores "
+                "tienen atención preferencial para este trámite.",
+            ),
+            (
+                "¿Quién tiene atención preferencial y cómo se solicita?",
+                "Tienen atención preferencial las personas adultas mayores, las mujeres "
+                "embarazadas, las personas con discapacidad y quienes llegan con niñas o "
+                "niños en brazos. No hace falta presentar ningún documento para pedirla: "
+                "basta con indicarlo al llegar o al iniciar la sesión en el kiosco. El turno "
+                "se antepone a los turnos ordinarios de la misma prioridad, y el personal de "
+                "la agencia puede acompañar el llenado de formularios.",
+            ),
+            (
+                "¿Por qué se bloqueó mi acceso a la banca digital?",
+                "El acceso se bloquea de forma preventiva tras varios intentos fallidos de "
+                "ingreso. El desbloqueo se gestiona en agencia con cédula de identidad "
+                "vigente o a través del Contact Center, que verifica la identidad antes de "
+                "habilitarlo. El banco nunca pide la contraseña para desbloquear; el titular "
+                "define una nueva al reingresar. Los fondos y las tarjetas no se ven "
+                "afectados.",
             ),
         ],
         sources=[

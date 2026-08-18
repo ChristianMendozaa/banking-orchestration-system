@@ -1,0 +1,1337 @@
+{
+  "metadata": {
+    "generated_at": "2026-08-18 20:36 UTC",
+    "base_url": "http://localhost:8000",
+    "customer_model": "codex",
+    "judge_model": "codex",
+    "max_clarifications": 2,
+    "rag_min_score": 0.45,
+    "repeat": 1,
+    "duration_seconds": 67,
+    "git_sha": "8db975c",
+    "git_dirty": true
+  },
+  "summary": {
+    "scenarios_total": 4,
+    "scenarios_passed": 4,
+    "scenarios_partial": 0,
+    "scenarios_failed": 0,
+    "average_score": 8.5,
+    "pass_rate": 100.0,
+    "checks_total": 52,
+    "checks_passed": 52,
+    "hard_failures": 0,
+    "average_score_by_group": {
+      "general_inquiry": 9.0,
+      "flow": 8.33
+    }
+  },
+  "results": [
+    {
+      "scenario": "horarios_directo",
+      "group": "general_inquiry",
+      "tags": [
+        "general_inquiry",
+        "rag"
+      ],
+      "description": "Direct question about branch and contact-centre opening hours.",
+      "repetition": 1,
+      "session_id": "3b0c310d-ee64-4495-9465-a473c2828cc1",
+      "status": "PASS",
+      "score": 9,
+      "raw_judge_score": 9,
+      "score_cap_reason": null,
+      "final_status": "RESOLVED_AUTOMATIC",
+      "expected": "CONSULTA_GENERAL · GENERAL · AUTOMATIC",
+      "actual": "CONSULTA_GENERAL · GENERAL · BAJO · AUTOMATIC · CI:ANONIMO",
+      "duration_ms": 37030,
+      "error": null,
+      "reasoning": "This was a strong, policy-correct session. The kiosk answered the clear general inquiry immediately, without needless confirmation or clarification, correctly stating that “La Línea Móvil 788-12000” is available 24 hours and supplying concrete schedules for branches in Santa Cruz, La Paz, and Cochabamba. The recorded state confirms the answer was grounded and supported by four valid citations, while every applicable deterministic check passed. Classification, anonymous handling, automatic resolution, and the absence of a human handoff were all exactly right. The only meaningful improvement would be presentation: the answer is a long paragraph containing many schedules, so compact formatting or asking which city matters after giving the general answer would make it easier to absorb without withholding any requested information.",
+      "judged": true,
+      "final_state": {
+        "session_id": "3b0c310d-ee64-4495-9465-a473c2828cc1",
+        "status": "RESOLVED_AUTOMATIC",
+        "resolution_type": "AUTOMATIC",
+        "final_response": "Sí. La Línea Móvil 788-12000 está publicada como disponible las 24 horas. Sobre las agencias, hay horarios concretos para varias sucursales: la Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00; en Santa Cruz de la Sierra, las agencias de la Av. Cristo Redentor y del Segundo Anillo tienen ese mismo horario, y la del Plan 3000 atiende de lunes a viernes de 08:30 a 18:00, sin atención sabatina. En La Paz, la agencia El Prado atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:30 a 13:00. En Cochabamba, la agencia Av. Ballivián atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:00 a 13:00. También se indica que otros puntos pueden tener variaciones y que en feriados y fechas especiales los horarios pueden cambiar.",
+        "analysis": null,
+        "result": {
+          "session_id": "3b0c310d-ee64-4495-9465-a473c2828cc1",
+          "requirement_id": "36a0cc5a-8a7f-42dc-ad03-d16952076914",
+          "status": "RESOLVED_AUTOMATIC",
+          "next_action": "COMPLETE",
+          "customer_summary": "Quieres conocer los horarios de atención de las agencias y si hay una línea telefónica disponible las 24 horas.",
+          "priority": "BAJO",
+          "identification_status": "ANONIMO",
+          "resolution_type": "AUTOMATIC",
+          "ticket": {
+            "id": "c30775b2-b49f-41ae-8de5-05e7a351c843",
+            "number": 424,
+            "status": "CERRADO",
+            "estimated_wait_minutes": 0
+          },
+          "executive": null,
+          "response": "Sí. La Línea Móvil 788-12000 está publicada como disponible las 24 horas. Sobre las agencias, hay horarios concretos para varias sucursales: la Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00; en Santa Cruz de la Sierra, las agencias de la Av. Cristo Redentor y del Segundo Anillo tienen ese mismo horario, y la del Plan 3000 atiende de lunes a viernes de 08:30 a 18:00, sin atención sabatina. En La Paz, la agencia El Prado atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:30 a 13:00. En Cochabamba, la agencia Av. Ballivián atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:00 a 13:00. También se indica que otros puntos pueden tener variaciones y que en feriados y fechas especiales los horarios pueden cambiar.",
+          "speech_text": "Sí. La Línea Móvil 788-12000 está publicada como disponible las 24 horas. Sobre las agencias, hay horarios concretos para varias sucursales: la Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00; en Santa Cruz de la Sierra, las agencias de la Av. Cristo Redentor y del Segundo Anillo tienen ese mismo horario, y la del Plan 3000 atiende de lunes a viernes de 08:30 a 18:00, sin atención sabatina. En La Paz, la agencia El Prado atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:30 a 13:00. En Cochabamba, la agencia Av. Ballivián atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:00 a 13:00. También se indica que otros puntos pueden tener variaciones y que en feriados y fechas especiales los horarios pueden cambiar.",
+          "tracking_information": "Conserva el ticket 424. Para seguimiento o reclamos, utiliza los canales oficiales de atención de la entidad.",
+          "grounding_status": "GROUNDED",
+          "citations": [
+            {
+              "document_id": "2e72e52d-6dcf-4502-960b-1dcc3503c5d9",
+              "chunk_id": "3ddcb976-5e1f-4a19-88c4-4995b86fe36d",
+              "title": "Tarjetas, bloqueo y reporte de fraude",
+              "section": "Canales inmediatos",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/tech",
+              "score": 0.6647068399352307
+            },
+            {
+              "document_id": "7dc6b8fa-9147-472d-8b6b-1cfede9cf743",
+              "chunk_id": "45835ab1-64a7-4c99-8e04-d0cf0225c4f3",
+              "title": "Preguntas frecuentes de atención bancaria",
+              "section": "¿En qué horarios atienden las agencias?",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/tech",
+              "score": 0.6063171863587465
+            },
+            {
+              "document_id": "e6bf81e6-0af7-45fb-b92e-2eaf00d31e0c",
+              "chunk_id": "dbe05234-675d-490a-959f-bedcafc42092",
+              "title": "Canales y atención del Banco Mercantil Santa Cruz",
+              "section": "Contact Center",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/tech",
+              "score": 0.5996494161252789
+            },
+            {
+              "document_id": "e6bf81e6-0af7-45fb-b92e-2eaf00d31e0c",
+              "chunk_id": "9e604119-531b-4bf4-a034-5b26dab2cba7",
+              "title": "Canales y atención del Banco Mercantil Santa Cruz",
+              "section": "Horarios de agencias",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/tech",
+              "score": 0.5669332230966663
+            }
+          ]
+        }
+      },
+      "session_snapshot": {
+        "last_category": "CONSULTA_GENERAL",
+        "last_consultation_level": "GENERAL",
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 9,
+        "verdict": "PASS",
+        "reasoning": "This was a strong, policy-correct session. The kiosk answered the clear general inquiry immediately, without needless confirmation or clarification, correctly stating that “La Línea Móvil 788-12000” is available 24 hours and supplying concrete schedules for branches in Santa Cruz, La Paz, and Cochabamba. The recorded state confirms the answer was grounded and supported by four valid citations, while every applicable deterministic check passed. Classification, anonymous handling, automatic resolution, and the absence of a human handoff were all exactly right. The only meaningful improvement would be presentation: the answer is a long paragraph containing many schedules, so compact formatting or asking which city matters after giving the general answer would make it easier to absorb without withholding any requested information.",
+        "failures": [],
+        "strengths": [
+          "Resolved both requested topics on the first turn.",
+          "Correctly avoided confirmation, identification, and human routing.",
+          "Provided concrete hours, a 24-hour contact number, and valid citations.",
+          "Included a practical caveat about holiday and location-specific variations."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 10,
+            "reasoning": "The kiosk correctly understood both parts of the request—agency hours and a 24-hour phone line—and addressed them in the first response without unnecessary clarification."
+          },
+          "routing": {
+            "score": 10,
+            "reasoning": "It correctly classified the request as “CONSULTA_GENERAL / GENERAL” and resolved it automatically; no identification or human handoff was warranted."
+          },
+          "policy_compliance": {
+            "score": 10,
+            "reasoning": "The kiosk appropriately skipped confirmation for a public-information request, requested no credentials or personal data, and provided a grounded answer with valid citations."
+          },
+          "communication": {
+            "score": 8,
+            "reasoning": "The response is clear and natural, including the direct statement that “La Línea Móvil 788-12000 está publicada como disponible las 24 horas.” However, the long list of branches is denser than necessary and could be easier to scan."
+          },
+          "resolution_quality": {
+            "score": 10,
+            "reasoning": "The customer received specific agency schedules, the 24-hour phone number, and a useful warning that hours may vary on holidays, fully resolving both stated needs in one turn."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "status=RESOLVED_AUTOMATIC"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "sensitive_is_never_auto_resolved",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "citations=4"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "4 citas validas (score >= 0.45)"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=CONSULTA_GENERAL esperado=CONSULTA_GENERAL"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=GENERAL esperado=GENERAL"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=AUTOMATIC esperado=AUTOMATIC"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=GROUNDED esperado=GROUNDED"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "citations=4 esperado=>=1"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=ANONIMO esperado=sin identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 esperado=0..0"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "automatic_answer_has_content",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "longitud=774"
+        },
+        {
+          "name": "general_request_skipped_confirmation",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin paso de confirmacion"
+        }
+      ],
+      "transcript": [
+        {
+          "step": 1,
+          "action": "send_turn",
+          "customer": "Buenas, quisiera saber en qué horarios atienden las agencias y si tienen alguna línea telefónica disponible las 24 horas.",
+          "kiosk": "Sí. La Línea Móvil 788-12000 está publicada como disponible las 24 horas. Sobre las agencias, hay horarios concretos para varias sucursales: la Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00; en Santa Cruz de la Sierra, las agencias de la Av. Cristo Redentor y del Segundo Anillo tienen ese mismo horario, y la del Plan 3000 atiende de lunes a viernes de 08:30 a 18:00, sin atención sabatina. En La Paz, la agencia El Prado atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:30 a 13:00. En Cochabamba, la agencia Av. Ballivián atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:00 a 13:00. También se indica que otros puntos pueden tener variaciones y que en feriados y fechas especiales los horarios pueden cambiar.",
+          "latency_ms": 6518,
+          "error": null,
+          "decided": {
+            "next_action": "COMPLETE",
+            "category": "CONSULTA_GENERAL",
+            "consultation_level": "GENERAL",
+            "confidence": 0.99
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "multi_intencion",
+      "group": "flow",
+      "tags": [
+        "flow",
+        "classification",
+        "sensitive"
+      ],
+      "description": "Two unrelated requests packed into one utterance.",
+      "repetition": 1,
+      "session_id": "a2d24c40-e5bd-4677-bdc6-b38495e1515a",
+      "status": "PASS",
+      "score": 8,
+      "raw_judge_score": 8,
+      "score_cap_reason": null,
+      "final_status": "ASSIGNED",
+      "expected": "REPORTE_FRAUDE/BLOQUEO_TARJETA · SENSIBLE · HUMAN · CI:IDENTIFICADO",
+      "actual": "REPORTE_FRAUDE · SENSIBLE · CRITICO · HUMAN · CI:IDENTIFICADO",
+      "duration_ms": 44124,
+      "error": null,
+      "reasoning": "The kiosk handled the safety-critical portion very well: it recognized both requests, prioritized the unrecognized card charge, obtained clear confirmation, identified the customer safely, and created an actionable critical-priority fraud referral. Its final direction—“Tu ticket es 425. Dirígete a Ventanilla 1 con Carlos Mamani”—left no ambiguity about the immediate next step, and every deterministic hard check passed. The only meaningful shortcoming is continuity for the second need: although branch hours were explicitly included in the confirmation, the kiosk neither answered that question nor told the customer it would address it as a separate case after the fraud handoff. This prevents an exemplary score but does not undermine the correct and safe routing outcome.",
+      "judged": true,
+      "final_state": {
+        "session_id": "a2d24c40-e5bd-4677-bdc6-b38495e1515a",
+        "status": "ASSIGNED",
+        "resolution_type": "HUMAN",
+        "final_response": null,
+        "analysis": null,
+        "result": {
+          "session_id": "a2d24c40-e5bd-4677-bdc6-b38495e1515a",
+          "requirement_id": "fb7913c3-e71f-4ef1-b9e9-99e997d55c60",
+          "status": "ASSIGNED",
+          "next_action": "COMPLETE",
+          "customer_summary": "Necesitas reportar un cargo no reconocido en tu tarjeta y también saber el horario de la sucursal.",
+          "priority": "CRITICO",
+          "identification_status": "IDENTIFICADO",
+          "resolution_type": "HUMAN",
+          "ticket": {
+            "id": "6fcf4592-22bc-424c-a7db-2904b2ec7301",
+            "number": 425,
+            "status": "PENDIENTE",
+            "estimated_wait_minutes": 8
+          },
+          "executive": {
+            "id": "3ee9ffef-9095-4648-a440-4fd497d53939",
+            "name": "Carlos Mamani",
+            "title": "Prevencion de Fraudes",
+            "window_number": "Ventanilla 1"
+          },
+          "response": null,
+          "speech_text": "Voy a derivarte con un ejecutivo de prevención de fraude para atender tu reporte. Este caso se está atendiendo como prioritario. Tu ticket es 425. Dirígete a Ventanilla 1 con Carlos Mamani. La espera estimada es de 8 minutos.",
+          "tracking_information": "Conserva el ticket 425. Para seguimiento o reclamos, utiliza los canales oficiales de atención de la entidad.",
+          "grounding_status": "NOT_APPLICABLE",
+          "citations": []
+        }
+      },
+      "session_snapshot": {
+        "last_category": "REPORTE_FRAUDE",
+        "last_consultation_level": "SENSIBLE",
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 1,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 8,
+        "verdict": "PASS",
+        "reasoning": "The kiosk handled the safety-critical portion very well: it recognized both requests, prioritized the unrecognized card charge, obtained clear confirmation, identified the customer safely, and created an actionable critical-priority fraud referral. Its final direction—“Tu ticket es 425. Dirígete a Ventanilla 1 con Carlos Mamani”—left no ambiguity about the immediate next step, and every deterministic hard check passed. The only meaningful shortcoming is continuity for the second need: although branch hours were explicitly included in the confirmation, the kiosk neither answered that question nor told the customer it would address it as a separate case after the fraud handoff. This prevents an exemplary score but does not undermine the correct and safe routing outcome.",
+        "failures": [
+          "The branch-hours request was acknowledged but not answered or explicitly deferred to a separate follow-up."
+        ],
+        "strengths": [
+          "Correctly prioritized the fraud report over the general-information request.",
+          "Used clear confirmation before identification and human handoff.",
+          "Protected sensitive information and never echoed the supplied CI.",
+          "Created a critical-priority, pending ticket with an appropriately skilled executive and actionable desk instructions."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 9,
+            "reasoning": "The kiosk correctly recognized both needs and accurately restated them: “reportar un cargo no reconocido… y también saber el horario.” It appropriately selected the fraud report as the first and more serious need."
+          },
+          "routing": {
+            "score": 10,
+            "reasoning": "It classified the case as REPORTE_FRAUDE/SENSIBLE, assigned CRITICO priority, and routed it to Carlos Mamani in Prevención de Fraudes at Ventanilla 1 with ticket 425."
+          },
+          "policy_compliance": {
+            "score": 10,
+            "reasoning": "The kiosk confirmed the sensitive request before proceeding, requested CI only through a protected field, warned against sharing passwords, PINs, or financial data, and did not repeat the CI or claim the report was resolved."
+          },
+          "communication": {
+            "score": 8,
+            "reasoning": "The Spanish was concise, natural, and consistently used tuteo, while the handoff instructions were actionable. However, after acknowledging the branch-hours question, it did not clearly say that this second need would be handled separately."
+          },
+          "resolution_quality": {
+            "score": 8,
+            "reasoning": "The urgent fraud need reached an identified, pending human handoff with a skilled executive and clear next steps. The branch-hours need was acknowledged but remained unanswered when the recorded session ended."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "status=ASSIGNED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "priority=CRITICO"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "identification_status=IDENTIFICADO"
+        },
+        {
+          "name": "sensitive_is_never_auto_resolved",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "resolution_type=HUMAN"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "ticket=425 ejecutivo=Carlos Mamani ventanilla=Ventanilla 1"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": true,
+          "passed": true,
+          "detail": "Carlos Mamani tiene skills ['CONSULTA_GENERAL', 'REPORTE_FRAUDE']; caso=REPORTE_FRAUDE"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=REPORTE_FRAUDE esperado=REPORTE_FRAUDE|BLOQUEO_TARJETA"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=SENSIBLE esperado=SENSIBLE"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=HUMAN esperado=HUMAN"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija grounding"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija citas"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=IDENTIFICADO esperado=IDENTIFICADO"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "security_half_was_not_dropped",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "categoria=REPORTE_FRAUDE aclaraciones=0"
+        },
+        {
+          "name": "deferred_need_was_acknowledged",
+          "severity": "SOFT",
+          "applicable": true,
+          "passed": true,
+          "detail": "requerimientos=1"
+        }
+      ],
+      "transcript": [
+        {
+          "step": 1,
+          "action": "send_turn",
+          "customer": "Quiero saber el horario de la sucursal y también reportar un cargo que no reconozco en mi tarjeta.",
+          "kiosk": "¿Me confirmas si necesitas reportar un cargo no reconocido en tu tarjeta y también saber el horario de la sucursal?",
+          "latency_ms": 1471,
+          "error": null,
+          "decided": {
+            "next_action": "CONFIRM",
+            "category": "REPORTE_FRAUDE",
+            "consultation_level": "SENSIBLE",
+            "confidence": 0.98
+          }
+        },
+        {
+          "step": 2,
+          "action": "send_confirmation",
+          "customer": "Sí, así es, confirmo.",
+          "kiosk": "Para continuar, escribe tu CI en el campo protegido. No escribas contraseñas, PIN ni datos financieros.",
+          "latency_ms": 41,
+          "error": null,
+          "decided": {
+            "next_action": "IDENTIFY"
+          }
+        },
+        {
+          "step": 3,
+          "action": "send_identification",
+          "customer": "Mi CI es 7842193.",
+          "kiosk": "Voy a derivarte con un ejecutivo de prevención de fraude para atender tu reporte. Este caso se está atendiendo como prioritario. Tu ticket es 425. Dirígete a Ventanilla 1 con Carlos Mamani. La espera estimada es de 8 minutos.",
+          "latency_ms": 710,
+          "error": null,
+          "decided": {
+            "next_action": "COMPLETE"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "cambio_de_tema",
+      "group": "flow",
+      "tags": [
+        "flow",
+        "clarification"
+      ],
+      "description": "Customer switches from a trivial question to an emergency mid-session.",
+      "repetition": 1,
+      "session_id": "2eb72d03-0d63-4752-ad87-0de2bc6cd648",
+      "status": "PASS",
+      "score": 9,
+      "raw_judge_score": 9,
+      "score_cap_reason": null,
+      "final_status": "ASSIGNED",
+      "expected": "—",
+      "actual": "BLOQUEO_TARJETA · SENSIBLE · ALTO · HUMAN · CI:IDENTIFICADO",
+      "duration_ms": 67290,
+      "error": null,
+      "reasoning": "This was strong handling of a mid-session switch from a trivial information request to a personal card-theft emergency. The kiosk immediately focused on the stolen card, correctly sought confirmation before a sensitive handoff, recovered appropriately when the customer rejected the first accurate summary, and then confirmed again with “atender primero el bloqueo o reporte de tu tarjeta robada.” It collected identification safely through a protected field, explicitly warned against sharing credentials, and routed the case with high priority to a qualified cards-and-security executive. The final instruction was actionable: ticket 427, Maria Fernandez, Ventanilla 3. No deterministic check failed, and the kiosk did not claim the card had already been blocked. The one improvement is follow-through on the secondary need: it said the branch-hours question would be left “para después,” but the recorded session neither answered it nor opened a separate case for it. That prevents a perfect example score, though it does not undermine the correct emergency outcome.",
+      "judged": true,
+      "final_state": {
+        "session_id": "2eb72d03-0d63-4752-ad87-0de2bc6cd648",
+        "status": "ASSIGNED",
+        "resolution_type": "HUMAN",
+        "final_response": null,
+        "analysis": null,
+        "result": {
+          "session_id": "2eb72d03-0d63-4752-ad87-0de2bc6cd648",
+          "requirement_id": "469e431f-5e23-4d50-ad3b-9c6796ff2765",
+          "status": "ASSIGNED",
+          "next_action": "COMPLETE",
+          "customer_summary": "Necesitas atender primero el bloqueo o reporte de tu tarjeta robada y dejar el horario de la sucursal para después.",
+          "priority": "ALTO",
+          "identification_status": "IDENTIFICADO",
+          "resolution_type": "HUMAN",
+          "ticket": {
+            "id": "ddc022ef-f5a4-4305-9950-f30e72cbf993",
+            "number": 427,
+            "status": "PENDIENTE",
+            "estimated_wait_minutes": 8
+          },
+          "executive": {
+            "id": "6feac6cc-f73c-4c8e-b55d-e4e2c4b0b908",
+            "name": "Maria Fernandez",
+            "title": "Tarjetas y Seguridad",
+            "window_number": "Ventanilla 3"
+          },
+          "response": null,
+          "speech_text": "Voy a derivarte con un ejecutivo para bloquear tu tarjeta. Este caso se está atendiendo como prioritario. Tu ticket es 427. Dirígete a Ventanilla 3 con Maria Fernandez. La espera estimada es de 8 minutos.",
+          "tracking_information": "Conserva el ticket 427. Para seguimiento o reclamos, utiliza los canales oficiales de atención de la entidad.",
+          "grounding_status": "NOT_APPLICABLE",
+          "citations": []
+        }
+      },
+      "session_snapshot": {
+        "last_category": "BLOQUEO_TARJETA",
+        "last_consultation_level": "SENSIBLE",
+        "clarification_rounds": 0,
+        "correction_rounds": 1,
+        "identification_attempts": 1,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 9,
+        "verdict": "PASS",
+        "reasoning": "This was strong handling of a mid-session switch from a trivial information request to a personal card-theft emergency. The kiosk immediately focused on the stolen card, correctly sought confirmation before a sensitive handoff, recovered appropriately when the customer rejected the first accurate summary, and then confirmed again with “atender primero el bloqueo o reporte de tu tarjeta robada.” It collected identification safely through a protected field, explicitly warned against sharing credentials, and routed the case with high priority to a qualified cards-and-security executive. The final instruction was actionable: ticket 427, Maria Fernandez, Ventanilla 3. No deterministic check failed, and the kiosk did not claim the card had already been blocked. The one improvement is follow-through on the secondary need: it said the branch-hours question would be left “para después,” but the recorded session neither answered it nor opened a separate case for it. That prevents a perfect example score, though it does not undermine the correct emergency outcome.",
+        "failures": [
+          "The deferred branch-hours request was acknowledged but not subsequently answered or recorded as a separate case."
+        ],
+        "strengths": [
+          "Correctly followed the topic change and prioritized the stolen-card emergency.",
+          "Used clear confirmation before identification and human handoff.",
+          "Requested CI safely without asking for credentials or echoing sensitive data.",
+          "Created an actionable high-priority handoff to a suitably skilled executive.",
+          "Used concise, natural second-person Spanish and clearly explained the immediate next step."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 9,
+            "reasoning": "The kiosk correctly recognized the topic change and prioritized the stolen card, asking, “¿Me confirmas si necesitas atender primero la tarjeta robada...?” After the customer rejected that confirmation, it invited a restatement and then rec"
+          },
+          "routing": {
+            "score": 10,
+            "reasoning": "It routed the confirmed stolen-card need as BLOQUEO_TARJETA with ALTO priority to a qualified cards-and-security executive at Ventanilla 3. The final state and all routing checks confirm the handoff was correct and actionable."
+          },
+          "policy_compliance": {
+            "score": 10,
+            "reasoning": "The kiosk confirmed the sensitive request before proceeding, requested CI only through a protected field, warned against sharing passwords, PINs, or financial data, and did not repeat the CI. It neither invented financial information noroz"
+          },
+          "communication": {
+            "score": 8,
+            "reasoning": "The Spanish was concise, natural, and consistently used tuteo; the final message clearly supplied ticket 427, priority, executive, and desk. However, it did not explain how the deferred branch-hours question would be handled after the cardU"
+          },
+          "resolution_quality": {
+            "score": 9,
+            "reasoning": "The urgent need reached a human in a terminal ASSIGNED state, and the customer was told exactly where to go and whom to see. The only meaningful omission is that no separate answer or case was created for the expressly deferred branch-hours"
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "status=ASSIGNED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "identification_status=IDENTIFICADO"
+        },
+        {
+          "name": "sensitive_is_never_auto_resolved",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "resolution_type=HUMAN"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "ticket=427 ejecutivo=Maria Fernandez ventanilla=Ventanilla 3"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": true,
+          "passed": true,
+          "detail": "Maria Fernandez tiene skills ['BLOQUEO_TARJETA', 'REPORTE_FRAUDE']; caso=BLOQUEO_TARJETA"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija categoria"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija nivel"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija resolucion"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija grounding"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija citas"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "followed_the_topic_change",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "categoria final=BLOQUEO_TARJETA"
+        }
+      ],
+      "transcript": [
+        {
+          "step": 1,
+          "action": "send_turn",
+          "customer": "Buenos, este... quería saber el horario de la sucursal, porque yo normalmente vengo por la tarde y no sé bien hasta qué hora atienden. Y bueno, también ando medio perdido con unas cosas... recién me acordé que no tengo mi tarjeta, me la robaron, y eso sí es lo urgente ahora.",
+          "kiosk": "¿Me confirmas si necesitas atender primero la tarjeta robada y después consultar el horario de la sucursal?",
+          "latency_ms": 1758,
+          "error": null,
+          "decided": {
+            "next_action": "CONFIRM",
+            "category": "BLOQUEO_TARJETA",
+            "consultation_level": "SENSIBLE",
+            "confidence": 0.98
+          }
+        },
+        {
+          "step": 2,
+          "action": "send_confirmation",
+          "customer": "No, eso no es lo que necesito.",
+          "kiosk": "Cuéntame nuevamente qué necesitas.",
+          "latency_ms": 37,
+          "error": null,
+          "decided": {
+            "next_action": "CAPTURE"
+          }
+        },
+        {
+          "step": 3,
+          "action": "send_turn",
+          "customer": "A ver, yo venía por el horario de la sucursal, pero recién me cayó la ficha que me robaron mi tarjeta y eso me preocupa más. Necesito ver qué se puede hacer por la tarjeta primero, porque ando medio apurado y no sé bien cómo seguir.",
+          "kiosk": "¿Me confirmas si necesitas atender primero el bloqueo o reporte de tu tarjeta robada y dejar el horario de la sucursal para después?",
+          "latency_ms": 1461,
+          "error": null,
+          "decided": {
+            "next_action": "CONFIRM",
+            "category": "BLOQUEO_TARJETA",
+            "consultation_level": "SENSIBLE",
+            "confidence": 0.99
+          }
+        },
+        {
+          "step": 4,
+          "action": "send_confirmation",
+          "customer": "Sí, así es, confirmo.",
+          "kiosk": "Para continuar, escribe tu CI en el campo protegido. No escribas contraseñas, PIN ni datos financieros.",
+          "latency_ms": 39,
+          "error": null,
+          "decided": {
+            "next_action": "IDENTIFY"
+          }
+        },
+        {
+          "step": 5,
+          "action": "send_identification",
+          "customer": "Mi CI es 6735666.",
+          "kiosk": "Voy a derivarte con un ejecutivo para bloquear tu tarjeta. Este caso se está atendiendo como prioritario. Tu ticket es 427. Dirígete a Ventanilla 3 con Maria Fernandez. La espera estimada es de 8 minutos.",
+          "latency_ms": 692,
+          "error": null,
+          "decided": {
+            "next_action": "COMPLETE"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "seguimiento_tras_respuesta_automatica",
+      "group": "flow",
+      "tags": [
+        "flow",
+        "rag",
+        "follow_up"
+      ],
+      "description": "A second, unrelated question after the first one is answered.",
+      "repetition": 1,
+      "session_id": "84c68d78-afd0-407d-bf6c-53e0def03d09",
+      "status": "PASS",
+      "score": 8,
+      "raw_judge_score": 8,
+      "score_cap_reason": null,
+      "final_status": "RESOLVED_AUTOMATIC",
+      "expected": "GENERAL · AUTOMATIC",
+      "actual": "CONSULTA_GENERAL · GENERAL · BAJO · AUTOMATIC · CI:ANONIMO",
+      "duration_ms": 44866,
+      "error": null,
+      "reasoning": "The kiosk achieved the intended outcome cleanly: it answered the hours question immediately, remained available for the unrelated follow-up, opened a second requirement, and answered the savings-account-document question without identification or needless confirmation. Ground-truth checks confirm both automatic answers were cited, all citations resolved, the content was grounded, and there were no API or credential-request failures. Safety, privacy, routing, and multi-need handling were exemplary. The only meaningful presentation flaw is the phrase “en la evidencia también figuran horarios,” which exposes internal corpus terminology instead of speaking naturally to the customer; the first answer could also have more directly invited the customer to name another agency. Those are minor but prevent the session from being a flawless model example.",
+      "judged": true,
+      "final_state": {
+        "session_id": "84c68d78-afd0-407d-bf6c-53e0def03d09",
+        "status": "RESOLVED_AUTOMATIC",
+        "resolution_type": "AUTOMATIC",
+        "final_response": "Para abrir una cuenta de ahorro en el BMSC se solicita, en general: documento de identidad vigente; comprobante de domicilio con antigüedad no mayor a 90 días si no tienes historial previo en el banco; y, si eres extranjero, respaldo de tu actividad económica. Para menores de edad, se pide el documento de identificación del menor y el del padre, madre o tutor; si hay tutor judicial, también la resolución judicial correspondiente.",
+        "analysis": null,
+        "result": {
+          "session_id": "84c68d78-afd0-407d-bf6c-53e0def03d09",
+          "requirement_id": "b1b49f85-d9bf-40ca-af5e-36005a11ee17",
+          "status": "RESOLVED_AUTOMATIC",
+          "next_action": "COMPLETE",
+          "customer_summary": "Quieres saber qué documentos piden para abrir una cuenta de ahorro.",
+          "priority": "BAJO",
+          "identification_status": "ANONIMO",
+          "resolution_type": "AUTOMATIC",
+          "ticket": {
+            "id": "74577774-8155-4ca1-8916-85f6bb3ca89c",
+            "number": 426,
+            "status": "CERRADO",
+            "estimated_wait_minutes": 0
+          },
+          "executive": null,
+          "response": "Para abrir una cuenta de ahorro en el BMSC se solicita, en general: documento de identidad vigente; comprobante de domicilio con antigüedad no mayor a 90 días si no tienes historial previo en el banco; y, si eres extranjero, respaldo de tu actividad económica. Para menores de edad, se pide el documento de identificación del menor y el del padre, madre o tutor; si hay tutor judicial, también la resolución judicial correspondiente.",
+          "speech_text": "Para abrir una cuenta de ahorro en el BMSC se solicita, en general: documento de identidad vigente; comprobante de domicilio con antigüedad no mayor a 90 días si no tienes historial previo en el banco; y, si eres extranjero, respaldo de tu actividad económica. Para menores de edad, se pide el documento de identificación del menor y el del padre, madre o tutor; si hay tutor judicial, también la resolución judicial correspondiente.",
+          "tracking_information": "Conserva el ticket 426. Para seguimiento o reclamos, utiliza los canales oficiales de atención de la entidad.",
+          "grounding_status": "GROUNDED",
+          "citations": [
+            {
+              "document_id": "5f491b8f-497e-4c94-87b7-ad0d879f5e5e",
+              "chunk_id": "5fb29847-6b60-4ac1-a671-5fb845947654",
+              "title": "Cuentas de ahorro y requisitos generales del BMSC",
+              "section": "Apertura y documentación",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/accountDetails/?key=super-mackrocuenta-detalle",
+              "score": 0.621019567900296
+            },
+            {
+              "document_id": "5f491b8f-497e-4c94-87b7-ad0d879f5e5e",
+              "chunk_id": "36b97743-bb12-46d0-b05f-c18eecaa89e2",
+              "title": "Cuentas de ahorro y requisitos generales del BMSC",
+              "section": "Cuenta de ahorro para menores de edad",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/accountDetails/?key=super-mackrocuenta-detalle",
+              "score": 0.6156746484810419
+            },
+            {
+              "document_id": "7dc6b8fa-9147-472d-8b6b-1cfede9cf743",
+              "chunk_id": "d07b9213-6228-4192-bc29-37f88c99cc59",
+              "title": "Preguntas frecuentes de atención bancaria",
+              "section": "¿Qué necesito para abrir una cuenta?",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/tech",
+              "score": 0.5679313404658274
+            }
+          ]
+        }
+      },
+      "session_snapshot": {
+        "last_category": "CONSULTA_GENERAL",
+        "last_consultation_level": "GENERAL",
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 8,
+        "verdict": "PASS",
+        "reasoning": "The kiosk achieved the intended outcome cleanly: it answered the hours question immediately, remained available for the unrelated follow-up, opened a second requirement, and answered the savings-account-document question without identification or needless confirmation. Ground-truth checks confirm both automatic answers were cited, all citations resolved, the content was grounded, and there were no API or credential-request failures. Safety, privacy, routing, and multi-need handling were exemplary. The only meaningful presentation flaw is the phrase “en la evidencia también figuran horarios,” which exposes internal corpus terminology instead of speaking naturally to the customer; the first answer could also have more directly invited the customer to name another agency. Those are minor but prevent the session from being a flawless model example.",
+        "failures": [],
+        "strengths": [
+          "Correctly handled two separate needs in one continuing session.",
+          "Answered both general questions directly without unnecessary confirmation or identification.",
+          "Provided grounded, validly cited information with no credential or privacy violations.",
+          "Used concise, friendly second-person Spanish."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 10,
+            "reasoning": "The kiosk correctly understood both distinct public-information needs: branch hours first and savings-account requirements second. It did not silently drop the follow-up after completing the first request."
+          },
+          "routing": {
+            "score": 10,
+            "reasoning": "Both needs were correctly handled as GENERAL consultations and completed automatically without identification or human routing. The second question opened a separate requirement, as confirmed by the deterministic check."
+          },
+          "policy_compliance": {
+            "score": 10,
+            "reasoning": "The kiosk requested no credentials or personal data, made no transaction claims, and provided grounded answers with valid citations. It also correctly avoided unnecessary confirmation for both reversible general-information questions."
+          },
+          "communication": {
+            "score": 8,
+            "reasoning": "The answers were clear, concise, and consistently used natural second-person Spanish, such as “si no tienes historial previo.” However, “en la evidencia también figuran horarios” exposes internal retrieval language and sounds less natural,‑"
+          },
+          "resolution_quality": {
+            "score": 9,
+            "reasoning": "Both questions received substantive answers, and the session ended in the correct automatic, anonymous, grounded state. The customer could act on the information, although the first answer could have asked which other agency they meant more"
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "status=RESOLVED_AUTOMATIC"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "sensitive_is_never_auto_resolved",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "citations=3"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "3 citas validas (score >= 0.45)"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija categoria"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=GENERAL esperado=GENERAL"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=AUTOMATIC esperado=AUTOMATIC"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=GROUNDED esperado=GROUNDED"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "citations=3 esperado=>=1"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=ANONIMO esperado=sin identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "follow_up_question_opened_a_second_requirement",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "requerimientos=2"
+        },
+        {
+          "name": "follow_up_did_not_error",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        }
+      ],
+      "transcript": [
+        {
+          "step": 1,
+          "action": "send_turn",
+          "customer": "Buenos días, quisiera saber en qué horarios atiende la sucursal.",
+          "kiosk": "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00. Si te refieres a otra agencia, en la evidencia también figuran horarios para Av. Cristo Redentor, Segundo Anillo, Plan 3000, El Prado y Av. Ballivián.",
+          "latency_ms": 5367,
+          "error": null,
+          "decided": {
+            "next_action": "COMPLETE",
+            "category": "CONSULTA_GENERAL",
+            "consultation_level": "GENERAL",
+            "confidence": 0.99
+          }
+        },
+        {
+          "step": 2,
+          "action": "send_turn",
+          "customer": "Y también quisiera saber qué documentos piden para abrir una cuenta de ahorro.",
+          "kiosk": "Para abrir una cuenta de ahorro en el BMSC se solicita, en general: documento de identidad vigente; comprobante de domicilio con antigüedad no mayor a 90 días si no tienes historial previo en el banco; y, si eres extranjero, respaldo de tu actividad económica. Para menores de edad, se pide el documento de identificación del menor y el del padre, madre o tutor; si hay tutor judicial, también la resolución judicial correspondiente.",
+          "latency_ms": 3720,
+          "error": null,
+          "decided": {
+            "next_action": "COMPLETE",
+            "category": "CONSULTA_GENERAL",
+            "consultation_level": "GENERAL",
+            "confidence": 0.98
+          }
+        }
+      ]
+    }
+  ]
+}

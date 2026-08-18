@@ -14,7 +14,7 @@ from harness.client import SessionHandle
 from harness.evaluator import CheckResult, Evaluator
 from harness.runner import _actual_summary, _expected_summary, run_all, run_scenario
 from harness.scenarios.models import ExpectedOutcome
-from harness.session import ConversationSession
+from harness.session import ConversationSession, ExchangeRecord
 
 FINAL_STATE = {
     "status": "ASSIGNED",
@@ -33,6 +33,24 @@ def _session(final_state: dict | None = None) -> ConversationSession:
     session = ConversationSession(client, SessionHandle("sid-1", "tok-1"))
     session.last_category = "REPORTE_FRAUDE"
     session.last_consultation_level = "SENSIBLE"
+    return session
+
+
+def _session_that_spoke(final_state: dict | None = None) -> ConversationSession:
+    """A conversational scenario whose customer actually said something. The runner treats
+    an empty transcript as a harness failure (see
+    `test_a_customer_that_never_speaks_is_a_harness_failure_not_a_kiosk_one`), so mocking
+    the agent away is not enough -- the session has to look like one that ran."""
+    session = _session(final_state)
+    session.exchanges.append(
+        ExchangeRecord(
+            index=0,
+            tool="send_turn",
+            customer_text="Hola, tengo una consulta",
+            kiosk_speech="¿Me confirmas si necesitas bloquear tu tarjeta?",
+            response={"next_action": "CONFIRM"},
+        )
+    )
     return session
 
 
@@ -65,7 +83,7 @@ async def test_a_conversational_scenario_drives_the_customer_agent() -> None:
     scenario = make_scenario(expected=ExpectedOutcome(category=("REPORTE_FRAUDE",)))
     with patch("harness.runner.build_customer_agent") as build:
         build.return_value.run = AsyncMock()
-        result = await _run(scenario)
+        result = await _run(scenario, session=_session_that_spoke())
     build.assert_called_once()
     client = build.call_args.kwargs["model_client"]
     assert client.model_info is not None  # the caller owns the client's lifecycle now
@@ -91,7 +109,7 @@ async def test_a_conversational_scenario_on_a_cli_provider_uses_the_mcp_bridge()
         patch("harness.runner.build_customer_agent") as build_agent,
         patch("harness.runner.build_cli_customer_backend", return_value=backend) as build_backend,
     ):
-        session = _session()
+        session = _session_that_spoke()
         with patch.object(ConversationSession, "start", AsyncMock(return_value=session)):
             result = await run_scenario(
                 AsyncMock(), Evaluator(), None, scenario, model="claude-code", mcp_pool=pool
@@ -136,7 +154,7 @@ async def test_a_conversational_scenario_is_still_sent_to_the_judge() -> None:
     judge.assess.return_value = make_verdict(8)
     with patch("harness.runner.build_customer_agent") as build:
         build.return_value.run = AsyncMock()
-        result = await _run(make_scenario(), judge=judge)
+        result = await _run(make_scenario(), session=_session_that_spoke(), judge=judge)
     judge.assess.assert_awaited_once()
     assert result.verdict is not None
 
@@ -146,7 +164,7 @@ async def test_the_judge_sees_the_deterministic_checks() -> None:
     judge.assess.return_value = make_verdict(8)
     with patch("harness.runner.build_customer_agent") as build:
         build.return_value.run = AsyncMock()
-        result = await _run(make_scenario(), judge=judge)
+        result = await _run(make_scenario(), session=_session_that_spoke(), judge=judge)
     assert judge.assess.await_args.kwargs["checks"] is result.checks
     assert result.verdict.overall_score == 8
 
@@ -157,7 +175,7 @@ async def test_run_all_starts_one_pool_and_reuses_it_across_scenarios() -> None:
     start exactly one pool, sized to `concurrency`, and every scenario in the run must
     borrow from that same pool rather than triggering a new one."""
     scenarios = [make_scenario(name="uno"), make_scenario(name="dos")]
-    session = _session()
+    session = _session_that_spoke()
     fake_pool_cm = AsyncMock()
     fake_pool = MagicMock()  # acquire() is sync-returning-a-context-manager, not awaited
     fake_pool_cm.__aenter__ = AsyncMock(return_value=fake_pool)
@@ -311,6 +329,52 @@ async def test_a_hung_judge_times_out_and_says_which_stage_failed() -> None:
         patch("harness.runner.build_customer_agent") as build,
     ):
         build.return_value.run = AsyncMock()
-        result = await _run(make_scenario(), judge=judge)
+        result = await _run(make_scenario(), session=_session_that_spoke(), judge=judge)
     assert "timed out during the judge stage" in result.error
     assert result.checks, "the checks that already ran must survive a judge timeout"
+    assert result.final_status == "ASSIGNED", "a judge timeout must not erase the real status"
+    assert result.verdict is None, "no verdict, so the score falls back to the checks"
+    assert result.score == 10, "an unreachable judge must not score the kiosk 1/10"
+
+
+async def test_a_slow_judge_is_retried_once_before_being_given_up_on() -> None:
+    """A judge call is one long request to a model or a local CLI. One slow response is a
+    fact about the harness, not evidence about the kiosk, so it is worth a second try."""
+    import harness.runner as runner_module
+
+    judge = AsyncMock()
+    calls = 0
+
+    async def slow_once(**_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            await asyncio.sleep(3600)
+        return make_verdict()
+
+    judge.assess = slow_once
+    with (
+        patch.object(runner_module, "JUDGE_TIMEOUT_SECONDS", 0.05),
+        patch("harness.runner.build_customer_agent") as build,
+    ):
+        build.return_value.run = AsyncMock()
+        result = await _run(make_scenario(), session=_session_that_spoke(), judge=judge)
+    assert calls == 2
+    assert result.error is None
+    assert result.verdict is not None
+
+
+async def test_a_customer_that_never_speaks_is_a_harness_failure_not_a_kiosk_one() -> None:
+    """`prompt_injection` scored 1/10 on 2026-08-18 with an empty transcript and no error:
+    the codex-backed customer declined to utter the injection string, so the kiosk was never
+    tested, yet the report read as a failed security test. It must be retried once and then
+    reported as what it is."""
+    judge = AsyncMock()
+    judge.assess = AsyncMock(return_value=make_verdict())
+    with patch("harness.runner.build_customer_agent") as build:
+        build.return_value.run = AsyncMock()
+        result = await _run(make_scenario(), judge=judge)
+    assert build.call_count == 2, "the silent conversation must be retried once"
+    assert result.error == "the simulated customer produced no turns"
+    assert result.status == "FAIL"
+    judge.assess.assert_not_called()

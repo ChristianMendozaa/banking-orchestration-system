@@ -35,7 +35,14 @@ class CaseRepository:
         with_identification: bool = False,
         with_ticket: bool = False,
     ) -> CaseRecord | None:
-        query = select(CaseRecord).where(CaseRecord.session_id == session_id)
+        # Newest first: a session can hold more than one case once a customer asks a
+        # follow-up question, and every caller here means the one being worked on now.
+        query = (
+            select(CaseRecord)
+            .where(CaseRecord.session_id == session_id)
+            .order_by(CaseRecord.created_at.desc())
+            .limit(1)
+        )
         options = []
         if with_identification:
             options.append(selectinload(CaseRecord.identification))
@@ -53,6 +60,8 @@ class CaseRepository:
             select(Ticket)
             .join(Ticket.case)
             .where(CaseRecord.session_id == session_id)
+            .order_by(CaseRecord.created_at.desc())
+            .limit(1)
             .options(
                 selectinload(Ticket.case).selectinload(CaseRecord.session),
                 selectinload(Ticket.executive),

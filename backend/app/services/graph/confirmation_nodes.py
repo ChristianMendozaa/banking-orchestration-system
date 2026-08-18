@@ -191,10 +191,33 @@ async def apply_confirmation(state: OrchestrationState, runtime: Runtime[GraphCo
 
     requirement.confirmation_decision = payload.confirmed
     if not payload.confirmed:
-        requirement.active = False
         kiosk_session.correction_count += 1
-        kiosk_session.status = SessionStatus.LISTENING
-        return Command(goto=END, update={"next_action": "CAPTURE"})
+        if kiosk_session.correction_count < runtime.context.settings.max_corrections:
+            requirement.active = False
+            kiosk_session.status = SessionStatus.LISTENING
+            return Command(goto=END, update={"next_action": "CAPTURE"})
+        # Out of corrections. Re-asking someone who has already rejected the summary this
+        # many times is how a session ends in LISTENING with no ticket at all -- a person at
+        # the counter can untangle in ten seconds what the kiosk has now failed to capture
+        # twice. Keep the requirement as the record of what was understood and let
+        # `finalize_nodes.eligibility_gate` route it straight to a human on `force_human`,
+        # skipping RAG the same way a low-confidence guess does.
+        requirement.force_human = True
+        if case is None:
+            case = await create_case_for_requirement(db, kiosk_session, requirement)
+        else:
+            case.force_human = True
+        db.add(
+            TraceEvent(
+                case_id=case.id,
+                event_type="CORRECTION_LIMIT_REACHED",
+                description=(
+                    "Se alcanzo el limite de correcciones; el caso se deriva a un ejecutivo"
+                ),
+                metadata_json={"corrections": kiosk_session.correction_count},
+            )
+        )
+        return Command(goto="finalize", update={"case": case})
 
     if not case:
         case = await create_case_for_requirement(db, kiosk_session, requirement)

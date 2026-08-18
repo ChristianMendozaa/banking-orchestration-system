@@ -42,6 +42,14 @@ _NATURAL_SUMMARY_OPENING = re.compile(
     r"no\s+reconoces|notaste|identificaste)",
     re.IGNORECASE,
 )
+# A customer_summary that restates the clarification instead of the need: `decirme`,
+# `contarme`, `indicarme` and `falta saber` all mark the kiosk still asking rather than
+# summarising something it understood.
+_SUMMARY_IS_A_QUESTION = re.compile(
+    r"\b(?:decirme|contarme|indicarme|precisarme|aclararme|falta\s+saber|"
+    r"especificar(?:me)?)\b",
+    re.IGNORECASE,
+)
 # Narrower than _UNNATURAL_CUSTOMER_LANGUAGE: a multi-sentence RAG answer legitimately uses
 # "puede", "necesita" or "su" to talk about the bank or the product ("el banco puede pedir tu
 # documento"), so only third-person references to the person asking, and usted-form address,
@@ -50,6 +58,135 @@ _UNNATURAL_THIRD_PERSON_REFERENCE = re.compile(
     r"\busuario\b|\b(?:el|la|un|una)\s+(?:cliente|persona)\b|\b(?:usted|ustedes)\b",
     re.IGNORECASE,
 )
+
+
+# Category keyword rules, shared by `ClassificationAgent._fallback` (which needs them to
+# classify at all when the provider is down) and by `sensitivity_floor` below (which needs
+# them to second-guess a provider that answered). Keeping one copy is the point: a floor that
+# drifts from the fallback is a floor nobody can reason about.
+_CATEGORY_RULES: tuple[tuple[Category, tuple[str, ...]], ...] = (
+    (
+        Category.REPORTE_FRAUDE,
+        (
+            "fraude",
+            "movimiento no reconocido",
+            "compra no reconocida",
+            "no reconozco",
+            "estafa",
+        ),
+    ),
+    (
+        Category.BLOQUEO_TARJETA,
+        ("bloquear", "bloqueo", "tarjeta perdida", "tarjeta robada", "extrav"),
+    ),
+    (
+        Category.BANCA_DIGITAL,
+        ("banca digital", "banca en linea", "aplicacion", "contraseña", "acceso"),
+    ),
+    (
+        Category.SOLICITUD_CREDITO,
+        ("credito", "crédito", "prestamo", "préstamo", "hipotecario"),
+    ),
+    (
+        Category.CONSULTA_GENERAL,
+        ("horario", "requisito", "abrir una cuenta", "sucursal", "producto"),
+    ),
+)
+
+_LEVEL_ORDER = {
+    ConsultationLevel.GENERAL: 0,
+    ConsultationLevel.PERSONALIZADA: 1,
+    ConsultationLevel.SENSIBLE: 2,
+}
+
+# Something already happened to this person's own money or plastic. These phrasings are not
+# ambiguous in Bolivian Spanish and they survive the hypothetical guard below: "me robaron"
+# is never preventive.
+_INCIDENT_EVENT = re.compile(
+    r"me\s+robaron|robaron\s+mi|me\s+clonaron|clonaron\s+(?:mi|la)|me\s+sacaron|"
+    r"no\s+reconozco|no\s+reconoc[ií]|no\s+autoric[eé]|"
+    r"me\s+(?:aparec|sali)\w*\s+(?:un|dos|tres|varios)?\s*"
+    r"(?:cargo|cobro|consumo|movimiento|consumos|cargos)|"
+    r"se\s+trag[oó]\s+mi\s+tarjeta|me\s+(?:la|lo)\s+(?:usaron|vaciaron)|"
+    r"perd[ií]\s+mi\b|se\s+me\s+perdi[oó]|extravi[eé]",
+    re.IGNORECASE,
+)
+# Weaker than _INCIDENT_EVENT: naming one's own banking object is enough to make a request
+# personal, but a preventive question can mention the same objects, so the hypothetical guard
+# can veto these.
+_OWN_BANKING_OBJECT = re.compile(
+    r"\bmi\s+tarjeta\b|\bmis?\s+cuentas?\b|\bmis\s+movimientos\b|\bmi\s+saldo\b|"
+    r"\bmi\s+plata\b|\bmi\s+dinero\b",
+    re.IGNORECASE,
+)
+# Own file / own access, with no incident and no money moving: PERSONALIZADA territory.
+_OWN_FILE_OR_ACCESS = re.compile(
+    r"no\s+puedo\s+(?:acceder|entrar|ingresar)|no\s+logro\s+(?:entrar|ingresar|acceder)|"
+    r"\bmi\s+(?:contraseña|contrasena|clave|usuario|app|aplicaci[oó]n|extracto|"
+    r"solicitud|cr[eé]dito|pr[eé]stamo|tr[aá]mite)\b|"
+    r"estado\s+de\s+mi\b|c[oó]mo\s+va\s+mi\b",
+    re.IGNORECASE,
+)
+# A digital-banking request that reports an operation of one's own failing. Named separately
+# because these phrasings carry no possessive at all ("hice tres intentos de transferencia y
+# las tres veces fallo") and would otherwise read as a product question.
+_DIGITAL_OPERATION_FAILURE = re.compile(
+    r"fall[oó]|fallaron|no\s+me\s+deja|no\s+funciona|me\s+rechaz|rechazad|"
+    r"\bintentos?\b|\berror\b|bloquead",
+    re.IGNORECASE,
+)
+# Preventive or hypothetical framing. Vetoes _OWN_BANKING_OBJECT and the digital-failure rule,
+# never _INCIDENT_EVENT.
+_HYPOTHETICAL = re.compile(
+    r"si\s+alg[uú]n\s+d[ií]a|por\s+si\s+acaso|por\s+si\s+alguna\s+vez|por\s+prevenci[oó]n|"
+    r"en\s+caso\s+de\s+que|no\s+me\s+pas[oó]\s+nada|todav[ií]a\s+no|hipot[eé]tic|"
+    r"a[uú]n\s+no\s+soy\s+cliente|no\s+es\s+(?:un\s+)?caso\s+real",
+    re.IGNORECASE,
+)
+
+
+def category_from_keywords(text: str) -> Category | None:
+    """First matching rule wins, matching `_fallback`'s original `next(...)` order."""
+    lowered = text.lower()
+    return next(
+        (
+            candidate
+            for candidate, keywords in _CATEGORY_RULES
+            if any(keyword in lowered for keyword in keywords)
+        ),
+        None,
+    )
+
+
+def sensitivity_floor(masked_text: str, category: Category) -> ConsultationLevel | None:
+    """The lowest consultation level this request may be treated as, from its text alone.
+    `None` means the text carries no signal and the classifier's own answer stands.
+
+    This exists because `consultation_level` is load-bearing three times over -- it decides
+    whether the kiosk confirms (`turn_nodes.requires_confirmation`), whether the case is
+    ANONIMO or PENDIENTE (`confirmation_nodes.create_case_for_requirement`) and whether the
+    answer comes from RAG (`InitialAttentionAgent.run`) -- so a single intermittent GENERAL
+    from the model costs identification and human escalation in one HTTP request. The floor
+    only ever raises: the model stays in charge of everything it is better at.
+    """
+    if category is Category.REPORTE_FRAUDE:
+        # A fraud report is, by definition, about this person's own money. A purely
+        # informational question about fraud classifies as CONSULTA_GENERAL instead.
+        return ConsultationLevel.SENSIBLE
+    if _INCIDENT_EVENT.search(masked_text):
+        return ConsultationLevel.SENSIBLE
+    preventive = bool(_HYPOTHETICAL.search(masked_text))
+    if not preventive and _OWN_BANKING_OBJECT.search(masked_text):
+        return ConsultationLevel.SENSIBLE
+    if _OWN_FILE_OR_ACCESS.search(masked_text):
+        return ConsultationLevel.PERSONALIZADA
+    if (
+        not preventive
+        and category is Category.BANCA_DIGITAL
+        and _DIGITAL_OPERATION_FAILURE.search(masked_text)
+    ):
+        return ConsultationLevel.PERSONALIZADA
+    return None
 
 
 def customer_summary_for(category: Category) -> str:
@@ -76,16 +213,36 @@ class ClassificationAgent:
     async def run_with_source(self, masked_text: str) -> tuple[ClassificationDecision, str]:
         if self.provider:
             try:
-                return (
-                    self._ensure_customer_language(await self.provider.classify(masked_text)),
-                    "MODEL",
-                )
+                decision = self._ensure_customer_language(await self.provider.classify(masked_text))
+                return self._enforce_sensitivity(decision, masked_text)
             except Exception as exc:
                 logger.warning(
                     "classification_provider_fallback",
                     error_type=type(exc).__name__,
                 )
+        # `_fallback` derives the level from the same keyword tables the floor uses, so
+        # running the floor over it again would be a no-op.
         return self._fallback(masked_text), "FALLBACK"
+
+    @staticmethod
+    def _enforce_sensitivity(
+        decision: ClassificationDecision, masked_text: str
+    ) -> tuple[ClassificationDecision, str]:
+        """Raises the model's consultation level to the deterministic floor when the text
+        says the request is about this person's own money, plastic or access. Never lowers
+        it -- the model is better than any keyword list at the calls this doesn't cover, and
+        an over-classification only costs one confirmation turn, while an
+        under-classification costs identification and human escalation outright."""
+        floor = sensitivity_floor(masked_text, decision.category)
+        if floor is None or _LEVEL_ORDER[floor] <= _LEVEL_ORDER[decision.consultation_level]:
+            return decision, "MODEL"
+        logger.warning(
+            "classification_level_raised",
+            category=decision.category.value,
+            model_level=decision.consultation_level.value,
+            enforced_level=floor.value,
+        )
+        return decision.model_copy(update={"consultation_level": floor}), "MODEL+FLOOR"
 
     @staticmethod
     def _ensure_customer_language(decision: ClassificationDecision) -> ClassificationDecision:
@@ -95,8 +252,16 @@ class ClassificationAgent:
         ):
             customer_summary = customer_summary_for(decision.category)
 
+        # A summary that hands the question back ("Necesitas decirme si quieres bloquear tu
+        # tarjeta o reportar un fraude") is a clarification wearing a requirement's clothes.
+        # It passes the opening check above, and confirming it produces the loop seen in the
+        # `cliente_no_entiende_la_pregunta` eval: CONFIRM -> rejected -> CAPTURE -> CONFIRM.
+        # Treat it as what it is, so `turn_nodes.route_ambiguity` puts the turn back on the
+        # clarify -> force_human ladder instead.
+        ambiguous = decision.ambiguous or bool(_SUMMARY_IS_A_QUESTION.search(customer_summary))
+
         clarification_question = decision.clarification_question
-        if decision.ambiguous and (
+        if ambiguous and (
             not clarification_question
             or not customer_facing_text_is_natural(clarification_question)
         ):
@@ -107,48 +272,14 @@ class ClassificationAgent:
             update={
                 "customer_summary": customer_summary,
                 "clarification_question": clarification_question,
+                "ambiguous": ambiguous,
             }
         )
 
     @staticmethod
     def _fallback(text: str) -> ClassificationDecision:
         lowered = text.lower()
-        category_rules = (
-            (
-                Category.REPORTE_FRAUDE,
-                (
-                    "fraude",
-                    "movimiento no reconocido",
-                    "compra no reconocida",
-                    "no reconozco",
-                    "estafa",
-                ),
-            ),
-            (
-                Category.BLOQUEO_TARJETA,
-                ("bloquear", "bloqueo", "tarjeta perdida", "tarjeta robada", "extrav"),
-            ),
-            (
-                Category.BANCA_DIGITAL,
-                ("banca digital", "banca en linea", "aplicacion", "contraseña", "acceso"),
-            ),
-            (
-                Category.SOLICITUD_CREDITO,
-                ("credito", "crédito", "prestamo", "préstamo", "hipotecario"),
-            ),
-            (
-                Category.CONSULTA_GENERAL,
-                ("horario", "requisito", "abrir una cuenta", "sucursal", "producto"),
-            ),
-        )
-        category = next(
-            (
-                candidate
-                for candidate, keywords in category_rules
-                if any(keyword in lowered for keyword in keywords)
-            ),
-            None,
-        )
+        category = category_from_keywords(text)
         if category:
             sensitive = category in {Category.REPORTE_FRAUDE, Category.BLOQUEO_TARJETA} or any(
                 term in lowered

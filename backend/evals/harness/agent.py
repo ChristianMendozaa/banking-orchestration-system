@@ -40,7 +40,11 @@ aunque creas que ya dijiste todo:
 - CAPTURE: el kiosco pide que vuelvas a describir tu situacion; responde con send_turn \
 e is_clarification=false (no es una aclaracion, es un requerimiento nuevo).
 - IDENTIFY: responde con send_identification.
-- COMPLETE: la sesion termino; responde exactamente TERMINATE.
+- COMPLETE: el kiosco resolvio o encamino lo que pediste. Si la herramienta te dice que \
+la sesion termino, responde exactamente TERMINATE. Si te dice que la sesion sigue abierta, \
+relee tu objetivo antes de terminar: si incluye algo que todavia no planteaste, plantealo \
+ahora con send_turn e is_clarification=false. Solo responde TERMINATE cuando hayas cubierto \
+todo tu objetivo.
 - DECLINE: el kiosco no puede ayudarte con esto y la sesion termino; responde exactamente \
 TERMINATE. No insistas ni vuelvas a llamar send_turn.
 

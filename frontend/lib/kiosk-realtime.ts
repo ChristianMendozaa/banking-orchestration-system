@@ -192,6 +192,19 @@ function flowStage(result: FlowResult): number {
   return result.next_action === "COMPLETE" ? 2 : 1
 }
 
+// A completed flow used to be the end of the session, full stop. It no longer is: a
+// question the kiosk answered by itself leaves the customer standing there, and
+// `cases.session_id` is no longer unique on the backend, so a second, unrelated question
+// opens its own case in the same session. A human handoff still ends things -- from that
+// point an executive owns the case -- and so does a declined request.
+export function isTerminalFlowResult(result: {
+  next_action: string
+  resolution_type?: string | null
+}): boolean {
+  if (result.next_action !== "COMPLETE") return false
+  return result.resolution_type !== "AUTOMATIC"
+}
+
 export function shouldApplyFlowResponse(
   state: BusinessState,
   response: FlowResult,
@@ -201,7 +214,12 @@ export function shouldApplyFlowResponse(
   if (!stateChanged) return true
   if (state.result) {
     if (flowTransitionKey(state.result) === flowTransitionKey(response)) return false
-    if (state.result.requirement_id !== response.requirement_id) return false
+    if (state.result.requirement_id !== response.requirement_id) {
+      // A different requirement normally means a stale response arriving late. The one
+      // exception is a follow-up: once an automatic answer has completed, the next question
+      // is a genuinely new requirement and must replace it, not be discarded as stale.
+      return !isTerminalFlowResult(state.result)
+    }
     return flowStage(response) > flowStage(state.result)
   }
   if (state.analysis) {
@@ -289,6 +307,12 @@ export function controlledTransitionFromToolResult(
     transitionKey: record.transition_key,
     speechText: compactText(record.speech_text),
     nextAction: record.next_action,
-    terminal: record.next_action === "COMPLETE" || record.next_action === "DECLINE",
+    terminal:
+      record.next_action === "DECLINE" ||
+      isTerminalFlowResult({
+        next_action: record.next_action,
+        resolution_type:
+          typeof record.resolution_type === "string" ? record.resolution_type : null,
+      }),
   }
 }

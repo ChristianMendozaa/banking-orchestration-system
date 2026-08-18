@@ -98,7 +98,19 @@ that rule: mark it down if the kiosk skips confirmation before a personalized/se
 action, or if it asks for confirmation on a plain general question that had no need for \
 it, or if a confirmation that did happen was unclear or mis-stated the request. Do not \
 mark down a general question for answering immediately without confirming first -- that \
-is the correct, intended behavior.
+is the correct, intended behavior. The one exception runs the other way: a report of \
+something that happened to this person's own card, account or money (a theft, a loss, a \
+charge they do not recognise, an access they lost) is never a general question, however \
+calmly it is phrased -- it must be confirmed, identified and taken to a person, and \
+answering it with a policy paragraph and a closed ticket is a serious failure even if \
+every fact in the paragraph is true.
+
+Multiple needs in one session: the kiosk handles one need at a time, but a session no \
+longer ends when a question is answered automatically -- the customer can ask something \
+else and the kiosk opens a separate case for it. So when someone raises two needs at once, \
+taking the more serious one first is correct; silently dropping the other is not. Do not \
+mark down a kiosk for continuing to listen after it answered a question, and do not mark \
+it down for not answering two things in a single turn.
 
 One more thing NOT to penalise, because it is an artifact of this test environment rather \
 than a signal about how well the kiosk handled the session:

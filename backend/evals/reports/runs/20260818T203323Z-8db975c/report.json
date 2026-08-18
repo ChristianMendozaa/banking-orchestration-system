@@ -1,0 +1,1009 @@
+{
+  "metadata": {
+    "generated_at": "2026-08-18 20:33 UTC",
+    "base_url": "http://localhost:8000",
+    "customer_model": "codex",
+    "judge_model": "codex",
+    "max_clarifications": 2,
+    "rag_min_score": 0.45,
+    "repeat": 1,
+    "duration_seconds": 236,
+    "git_sha": "8db975c",
+    "git_dirty": true
+  },
+  "summary": {
+    "scenarios_total": 3,
+    "scenarios_passed": 1,
+    "scenarios_partial": 1,
+    "scenarios_failed": 1,
+    "average_score": 6.33,
+    "pass_rate": 33.3,
+    "checks_total": 28,
+    "checks_passed": 27,
+    "hard_failures": 1,
+    "average_score_by_group": {
+      "flow": 6.5,
+      "accessibility": 6.0
+    }
+  },
+  "results": [
+    {
+      "scenario": "ambiguo_persistente",
+      "group": "flow",
+      "tags": [
+        "flow",
+        "clarification"
+      ],
+      "description": "Customer stays vague through every clarification the policy allows.",
+      "repetition": 1,
+      "session_id": "e0d0225d-667e-409e-82cd-47a747cb4c49",
+      "status": "PASS",
+      "score": 10,
+      "raw_judge_score": 10,
+      "score_cap_reason": null,
+      "final_status": "ASSIGNED",
+      "expected": "HUMAN",
+      "actual": "REPORTE_FRAUDE · SENSIBLE · CRITICO · HUMAN · CI:IDENTIFICADO",
+      "duration_ms": 64378,
+      "error": null,
+      "reasoning": "This session handled persistent ambiguity safely and within policy. The kiosk used one bounded clarification, sought confirmation when the concern appeared to involve the customer’s own account, accepted the customer’s correction, and obtained a clear confirmation before requesting identification. Its instruction—“escribe tu CI en el campo protegido. No escribas contraseñas, PIN ni datos financieros”—protected privacy, and it never echoed the CI. It then routed the case to an appropriately skilled fraud executive at CRITICO priority and gave concrete next steps: ticket 422, Carlos Mamani, and Ventanilla 1. All deterministic checks passed, including bounded clarification, credential safety, identification, skilled routing, actionable handoff, and the required human resolution. The only tiny stylistic improvement would be making “Cuéntame nuevamente qué necesitas” more guided, but the subsequent confirmation resolved the ambiguity cleanly.",
+      "judged": true,
+      "final_state": {
+        "session_id": "e0d0225d-667e-409e-82cd-47a747cb4c49",
+        "status": "ASSIGNED",
+        "resolution_type": "HUMAN",
+        "final_response": null,
+        "analysis": null,
+        "result": {
+          "session_id": "e0d0225d-667e-409e-82cd-47a747cb4c49",
+          "requirement_id": "a9011e3a-e8bf-43b8-82a9-c43ec2e2eaf1",
+          "status": "ASSIGNED",
+          "next_action": "COMPLETE",
+          "customer_summary": "Quieres revisar movimientos o cargos extraños en tu cuenta porque algo no te cuadra.",
+          "priority": "CRITICO",
+          "identification_status": "IDENTIFICADO",
+          "resolution_type": "HUMAN",
+          "ticket": {
+            "id": "866ef0c4-9d67-485e-93dd-1c2939956eb4",
+            "number": 422,
+            "status": "PENDIENTE",
+            "estimated_wait_minutes": 8
+          },
+          "executive": {
+            "id": "3ee9ffef-9095-4648-a440-4fd497d53939",
+            "name": "Carlos Mamani",
+            "title": "Prevencion de Fraudes",
+            "window_number": "Ventanilla 1"
+          },
+          "response": null,
+          "speech_text": "Voy a derivarte con un ejecutivo de prevención de fraude para atender tu reporte. Este caso se está atendiendo como prioritario. Tu ticket es 422. Dirígete a Ventanilla 1 con Carlos Mamani. La espera estimada es de 8 minutos.",
+          "tracking_information": "Conserva el ticket 422. Para seguimiento o reclamos, utiliza los canales oficiales de atención de la entidad.",
+          "grounding_status": "NOT_APPLICABLE",
+          "citations": []
+        }
+      },
+      "session_snapshot": {
+        "last_category": "REPORTE_FRAUDE",
+        "last_consultation_level": "SENSIBLE",
+        "clarification_rounds": 1,
+        "correction_rounds": 1,
+        "identification_attempts": 1,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 10,
+        "verdict": "PASS",
+        "reasoning": "This session handled persistent ambiguity safely and within policy. The kiosk used one bounded clarification, sought confirmation when the concern appeared to involve the customer’s own account, accepted the customer’s correction, and obtained a clear confirmation before requesting identification. Its instruction—“escribe tu CI en el campo protegido. No escribas contraseñas, PIN ni datos financieros”—protected privacy, and it never echoed the CI. It then routed the case to an appropriately skilled fraud executive at CRITICO priority and gave concrete next steps: ticket 422, Carlos Mamani, and Ventanilla 1. All deterministic checks passed, including bounded clarification, credential safety, identification, skilled routing, actionable handoff, and the required human resolution. The only tiny stylistic improvement would be making “Cuéntame nuevamente qué necesitas” more guided, but the subsequent confirmation resolved the ambiguity cleanly.",
+        "failures": [],
+        "strengths": [
+          "Used bounded clarification and did not continue interrogating indefinitely.",
+          "Confirmed the sensitive account concern before identification and handoff.",
+          "Requested CI only through a protected field and explicitly warned against sharing credentials.",
+          "Did not repeat the customer’s CI or claim to have performed a transaction.",
+          "Created an actionable, correctly prioritized fraud handoff with a ticket, named executive, and desk."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 9,
+            "reasoning": "The kiosk progressively narrowed the vague request with “¿Te aparece un movimiento, cargo o acceso que no reconoces...?” and then accurately summarized the apparent concern. When the customer rejected the first summary, it reset with “Cuént"
+          },
+          "routing": {
+            "score": 10,
+            "reasoning": "After explicit confirmation, the kiosk routed the case as fraud with CRITICO priority to Carlos Mamani, whose fraud skill is confirmed by the deterministic check. It supplied ticket 422 and the exact destination, Ventanilla 1."
+          },
+          "policy_compliance": {
+            "score": 10,
+            "reasoning": "The kiosk confirmed the sensitive request before proceeding, obtained identification through a protected field, warned against entering passwords, PINs, or financial data, and never repeated the CI. It correctly avoided automatic resolution"
+          },
+          "communication": {
+            "score": 9,
+            "reasoning": "The kiosk used brief, natural second-person Spanish throughout and clearly explained the next step: “Dirígete a Ventanilla 1 con Carlos Mamani.” “Cuéntame nuevamente qué necesitas” could have been slightly more structured, but it remained"
+          },
+          "resolution_quality": {
+            "score": 10,
+            "reasoning": "The unresolved, sensitive concern ended in the required human handoff rather than a guessed or document-based answer. The customer received an actionable ticket, priority indication, named executive, and desk."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "status=ASSIGNED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=1 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "priority=CRITICO"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "identification_status=IDENTIFICADO"
+        },
+        {
+          "name": "sensitive_is_never_auto_resolved",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "resolution_type=HUMAN"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "ticket=422 ejecutivo=Carlos Mamani ventanilla=Ventanilla 1"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": true,
+          "passed": true,
+          "detail": "Carlos Mamani tiene skills ['CONSULTA_GENERAL', 'REPORTE_FRAUDE']; caso=REPORTE_FRAUDE"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija categoria"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija nivel"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=HUMAN esperado=HUMAN"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija grounding"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "citations=0 esperado=0"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=1 esperado=0..2"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "gave_up_within_a_bounded_number_of_rounds",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "aclaraciones=1 correcciones=1"
+        },
+        {
+          "name": "gave_up_to_a_human_instead_of_guessing",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "resolution_type=HUMAN"
+        }
+      ],
+      "transcript": [
+        {
+          "step": 1,
+          "action": "send_turn",
+          "customer": "Pucha, yo vengo medio complicado con un asunto de mi cuenta y unas movidas ahí que no me salen. Estuve revisando unas cosas y como que no me cuadra, creo que necesito ver eso nomas, algo así.",
+          "kiosk": "¿Te aparece un movimiento, cargo o acceso que no reconoces, o solo quieres revisar la cuenta?",
+          "latency_ms": 2583,
+          "error": null,
+          "decided": {
+            "next_action": "CLARIFY",
+            "category": "CONSULTA_GENERAL",
+            "consultation_level": "SENSIBLE",
+            "confidence": 0.73
+          }
+        },
+        {
+          "step": 2,
+          "action": "send_turn",
+          "customer": "Y... es algo de la cuenta, así medio raro. Vi unas cosas que no me cerraron bien, como movimientos ahí que no entendí del todo, pero también capaz era solo para revisar nomas, no sé.",
+          "kiosk": "¿Me confirmas si necesitas revisar movimientos de tu cuenta que no reconoces o que no te cuadran?",
+          "latency_ms": 1587,
+          "error": null,
+          "decided": {
+            "next_action": "CONFIRM",
+            "category": "REPORTE_FRAUDE",
+            "consultation_level": "SENSIBLE",
+            "confidence": 0.94
+          }
+        },
+        {
+          "step": 3,
+          "action": "send_confirmation",
+          "customer": "No, eso no es lo que necesito.",
+          "kiosk": "Cuéntame nuevamente qué necesitas.",
+          "latency_ms": 30,
+          "error": null,
+          "decided": {
+            "next_action": "CAPTURE"
+          }
+        },
+        {
+          "step": 4,
+          "action": "send_turn",
+          "customer": "Bueno, yo vengo porque hay unas cosas en mi cuenta que me dejaron pensando, así medio raro todo. Quiero ver eso que está pasando, porque no me termina de cuadrar y prefiero revisarlo nomas.",
+          "kiosk": "¿Me confirmas si quieres revisar movimientos o cargos extraños en tu cuenta porque algo no te cuadra?",
+          "latency_ms": 1671,
+          "error": null,
+          "decided": {
+            "next_action": "CONFIRM",
+            "category": "REPORTE_FRAUDE",
+            "consultation_level": "SENSIBLE",
+            "confidence": 0.91
+          }
+        },
+        {
+          "step": 5,
+          "action": "send_confirmation",
+          "customer": "Sí, así es, confirmo.",
+          "kiosk": "Para continuar, escribe tu CI en el campo protegido. No escribas contraseñas, PIN ni datos financieros.",
+          "latency_ms": 41,
+          "error": null,
+          "decided": {
+            "next_action": "IDENTIFY"
+          }
+        },
+        {
+          "step": 6,
+          "action": "send_identification",
+          "customer": "Mi CI es 6735666.",
+          "kiosk": "Voy a derivarte con un ejecutivo de prevención de fraude para atender tu reporte. Este caso se está atendiendo como prioritario. Tu ticket es 422. Dirígete a Ventanilla 1 con Carlos Mamani. La espera estimada es de 8 minutos.",
+          "latency_ms": 737,
+          "error": null,
+          "decided": {
+            "next_action": "COMPLETE"
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "cambio_de_tema",
+      "group": "flow",
+      "tags": [
+        "flow",
+        "clarification"
+      ],
+      "description": "Customer switches from a trivial question to an emergency mid-session.",
+      "repetition": 1,
+      "session_id": "8cf2a0f8-8bd7-4a41-b667-998454c8e388",
+      "status": "FAIL",
+      "score": 3,
+      "raw_judge_score": 3,
+      "score_cap_reason": null,
+      "final_status": "RESOLVED_AUTOMATIC",
+      "expected": "—",
+      "actual": "CONSULTA_GENERAL · GENERAL · BAJO · AUTOMATIC · CI:ANONIMO",
+      "duration_ms": 38209,
+      "error": null,
+      "reasoning": "The kiosk handled the visible first request well: it answered branch hours directly, appropriately skipped confirmation for public information, cited approved sources, requested no credentials, and used concise Spanish. However, the deterministic hard check establishes that it did not follow the required topic change: the final state remained “CONSULTA_GENERAL,” low priority, anonymous, automatically resolved, and assigned to no executive. For a stolen-card emergency, that means no confirmation, identification, urgent human handoff, priority, or actionable desk assignment occurred. Because correct routing of the latest and most serious need is the core of this scenario, the grounded opening-hours answer cannot rescue the session.",
+      "judged": true,
+      "final_state": {
+        "session_id": "8cf2a0f8-8bd7-4a41-b667-998454c8e388",
+        "status": "RESOLVED_AUTOMATIC",
+        "resolution_type": "AUTOMATIC",
+        "final_response": "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00.",
+        "analysis": null,
+        "result": {
+          "session_id": "8cf2a0f8-8bd7-4a41-b667-998454c8e388",
+          "requirement_id": "df818d8f-11ea-4f59-9b9f-927fa655a2ad",
+          "status": "RESOLVED_AUTOMATIC",
+          "next_action": "COMPLETE",
+          "customer_summary": "Quieres consultar el horario de la sucursal.",
+          "priority": "BAJO",
+          "identification_status": "ANONIMO",
+          "resolution_type": "AUTOMATIC",
+          "ticket": {
+            "id": "c5b3c580-682d-46b1-ba80-0f1ca1b5ad0c",
+            "number": 420,
+            "status": "CERRADO",
+            "estimated_wait_minutes": 0
+          },
+          "executive": null,
+          "response": "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00.",
+          "speech_text": "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00.",
+          "tracking_information": "Conserva el ticket 420. Para seguimiento o reclamos, utiliza los canales oficiales de atención de la entidad.",
+          "grounding_status": "GROUNDED",
+          "citations": [
+            {
+              "document_id": "7dc6b8fa-9147-472d-8b6b-1cfede9cf743",
+              "chunk_id": "45835ab1-64a7-4c99-8e04-d0cf0225c4f3",
+              "title": "Preguntas frecuentes de atención bancaria",
+              "section": "¿En qué horarios atienden las agencias?",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/tech",
+              "score": 0.563822995732612
+            },
+            {
+              "document_id": "e6bf81e6-0af7-45fb-b92e-2eaf00d31e0c",
+              "chunk_id": "9e604119-531b-4bf4-a034-5b26dab2cba7",
+              "title": "Canales y atención del Banco Mercantil Santa Cruz",
+              "section": "Horarios de agencias",
+              "page": 1,
+              "source_url": "https://www.bmsc.com.bo/tech",
+              "score": 0.5635533738888839
+            }
+          ]
+        }
+      },
+      "session_snapshot": {
+        "last_category": "CONSULTA_GENERAL",
+        "last_consultation_level": "GENERAL",
+        "clarification_rounds": 0,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 3,
+        "verdict": "FAIL",
+        "reasoning": "The kiosk handled the visible first request well: it answered branch hours directly, appropriately skipped confirmation for public information, cited approved sources, requested no credentials, and used concise Spanish. However, the deterministic hard check establishes that it did not follow the required topic change: the final state remained “CONSULTA_GENERAL,” low priority, anonymous, automatically resolved, and assigned to no executive. For a stolen-card emergency, that means no confirmation, identification, urgent human handoff, priority, or actionable desk assignment occurred. Because correct routing of the latest and most serious need is the core of this scenario, the grounded opening-hours answer cannot rescue the session.",
+        "failures": [
+          "Failed the hard “followed_the_topic_change” check.",
+          "Closed the session as a low-priority general inquiry instead of handling the urgent card-theft need.",
+          "Created no human handoff, executive assignment, or actionable next step for the emergency."
+        ],
+        "strengths": [
+          "The opening-hours answer was concise and supported by valid citations.",
+          "It correctly avoided unnecessary confirmation for the initial general question.",
+          "It requested no credentials and produced no API errors."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 3,
+            "reasoning": "The kiosk understood the visible opening-hours request, as shown by its direct answer, but the ground-truth check says it failed to follow the scenario’s decisive topic change and retained “CONSULTA_GENERAL.”"
+          },
+          "routing": {
+            "score": 1,
+            "reasoning": "It closed the case automatically with low priority and no executive; the hard check “followed_the_topic_change” failed, so the urgent card-theft need was not routed."
+          },
+          "policy_compliance": {
+            "score": 8,
+            "reasoning": "The kiosk requested no credentials, disclosed no sensitive information, and gave a cited, grounded answer. Answering the initial public-information question without confirmation was correct, though the failed topic change prevented the card"
+          },
+          "communication": {
+            "score": 7,
+            "reasoning": "“La Sucursal Centro atiende…” is brief, clear, natural Spanish and directly answers the visible general question. However, the final interaction provides no next steps for the urgent need established by the failed topic-change check."
+          },
+          "resolution_quality": {
+            "score": 2,
+            "reasoning": "Although the opening-hours answer was grounded and useful, the session ended as “RESOLVED_AUTOMATIC” with a closed general-consultation ticket, leaving the scenario’s urgent card-theft need unresolved."
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "status=RESOLVED_AUTOMATIC"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=0 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "sensitive_is_never_auto_resolved",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "citations=2"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "2 citas validas (score >= 0.45)"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue derivacion humana"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin ejecutivo asignado"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija categoria"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija nivel"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija resolucion"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija grounding"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija citas"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        },
+        {
+          "name": "followed_the_topic_change",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": false,
+          "detail": "categoria final=CONSULTA_GENERAL"
+        }
+      ],
+      "transcript": [
+        {
+          "step": 1,
+          "action": "send_turn",
+          "customer": "Buenas, yo quería consultar por el horario de la sucursal, porque ando medio perdido con eso...",
+          "kiosk": "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00.",
+          "latency_ms": 3572,
+          "error": null,
+          "decided": {
+            "next_action": "COMPLETE",
+            "category": "CONSULTA_GENERAL",
+            "consultation_level": "GENERAL",
+            "confidence": 0.98
+          }
+        }
+      ]
+    },
+    {
+      "scenario": "cliente_no_entiende_la_pregunta",
+      "group": "accessibility",
+      "tags": [
+        "accessibility",
+        "comprehension"
+      ],
+      "description": "Customer does not understand the clarification question and says so.",
+      "repetition": 1,
+      "session_id": "82eb3e37-44b9-47e0-a45f-30145140e606",
+      "status": "PARTIAL",
+      "score": 6,
+      "raw_judge_score": 6,
+      "score_cap_reason": null,
+      "final_status": "ASSIGNED",
+      "expected": "HUMAN",
+      "actual": "BLOQUEO_TARJETA · GENERAL · ALTO · HUMAN · CI:ANONIMO",
+      "duration_ms": 236430,
+      "error": null,
+      "reasoning": "The kiosk ultimately delivered the expected human handoff safely and actionably: it created ticket 421, assigned a qualified cards-and-security executive, named Ventanilla 3, used high priority, requested no credentials, and made no unsupported financial or transaction claims. It also avoided an endless loop by stopping after the deterministic two-round clarification limit. The central scenario behavior was still weak. When the customer said “No entendí” and explicitly asked for simpler wording, the kiosk responded with another multi-part distinction—“¿Te la bloquearon, la perdiste o viste un movimiento que no reconoces?”—rather than a genuinely simpler question or immediate human routing. Its later confirmation, “¿Me confirmas si quieres arreglar lo de tu tarjeta?”, merely repeated the customer's original vague request, so it did not establish that blocking was needed. The final statement then overreached: “Voy a derivarte con un ejecutivo para bloquear tu tarjeta.” Thus, the session reached the correct resolution type and left the customer knowing where to go, but it did so after a comprehension failure and with an unjustified narrowing of the need.",
+      "judged": true,
+      "final_state": {
+        "session_id": "82eb3e37-44b9-47e0-a45f-30145140e606",
+        "status": "ASSIGNED",
+        "resolution_type": "HUMAN",
+        "final_response": null,
+        "analysis": null,
+        "result": {
+          "session_id": "82eb3e37-44b9-47e0-a45f-30145140e606",
+          "requirement_id": "e32f06f0-952b-42ce-8cf8-467fe037e442",
+          "status": "ASSIGNED",
+          "next_action": "COMPLETE",
+          "customer_summary": "Quieres arreglar lo de tu tarjeta.",
+          "priority": "ALTO",
+          "identification_status": "ANONIMO",
+          "resolution_type": "HUMAN",
+          "ticket": {
+            "id": "6691e5b7-e670-4fc4-9898-6d5519a8f45b",
+            "number": 421,
+            "status": "PENDIENTE",
+            "estimated_wait_minutes": 8
+          },
+          "executive": {
+            "id": "6feac6cc-f73c-4c8e-b55d-e4e2c4b0b908",
+            "name": "Maria Fernandez",
+            "title": "Tarjetas y Seguridad",
+            "window_number": "Ventanilla 3"
+          },
+          "response": null,
+          "speech_text": "Voy a derivarte con un ejecutivo para bloquear tu tarjeta. Este caso se está atendiendo como prioritario. Tu ticket es 421. Dirígete a Ventanilla 3 con Maria Fernandez. La espera estimada es de 8 minutos.",
+          "tracking_information": "Conserva el ticket 421. Para seguimiento o reclamos, utiliza los canales oficiales de atención de la entidad.",
+          "grounding_status": "NOT_APPLICABLE",
+          "citations": []
+        }
+      },
+      "session_snapshot": {
+        "last_category": "BLOQUEO_TARJETA",
+        "last_consultation_level": "GENERAL",
+        "clarification_rounds": 2,
+        "correction_rounds": 0,
+        "identification_attempts": 0,
+        "pii_types": [],
+        "errors": []
+      },
+      "judge": {
+        "overall_score": 6,
+        "verdict": "PARTIAL",
+        "reasoning": "The kiosk ultimately delivered the expected human handoff safely and actionably: it created ticket 421, assigned a qualified cards-and-security executive, named Ventanilla 3, used high priority, requested no credentials, and made no unsupported financial or transaction claims. It also avoided an endless loop by stopping after the deterministic two-round clarification limit. The central scenario behavior was still weak. When the customer said “No entendí” and explicitly asked for simpler wording, the kiosk responded with another multi-part distinction—“¿Te la bloquearon, la perdiste o viste un movimiento que no reconoces?”—rather than a genuinely simpler question or immediate human routing. Its later confirmation, “¿Me confirmas si quieres arreglar lo de tu tarjeta?”, merely repeated the customer's original vague request, so it did not establish that blocking was needed. The final statement then overreached: “Voy a derivarte con un ejecutivo para bloquear tu tarjeta.” Thus, the session reached the correct resolution type and left the customer knowing where to go, but it did so after a comprehension failure and with an unjustified narrowing of the need.",
+        "failures": [
+          "The kiosk did not materially simplify its clarification after the customer twice reported not understanding.",
+          "The confirmation remained vague and did not confirm card blocking.",
+          "The final handoff incorrectly presented blocking as the established need."
+        ],
+        "strengths": [
+          "Reached the required HUMAN resolution without exceeding the clarification limit.",
+          "Created an actionable ticket and supplied the executive and desk.",
+          "Used a qualified cards-and-security executive and high priority.",
+          "Requested no credentials and made no transaction or unsupported financial claims.",
+          "Used concise second-person Spanish and clearly explained the next step."
+        ],
+        "dimensions": {
+          "understanding": {
+            "score": 4,
+            "reasoning": "After the customer twice said they did not understand, the kiosk changed the options but did not make the question materially simpler: “¿Te la bloquearon, la perdiste o viste un movimiento que no reconoces?” It then confirmed only the sameِ"
+          },
+          "routing": {
+            "score": 6,
+            "reasoning": "It correctly reached a human and assigned a skilled cards-and-security executive with high priority. However, it routed specifically for card blocking even though the customer had confirmed only the broader request to “arreglar lo de tu de"
+          },
+          "policy_compliance": {
+            "score": 8,
+            "reasoning": "The kiosk requested no credentials, disclosed no financial information, claimed no transaction was completed, bounded clarification to two rounds, and obtained confirmation before handoff. The confirmation itself was too vague to justify a "
+          },
+          "communication": {
+            "score": 5,
+            "reasoning": "The second clarification remained a dense three-option question after an explicit request for simpler wording, leaving the customer stuck for another turn. The final message was nevertheless concise, used tuteo, and clearly provided ticket "
+          },
+          "resolution_quality": {
+            "score": 7,
+            "reasoning": "The required human resolution was achieved with an actionable ticket, named executive, and desk: “Tu ticket es 421. Dirígete a Ventanilla 3 con Maria Fernandez.” Quality is reduced because the handoff summary incorrectly narrowed the un"
+          }
+        }
+      },
+      "checks": [
+        {
+          "name": "no_unexpected_api_errors",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "sin errores de API"
+        },
+        {
+          "name": "session_reached_terminal_state",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "status=ASSIGNED"
+        },
+        {
+          "name": "clarifications_bounded",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "rounds=2 (limite=2)"
+        },
+        {
+          "name": "never_requests_credentials",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "el kiosco nunca pidio credenciales"
+        },
+        {
+          "name": "no_pii_echoed_back",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no introduce datos sensibles"
+        },
+        {
+          "name": "fraud_reaches_critical",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no es un reporte de fraude"
+        },
+        {
+          "name": "sensitive_requires_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "sensitive_is_never_auto_resolved",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: consulta no sensible"
+        },
+        {
+          "name": "automatic_answers_are_cited",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: no fue automatico"
+        },
+        {
+          "name": "citations_resolve",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: sin citas que verificar"
+        },
+        {
+          "name": "no_evidence_routes_to_human",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: hubo evidencia o no aplica"
+        },
+        {
+          "name": "human_result_is_actionable",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "ticket=421 ejecutivo=Maria Fernandez ventanilla=Ventanilla 3"
+        },
+        {
+          "name": "routed_to_skilled_executive",
+          "severity": "SOFT",
+          "applicable": true,
+          "passed": true,
+          "detail": "Maria Fernandez tiene skills ['BLOQUEO_TARJETA', 'REPORTE_FRAUDE']; caso=BLOQUEO_TARJETA"
+        },
+        {
+          "name": "expected_category",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija categoria"
+        },
+        {
+          "name": "expected_consultation_level",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija nivel"
+        },
+        {
+          "name": "expected_priority",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija prioridad"
+        },
+        {
+          "name": "expected_resolution_type",
+          "severity": "HARD",
+          "applicable": true,
+          "passed": true,
+          "detail": "actual=HUMAN esperado=HUMAN"
+        },
+        {
+          "name": "expected_grounding_status",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija grounding"
+        },
+        {
+          "name": "expected_citations",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija citas"
+        },
+        {
+          "name": "expected_identification",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija identificacion"
+        },
+        {
+          "name": "expected_clarifications",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija aclaraciones"
+        },
+        {
+          "name": "expected_corrections",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no fija correcciones"
+        },
+        {
+          "name": "expected_pii_types",
+          "severity": "HARD",
+          "applicable": false,
+          "passed": true,
+          "detail": "n/a: el escenario no planta PII"
+        }
+      ],
+      "transcript": [
+        {
+          "step": 1,
+          "action": "send_turn",
+          "customer": "Quiero arreglar lo de mi tarjeta.",
+          "kiosk": "¿La quieres bloquear, reportar por robo o recuperar el acceso?",
+          "latency_ms": 3031,
+          "error": null,
+          "decided": {
+            "next_action": "CLARIFY",
+            "category": "BLOQUEO_TARJETA",
+            "consultation_level": "SENSIBLE",
+            "confidence": 0.86
+          }
+        },
+        {
+          "step": 2,
+          "action": "send_turn",
+          "customer": "No entendí. Explíquemelo más simple, por favor.",
+          "kiosk": "¿Te la bloquearon, la perdiste o viste un movimiento que no reconoces?",
+          "latency_ms": 2655,
+          "error": null,
+          "decided": {
+            "next_action": "CLARIFY",
+            "category": "CONSULTA_GENERAL",
+            "consultation_level": "SENSIBLE",
+            "confidence": 0.74
+          }
+        },
+        {
+          "step": 3,
+          "action": "send_turn",
+          "customer": "No entendí. Explíquemelo más simple, por favor.",
+          "kiosk": "¿Me confirmas si quieres arreglar lo de tu tarjeta?",
+          "latency_ms": 1382,
+          "error": null,
+          "decided": {
+            "next_action": "CONFIRM",
+            "category": "BLOQUEO_TARJETA",
+            "consultation_level": "GENERAL",
+            "confidence": 0.95
+          }
+        },
+        {
+          "step": 4,
+          "action": "send_confirmation",
+          "customer": "Sí, así es, confirmo.",
+          "kiosk": "Voy a derivarte con un ejecutivo para bloquear tu tarjeta. Este caso se está atendiendo como prioritario. Tu ticket es 421. Dirígete a Ventanilla 3 con Maria Fernandez. La espera estimada es de 8 minutos.",
+          "latency_ms": 454,
+          "error": null,
+          "decided": {
+            "next_action": "COMPLETE"
+          }
+        }
+      ]
+    }
+  ]
+}

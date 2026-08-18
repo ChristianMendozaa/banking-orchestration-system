@@ -75,6 +75,10 @@ class Settings(BaseSettings):
 
     classification_confidence_threshold: float = 0.68
     max_clarifications: int = 2
+    # How many times a customer may reject the summary before the kiosk stops re-asking
+    # and hands the session to a person. Without a ceiling, a customer who cannot phrase
+    # the request loops CONFIRM -> reject -> CAPTURE forever and leaves with no ticket.
+    max_corrections: int = 2
     openai_timeout_seconds: float = 20.0
     estimated_service_minutes: int = 8
     support_tracking_information: str = (

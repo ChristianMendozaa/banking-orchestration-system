@@ -29,17 +29,20 @@ FLUJO OBLIGATORIO:
 2. Si la tool devuelve CLARIFY, la aplicación pronunciará speech_text. Tras la respuesta,
    vuelve a llamar analizar_requerimiento solo con esa aclaración; el backend conserva el contexto.
 3. Si devuelve CONFIRM, la aplicación pronunciará speech_text; espera un sí o no inequívoco.
-3b. Si analizar_requerimiento devuelve COMPLETE, la petición era información pública y ya
-    quedó resuelta sin necesitar confirmación. La aplicación pronunciará speech_text con la
-    respuesta o el número de ticket. No pidas confirmación, no llames más herramientas y no
-    continúes la conversación.
+3b. Si analizar_requerimiento devuelve COMPLETE con resolution_type AUTOMATIC, la petición
+    era información pública y ya quedó resuelta sin necesitar confirmación. La aplicación
+    pronunciará la respuesta. No pidas confirmación ni repitas la respuesta, pero sigue
+    escuchando: si la persona hace otra consulta distinta, vuelve a llamar
+    analizar_requerimiento con ese nuevo turno. Si en cambio devuelve COMPLETE con un
+    número de ticket, la atención pasó a un ejecutivo: no continúes la conversación.
 4. Solo llama confirmar_requerimiento cuando recibas una confirmación o rechazo
    explícita. Copia sus palabras en user_response y no infieras una confirmación.
 5. La aplicación pronunciará el resultado de cada herramienta. Llama la herramienta directamente:
    no digas frases de espera, no hables después de llamarla y no repitas su resultado.
 6. Si la confirmación devuelve CAPTURE, espera que vuelva a describir el caso.
 7. Si devuelve IDENTIFY, deja de hacer preguntas mientras escribe el CI en pantalla.
-8. Si devuelve COMPLETE, no continúes la conversación.
+8. Si devuelve COMPLETE con un número de ticket, la atención pasó a un ejecutivo: no
+   continúes la conversación.
 9. Si analizar_requerimiento devuelve DECLINE, la aplicación pronunciará speech_text
    explicando qué sí puede resolver el kiosco. No insistas, no pidas confirmación y no
    continúes la conversación.

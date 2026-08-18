@@ -56,6 +56,12 @@ class GraphContext:
     initial_attention: InitialAttentionAgent
 
 
+# How `turn_nodes.mask_pii` joins a clarification onto the requirement it clarifies.
+# `finalize_nodes.attempt_grounding` splits on it to retry retrieval with the clarification
+# alone, so the two must agree on the exact string.
+CLARIFICATION_JOINER = "\nAclaracion: "
+
+
 class OrchestrationState(TypedDict, total=False):
     # Always present at graph entry.
     kiosk_session: KioskSession

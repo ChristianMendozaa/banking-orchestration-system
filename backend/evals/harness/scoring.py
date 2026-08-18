@@ -72,13 +72,18 @@ class ScenarioResult:
         return self.verdict.overall_score if self.verdict else self._deterministic_score()
 
     def _deterministic_score(self) -> int:
-        """Used only when no judge ran (`--no-judge`).
+        """Used when no judge ran: `--no-judge`, a protocol script, or a judge that could
+        not be reached.
 
-        A disabled judge is not a failed one: the checks still ran, so the score is what
-        the rules alone can say. Full marks when every applicable check passed, a partial
-        when only soft checks did not. A judge that ran and *failed* is a different thing
-        -- the runner records a `JudgeVerdict.unavailable` scoring 1, so it never lands
-        here and never quietly passes.
+        A judge that never answered is not a failed kiosk. The checks still ran, so the
+        score is what the rules alone can say: full marks when every applicable check
+        passed, a partial when only soft checks did not. The runner sets `result.error` in
+        the unreachable case, and `ScenarioResult.status` reads that as a FAIL regardless of
+        the number, so a harness problem is still visible and never quietly passes -- it
+        just no longer reports as though the kiosk mishandled the session.
+
+        A judge that ran and returned an unusable answer is a different thing: the runner
+        records a `JudgeVerdict.unavailable` scoring 1, which never lands here.
         """
         if self.hard_failures:
             return HARD_FAILURE_SCORE_CAP

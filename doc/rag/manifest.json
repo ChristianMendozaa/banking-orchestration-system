@@ -5,7 +5,7 @@
       "slug": "canales-atencion-bmsc",
       "file_name": "01_canales_y_atencion_bmsc.pdf",
       "title": "Canales y atención del Banco Mercantil Santa Cruz",
-      "version": "2026.08",
+      "version": "2026.08.1",
       "source_type": "OFFICIAL",
       "categories": [
         "CONSULTA_GENERAL"
@@ -25,13 +25,13 @@
       ],
       "verified_at": "2026-08-18T00:00:00+00:00",
       "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "ee704333d3f36908a9f060dc17dd6cf3e7f1a3aef5e82a69619a7aee68e48b93"
+      "sha256": "cf47e94ed7f4c62977cd0f7393984db635393822b54284e8ac72100c1904badd"
     },
     {
       "slug": "cuentas-requisitos-bmsc",
       "file_name": "02_cuentas_y_requisitos_bmsc.pdf",
       "title": "Cuentas de ahorro y requisitos generales del BMSC",
-      "version": "2026.08",
+      "version": "2026.08.1",
       "source_type": "OFFICIAL",
       "categories": [
         "CONSULTA_GENERAL"
@@ -41,6 +41,7 @@
         "Súper Makro Cuenta",
         "Cuenta Rinde+",
         "Cuenta de ahorro para menores de edad",
+        "Abono de rentas y pagos periódicos",
         "Límite de la orientación",
         "Fuentes consultadas"
       ],
@@ -51,13 +52,13 @@
       ],
       "verified_at": "2026-08-18T00:00:00+00:00",
       "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "28d3d927509a88d5f3a12fb5813ef2653700b2c6795ff97a87868ba469581433"
+      "sha256": "25f8b1253ae90b5bc3e530bb67e26bdb0d4010a40d9d24eb03816603c15a11f7"
     },
     {
       "slug": "creditos-bmsc",
       "file_name": "03_creditos_bmsc.pdf",
       "title": "Orientación sobre créditos del Banco Mercantil Santa Cruz",
-      "version": "2026.08",
+      "version": "2026.08.1",
       "source_type": "OFFICIAL",
       "categories": [
         "SOLICITUD_CREDITO",
@@ -77,13 +78,13 @@
       ],
       "verified_at": "2026-08-18T00:00:00+00:00",
       "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "608520fb76510a5eb16a18df6add3a722f39fb6021c601e42f666e747a41092d"
+      "sha256": "17fd848886bddd9768e08677e3697ba91197bfd894469502062e56329af4fe2f"
     },
     {
       "slug": "banca-digital-seguridad",
       "file_name": "04_banca_digital_y_seguridad.pdf",
       "title": "Banca digital y seguridad del BMSC",
-      "version": "2026.08",
+      "version": "2026.08.1",
       "source_type": "OFFICIAL",
       "categories": [
         "BANCA_DIGITAL",
@@ -92,6 +93,8 @@
       "sections": [
         "Servicios digitales",
         "Recuperación de acceso",
+        "Bloqueo por intentos fallidos",
+        "Transferencias que no se completan",
         "Protección de credenciales",
         "Atención en sucursal",
         "Fuentes consultadas"
@@ -103,17 +106,18 @@
       ],
       "verified_at": "2026-08-18T00:00:00+00:00",
       "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "8bf6d810c78bd03ad66cc2824c6e4e25cdb7d684982fc5e50333a40907495139"
+      "sha256": "d2d9081a60732f43d52194cfe40bcc355769930c712538c7cd232d6404d50b9c"
     },
     {
       "slug": "tarjetas-bloqueo-fraude",
       "file_name": "05_tarjetas_bloqueo_y_fraude.pdf",
       "title": "Tarjetas, bloqueo y reporte de fraude",
-      "version": "2026.08",
+      "version": "2026.08.1",
       "source_type": "HYBRID",
       "categories": [
         "BLOQUEO_TARJETA",
-        "REPORTE_FRAUDE"
+        "REPORTE_FRAUDE",
+        "CONSULTA_GENERAL"
       ],
       "sections": [
         "Bloqueo de tarjeta",
@@ -129,13 +133,13 @@
       ],
       "verified_at": "2026-08-18T00:00:00+00:00",
       "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "6c13f04f488a77abecdf8f0dcd03768c8eab2a12ef290b8a0bc59c6a99ee8287"
+      "sha256": "ccd4b4acc1fcd3691385d3dc250a7a923c8d3b9a96c4153e263c40bd7225a8c5"
     },
     {
       "slug": "reclamos-derechos",
       "file_name": "06_reclamos_y_derechos.pdf",
       "title": "Reclamos y derechos del consumidor financiero",
-      "version": "2026.08",
+      "version": "2026.08.1",
       "source_type": "REGULATORY",
       "categories": [
         "CONSULTA_GENERAL"
@@ -154,13 +158,13 @@
       ],
       "verified_at": "2026-08-18T00:00:00+00:00",
       "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "1a0221cbb6168a5663425b520fcab85ed8bba46e4f7db74ba231985e3b464325"
+      "sha256": "11c494eee4f3e340424b817c054b18f6f6c17f7dc3a47586f381477fb6395acd"
     },
     {
       "slug": "manual-operativo-sucursal",
       "file_name": "07_manual_operativo_sucursal.pdf",
       "title": "Manual operativo de atención presencial",
-      "version": "2026.08",
+      "version": "2026.08.1",
       "source_type": "INTERNAL",
       "categories": [
         "BLOQUEO_TARJETA",
@@ -172,6 +176,7 @@
       "sections": [
         "Clasificación de ventanillas",
         "Prioridad",
+        "Atención preferencial",
         "Verificación protegida",
         "Asignación y espera",
         "Trazabilidad"
@@ -179,13 +184,13 @@
       "source_urls": [],
       "verified_at": "2026-08-18T00:00:00+00:00",
       "review_after": "2027-08-18T00:00:00+00:00",
-      "sha256": "266439ad114ad4e2583f0cf49306fd247cc33f2f7a89630bcfcaff692912a037"
+      "sha256": "9cfdf551000f77fcea02fe8186f8a6d87d8f86a8f295815fa54f36e12600e0a1"
     },
     {
       "slug": "preguntas-frecuentes-bmsc",
       "file_name": "08_preguntas_frecuentes_bmsc.pdf",
       "title": "Preguntas frecuentes de atención bancaria",
-      "version": "2026.08",
+      "version": "2026.08.1",
       "source_type": "HYBRID",
       "categories": [
         "BLOQUEO_TARJETA",
@@ -201,6 +206,9 @@
         "¿Qué hago si no reconozco un movimiento?",
         "¿Cómo recupero el acceso digital?",
         "¿Cómo presento un reclamo?",
+        "¿Cómo hago para que me depositen mi renta o jubilación en el banco?",
+        "¿Quién tiene atención preferencial y cómo se solicita?",
+        "¿Por qué se bloqueó mi acceso a la banca digital?",
         "Fuentes consultadas"
       ],
       "source_urls": [
@@ -210,7 +218,7 @@
       ],
       "verified_at": "2026-08-18T00:00:00+00:00",
       "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "b25588b045fc67c4e7ef86f065b988b585cd979951ec48b626758f3f8efb9676"
+      "sha256": "60674a5eed088ff949490f85617b81eb913c8e7224f433860be02a4b3588b640"
     }
   ]
 }
