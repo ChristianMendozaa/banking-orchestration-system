@@ -25,7 +25,8 @@ export type FlowResult = Omit<Schemas["FlowResult"], "citations"> & {
 // turn_nodes.requires_confirmation on the backend): next_action can be "COMPLETE" with the
 // answer embedded in `result`. Reshaped the same way as the top-level FlowResult above so
 // `analysis.result` and a `/confirmation` FlowResult are interchangeable everywhere in the
-// frontend instead of `result.citations` being separately optional here.
+// frontend instead of `result.citations` being separately optional here. A COMPLETE whose
+// resolution_type is AUTOMATIC does not end the session -- see isTerminalFlowResult.
 export type TurnAnalysis = Omit<Schemas["TurnAnalysisResponse"], "result"> & {
   result?: FlowResult | null
 }

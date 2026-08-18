@@ -16,7 +16,7 @@ from app.db.models import Requirement
 from app.domain.enums import Category, ConsultationLevel, SessionStatus
 from app.domain.schemas import ClassificationDecision
 from app.services.graph import confirmation_nodes
-from app.services.graph.state import GraphContext, OrchestrationState
+from app.services.graph.state import CLARIFICATION_JOINER, GraphContext, OrchestrationState
 
 
 def requires_confirmation(decision: ClassificationDecision) -> bool:
@@ -27,8 +27,22 @@ def requires_confirmation(decision: ClassificationDecision) -> bool:
     at all -- so a confident GENERAL classification resolves on this same turn instead of
     asking "Me confirmas si...?" for a question the kiosk is about to just answer or
     forward on its own. (The `force_human` fallback never reaches this predicate -- it is
-    a low-confidence guess routed straight to its own always-confirms node below.)"""
-    return decision.consultation_level != ConsultationLevel.GENERAL
+    a low-confidence guess routed straight to its own always-confirms node below.)
+
+    GENERAL alone is not enough to bet that on, though. Skipping confirmation now also
+    skips identification and the human handoff in the same HTTP request, and the eval run
+    of 2026-08-18 has the classifier returning GENERAL at 0.99 confidence for "me robaron
+    mi tarjeta de debito" -- while its own `security_incident` / `distress_detected` flags
+    and a REPORTE_FRAUDE category said the opposite. When the classifier contradicts
+    itself, take the safe reading and confirm: two independent signals have to agree before
+    a session resolves itself in one turn."""
+    if decision.consultation_level != ConsultationLevel.GENERAL:
+        return True
+    if decision.security_incident or decision.distress_detected:
+        return True
+    # A fraud report is about this person's own money by definition; an informational
+    # question about fraud comes back as CONSULTA_GENERAL, not REPORTE_FRAUDE.
+    return decision.category is Category.REPORTE_FRAUDE
 
 
 async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) -> Command:
@@ -55,10 +69,8 @@ async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) 
         # AWAITING_CONFIRMATION the way the branch above handles. Replay it the same way:
         # hand back the already-built result instead of raising TURN_ALREADY_COMPLETED for
         # a request the client may simply be retrying after a dropped response. This is
-        # replay of the *same* turn_id only -- a genuinely new question is still rejected
-        # below by allowed_statuses, because `cases.session_id` and `tickets.case_id` are
-        # both DB-unique: this kiosk session already owns its one case and one ticket, and
-        # there is no row for a second automatic resolution to occupy.
+        # replay of the *same* turn_id only; a genuinely new question after an automatic
+        # answer is a follow-up and is handled below.
         if existing.confirmation_decision is True and kiosk_session.status in {
             SessionStatus.RESOLVED_AUTOMATIC,
             SessionStatus.ASSIGNED,
@@ -72,6 +84,18 @@ async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) 
             409,
             {"status": kiosk_session.status.value},
         )
+
+    if kiosk_session.status == SessionStatus.RESOLVED_AUTOMATIC:
+        # A follow-up question after an automatic answer. `cases.session_id` is no longer
+        # unique, so this opens a second case and a second ticket instead of 409-ing the
+        # customer out of the conversation -- someone who asks two things ("el horario, y
+        # además un cargo que no reconozco") gets both answered rather than whichever one
+        # the classifier ranked first. ASSIGNED is deliberately not in here: a person is
+        # already holding that case, and the kiosk must not open a parallel one behind
+        # them. The counters are per-need, so the new question gets its own budget.
+        kiosk_session.status = SessionStatus.LISTENING
+        kiosk_session.clarification_count = 0
+        kiosk_session.correction_count = 0
 
     allowed_statuses = {
         SessionStatus.CREATED,
@@ -105,7 +129,7 @@ async def mask_pii(state: OrchestrationState, runtime: Runtime[GraphContext]) ->
             runtime.context.db, kiosk_session.id
         )
         if previous:
-            context = f"{previous.masked_text}\nAclaracion: {masked.masked_text}"
+            context = f"{previous.masked_text}{CLARIFICATION_JOINER}{masked.masked_text}"
             previous.active = False
     return {
         "masked_context": context,
@@ -142,11 +166,22 @@ async def clarify(state: OrchestrationState) -> dict:
 
 
 async def force_human(state: OrchestrationState) -> dict:
+    """The clarification budget ran out and the kiosk still cannot pin the request down.
+
+    The level drops to GENERAL on purpose: `create_case_for_requirement` reads it to decide
+    ANONIMO vs PENDIENTE, and demanding an identity card for a request nobody understood is
+    exactly the over-identification the policy forbids. The *category* is kept, though --
+    it is what `PrioritizationAgent` and `DerivationAgent` read, so flattening it to
+    CONSULTA_GENERAL was handing the executive a card or fraud matter labelled as a
+    low-priority general query, which is what the 2026-08-18 judges flagged on
+    `ambiguo_persistente` and `cliente_no_entiende_la_pregunta`. A guess about the topic is
+    still worth more to the person at the counter than no guess at all, and unlike
+    identification it costs nothing if it is wrong: the executive sees the transcript.
+    """
     kiosk_session = state["kiosk_session"]
     decision = state["decision"].model_copy(
         update={
             "summary": state["masked_context"][:500],
-            "category": Category.CONSULTA_GENERAL,
             "consultation_level": ConsultationLevel.GENERAL,
             "ambiguous": False,
             "clarification_question": None,

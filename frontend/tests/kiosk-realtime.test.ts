@@ -9,6 +9,7 @@ import {
   canReplayControlledSpeech,
   captionsFromHistory,
   controlledTransitionFromToolResult,
+  isTerminalFlowResult,
   explicitConfirmation,
   flowToolOutput,
   flowTransitionKey,
@@ -273,6 +274,29 @@ describe("transition keys", () => {
     })
     expect(controlledTransitionFromToolResult("sin json")).toBeNull()
   })
+
+  it("does not treat an automatic answer as the end of the session", () => {
+    // An answer the kiosk produced by itself leaves the customer standing there, and the
+    // backend now opens a second case for a follow-up question, so closing the session on
+    // COMPLETE would hang up on someone mid-conversation.
+    expect(
+      controlledTransitionFromToolResult(
+        JSON.stringify({
+          transition_key: "answer:requirement-9",
+          speech_text: "Las agencias atienden de 08:30 a 19:00.",
+          next_action: "COMPLETE",
+          resolution_type: "AUTOMATIC",
+        }),
+      ),
+    ).toMatchObject({ nextAction: "COMPLETE", terminal: false })
+  })
+
+  it("still closes the session on a human handoff", () => {
+    expect(isTerminalFlowResult(completed)).toBe(true)
+    expect(isTerminalFlowResult({ ...completed, resolution_type: "AUTOMATIC" })).toBe(
+      false,
+    )
+  })
 })
 
 describe("business response ordering", () => {
@@ -337,6 +361,39 @@ describe("business response ordering", () => {
         true,
       ),
     ).toBe(true)
+  })
+
+  it("lets a follow-up question replace an automatic answer", () => {
+    // A different requirement_id normally means a stale response arriving late. After an
+    // automatic answer it means the opposite: the customer asked something else, and that
+    // second requirement is the current one.
+    const answered = { ...completed, resolution_type: "AUTOMATIC" as const }
+    const followUp = {
+      ...answered,
+      requirement_id: "requirement-2",
+      ticket: { ...completed.ticket!, id: "ticket-2", number: 5 },
+    }
+    expect(
+      shouldApplyFlowResponse(
+        { analysis: null, result: answered },
+        followUp,
+        followUp.requirement_id,
+        true,
+      ),
+    ).toBe(true)
+    // ...but a stale one after a human handoff is still discarded.
+    expect(
+      shouldApplyFlowResponse(
+        { analysis: null, result: completed },
+        {
+          ...completed,
+          requirement_id: "requirement-2",
+          ticket: { ...completed.ticket!, id: "ticket-2", number: 5 },
+        },
+        "requirement-2",
+        true,
+      ),
+    ).toBe(false)
   })
 
   it("does not let a delayed IDENTIFY replace a COMPLETE ticket", () => {

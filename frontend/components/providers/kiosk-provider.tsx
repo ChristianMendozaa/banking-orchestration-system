@@ -26,6 +26,7 @@ import {
   controlledSpeechInstructions,
   controlledTransitionFromToolResult,
   flowTransitionKey,
+  isTerminalFlowResult,
   kioskRouteForState,
   requestControlledResponse,
   shouldApplyAnalysisResponse,
@@ -50,6 +51,11 @@ const LEGACY_STORAGE_KEYS = [
 ]
 const COMPLETION_SECONDS = 20
 const TERMINAL_AUDIO_TIMEOUT_MS = 30_000
+// How long the kiosk keeps listening after answering a question by itself, before it
+// finishes the session on its own. Longer than TERMINAL_AUDIO_TIMEOUT_MS: this one is
+// waiting for a person to decide whether they have another question, not for audio to
+// finish playing.
+const FOLLOW_UP_WINDOW_MS = 45_000
 
 export type VoiceState =
   | "idle"
@@ -156,6 +162,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   } | null>(null)
   const completionIntervalRef = useRef<number | null>(null)
   const terminalAudioTimeoutRef = useRef<number | null>(null)
+  const followUpTimeoutRef = useRef<number | null>(null)
+  const followUpTransitionKeyRef = useRef<string | null>(null)
   const interruptedReplayTimeoutRef = useRef<number | null>(null)
 
   const updateState = useCallback((updater: (current: KioskState) => KioskState) => {
@@ -174,6 +182,11 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       window.clearTimeout(terminalAudioTimeoutRef.current)
       terminalAudioTimeoutRef.current = null
     }
+    if (followUpTimeoutRef.current !== null) {
+      window.clearTimeout(followUpTimeoutRef.current)
+      followUpTimeoutRef.current = null
+    }
+    followUpTransitionKeyRef.current = null
     if (interruptedReplayTimeoutRef.current !== null) {
       window.clearTimeout(interruptedReplayTimeoutRef.current)
       interruptedReplayTimeoutRef.current = null
@@ -218,6 +231,11 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const clearFlowTracking = useCallback(() => {
     clarificationRef.current = false
     terminalTransitionKeyRef.current = null
+    if (followUpTimeoutRef.current !== null) {
+      window.clearTimeout(followUpTimeoutRef.current)
+      followUpTimeoutRef.current = null
+    }
+    followUpTransitionKeyRef.current = null
     activeTransitionKeyRef.current = null
     audioDoneTransitionKeyRef.current = null
     requestedTransitionsRef.current.clear()
@@ -260,6 +278,11 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       window.clearTimeout(terminalAudioTimeoutRef.current)
       terminalAudioTimeoutRef.current = null
     }
+    if (followUpTimeoutRef.current !== null) {
+      window.clearTimeout(followUpTimeoutRef.current)
+      followUpTimeoutRef.current = null
+    }
+    followUpTransitionKeyRef.current = null
     try {
       realtimeRef.current?.mute(true)
     } catch {
@@ -282,6 +305,26 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       reset()
     }, 1_000)
   }, [disposeRealtime, reset])
+
+  const cancelFollowUpWindow = useCallback(() => {
+    if (followUpTimeoutRef.current !== null) {
+      window.clearTimeout(followUpTimeoutRef.current)
+      followUpTimeoutRef.current = null
+    }
+    followUpTransitionKeyRef.current = null
+  }, [])
+
+  const armFollowUpWindow = useCallback((transitionKey: string) => {
+    if (followUpTransitionKeyRef.current === transitionKey) return
+    followUpTransitionKeyRef.current = transitionKey
+    if (followUpTimeoutRef.current !== null) {
+      window.clearTimeout(followUpTimeoutRef.current)
+    }
+    followUpTimeoutRef.current = window.setTimeout(
+      startCompletionCountdown,
+      FOLLOW_UP_WINDOW_MS,
+    )
+  }, [startCompletionCountdown])
 
   const armTerminalCompletion = useCallback((transitionKey: string) => {
     if (terminalTransitionKeyRef.current === transitionKey) return
@@ -432,8 +475,11 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   }, [hydrated, pathname, router, state])
 
   useEffect(() => {
+    // An automatic answer is deliberately absent here: it no longer ends the session, so
+    // the microphone stays live for a follow-up question (see isTerminalFlowResult).
     const terminalResult =
-      state.result?.next_action === "IDENTIFY" || state.result?.next_action === "COMPLETE"
+      state.result?.next_action === "IDENTIFY" ||
+      (state.result ? isTerminalFlowResult(state.result) : false)
     const declined = state.analysis?.next_action === "DECLINE"
     if (!terminalResult && !declined) return
     try {
@@ -441,7 +487,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Navigation and business state do not depend on the voice transport.
     }
-  }, [state.result?.next_action, state.analysis?.next_action])
+  }, [state.result, state.analysis?.next_action])
 
   useEffect(() => {
     if (
@@ -450,6 +496,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       completionSeconds === null &&
       realtimeRef.current?.transport.status !== "connected"
     ) {
+      // Reached with no voice transport at all (text-only kiosk, or a dropped connection),
+      // so there is no follow-up to wait for either way -- automatic or not.
       startCompletionCountdown()
     }
   }, [
@@ -535,10 +583,15 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
 
       if (transition.terminal) {
         armTerminalCompletion(transition.transitionKey)
+      } else if (transition.nextAction === "COMPLETE") {
+        // An automatic answer keeps the session open so the customer can ask something
+        // else, but a kiosk that waits forever is a kiosk nobody else can use. Give the
+        // follow-up a window; if nothing comes, finish the session the usual way.
+        armFollowUpWindow(transition.transitionKey)
       }
       return true
     },
-    [armTerminalCompletion],
+    [armFollowUpWindow, armTerminalCompletion],
   )
 
   useEffect(() => {
@@ -552,7 +605,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         transitionKey: flowTransitionKey(state.result),
         speechText: state.result.speech_text,
         nextAction: state.result.next_action,
-        terminal: state.result.next_action === "COMPLETE",
+        terminal: isTerminalFlowResult(state.result),
       }
     } else if (state.analysis) {
       transition = {
@@ -602,7 +655,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       try {
         const reconciled = await reconcileSession(activeSession)
         if (!isActiveAttempt() || !reconciled) return
-        if (stateRef.current.result?.next_action === "COMPLETE") {
+        const completed = stateRef.current.result
+        if (completed && isTerminalFlowResult(completed)) {
           setVoiceState("idle")
           return
         }
@@ -643,6 +697,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             }
 
             try {
+              cancelFollowUpWindow()
               const response = await kioskSessionRequest<TurnAnalysis>(
                 activeSession,
                 "/turns",
@@ -1314,6 +1369,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       if (connectPromiseRef.current === connection) connectPromiseRef.current = null
     }
   }, [
+    cancelFollowUpWindow,
     disposeRealtime,
     handleExpiredSession,
     reconcileSession,
@@ -1375,6 +1431,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       if (!activeSession) throw new Error("No existe una sesión activa")
       let response: TurnAnalysis
       try {
+        cancelFollowUpWindow()
         response = await kioskSessionRequest<TurnAnalysis>(
           activeSession,
           "/turns",
@@ -1430,7 +1487,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       syncTextExchange(activeSession, transcript.trim(), response.speech_text)
       return response
     },
-    [handleExpiredSession, syncTextExchange, updateState],
+    [cancelFollowUpWindow, handleExpiredSession, syncTextExchange, updateState],
   )
 
   const confirmText = useCallback(

@@ -217,8 +217,14 @@ class ConversationSession:
         )
 
     def _check_finished(self, response: dict) -> None:
-        if response.get("next_action") == "COMPLETE":
-            self.finished = True
+        if response.get("next_action") != "COMPLETE":
+            return
+        # An automatic answer no longer ends the session: `cases.session_id` is not unique
+        # any more, so the customer can ask a second, unrelated question and the kiosk opens
+        # a second case for it. A human handoff does still end it -- from that point an
+        # executive owns the case and the kiosk must not open a parallel one behind them.
+        result = response.get("result") or response
+        self.finished = result.get("resolution_type") != "AUTOMATIC"
 
     def _describe(self, response: dict) -> str:
         parts = [f"next_action={response.get('next_action')}"]
@@ -232,5 +238,11 @@ class ConversationSession:
             parts.append(
                 "La sesion ha terminado. No llames mas herramientas; "
                 "responde exactamente TERMINATE."
+            )
+        elif response.get("next_action") == "COMPLETE":
+            parts.append(
+                "Esa consulta quedo resuelta, pero la sesion sigue abierta. Revisa tu "
+                "objetivo: si todavia te queda algo por plantear, dilo ahora con send_turn "
+                "e is_clarification=false. Responde TERMINATE solo si ya no te queda nada."
             )
         return " | ".join(parts)

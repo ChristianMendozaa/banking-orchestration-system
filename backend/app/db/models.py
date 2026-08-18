@@ -129,14 +129,28 @@ class KioskSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     requirements: Mapped[list["Requirement"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
-    case: Mapped["CaseRecord | None"] = relationship(
-        back_populates="session", cascade="all, delete-orphan", uselist=False
+    cases: Mapped[list["CaseRecord"]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="CaseRecord.created_at",
     )
     conversation_messages: Mapped[list["ConversationMessage"]] = relationship(
         back_populates="session",
         cascade="all, delete-orphan",
         order_by="ConversationMessage.created_at",
     )
+
+    @property
+    def case(self) -> "CaseRecord | None":
+        """The case this session is currently working on.
+
+        A session used to own exactly one case, and most read paths still want "the one
+        that matters now" -- the newest. A customer who asks a follow-up question after an
+        automatic answer opens a second case (see `turn_nodes.guard_turn`), so the
+        relationship is a list; this keeps the single-case readers honest instead of
+        letting them index `[0]` and quietly read the wrong one.
+        """
+        return self.cases[-1] if self.cases else None
 
 
 class ConversationMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -191,8 +205,11 @@ class Requirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class CaseRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "cases"
 
+    # Not unique: a session can resolve one need automatically and then take another.
+    # `tickets.case_id` stays unique below -- one ticket per case is still right, and a
+    # second case brings its own.
     session_id: Mapped[UUID] = mapped_column(
-        ForeignKey("kiosk_sessions.id", ondelete="CASCADE"), unique=True, index=True
+        ForeignKey("kiosk_sessions.id", ondelete="CASCADE"), index=True
     )
     requirement_id: Mapped[UUID] = mapped_column(
         ForeignKey("requirements.id", ondelete="RESTRICT"), unique=True
@@ -211,7 +228,7 @@ class CaseRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         string_enum(CaseStatus), default=CaseStatus.CREATED, index=True
     )
     force_human: Mapped[bool] = mapped_column(Boolean, default=False)
-    session: Mapped[KioskSession] = relationship(back_populates="case")
+    session: Mapped[KioskSession] = relationship(back_populates="cases")
     identification: Mapped["Identification | None"] = relationship(
         back_populates="case", cascade="all, delete-orphan", uselist=False
     )

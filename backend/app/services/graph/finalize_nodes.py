@@ -26,7 +26,7 @@ from app.domain.enums import (
     SessionStatus,
     TicketStatus,
 )
-from app.services.graph.state import GraphContext, OrchestrationState
+from app.services.graph.state import CLARIFICATION_JOINER, GraphContext, OrchestrationState
 
 
 async def ticket_guard(state: OrchestrationState, runtime: Runtime[GraphContext]) -> Command:
@@ -78,6 +78,30 @@ async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphCon
         case.consultation_level,
         grounding_query,
     )
+    if grounded_response is None and CLARIFICATION_JOINER in requirement.masked_text:
+        # The summary is written from `mask_pii`'s "<vague opener>\nAclaracion: <real
+        # question>" context, so across a clarification round it can still carry enough of
+        # the opener to pull the embedding away from what was actually asked --
+        # `horarios_ambiguo` asked a clean question about branch hours on turn 2 and came
+        # back NO_EVIDENCE while `horarios_directo`, the same question in one turn, grounds
+        # with five citations. Retry once on the clarification alone before giving up and
+        # sending a public-information question to a person.
+        clarification = requirement.masked_text.rsplit(CLARIFICATION_JOINER, 1)[1].strip()
+        if clarification and clarification != grounding_query:
+            runtime.context.db.add(
+                TraceEvent(
+                    case_id=case.id,
+                    event_type="RAG_RETRY_ON_CLARIFICATION",
+                    description="Reintento de recuperacion usando solo la aclaracion",
+                )
+            )
+            grounded_response = await runtime.context.initial_attention.run(
+                runtime.context.db,
+                case.id,
+                case.category,
+                case.consultation_level,
+                clarification,
+            )
     # InitialAttentionAgent.run bails out immediately (no knowledge lookup at all) for any
     # consultation level other than GENERAL, so grounding was only genuinely attempted -- as
     # opposed to simply not applicable to this case -- when the level is GENERAL.

@@ -93,11 +93,13 @@ async def test_replayed_turn_after_automatic_resolution_returns_the_same_result(
         assert len(tickets) == 1
 
 
-async def test_new_turn_after_automatic_resolution_is_rejected(client: AsyncClient) -> None:
-    """`cases.session_id` and `tickets.case_id` are both DB-unique -- a kiosk session owns
-    exactly one case and one ticket, ever -- so a genuinely new question (a different
-    turn_id) after an automatic resolution cannot be served in the same session; it must
-    be rejected the same way a new turn after a human handoff already is."""
+async def test_follow_up_turn_after_automatic_resolution_opens_a_second_case(
+    client: AsyncClient,
+) -> None:
+    """A public-information question resolves on its own turn and closes its ticket, but the
+    person is still standing at the kiosk. `cases.session_id` is no longer unique, so a
+    genuinely new question (a different turn_id) opens a second case and a second ticket in
+    the same session instead of being rejected."""
     session_id, token = await _session(client)
     headers = {"X-Session-Token": token}
     first = await client.post(
@@ -113,8 +115,51 @@ async def test_new_turn_after_automatic_resolution_is_rejected(client: AsyncClie
         headers=headers,
         json={"turn_id": str(uuid4()), "transcript": "Ahora quiero saber sobre creditos"},
     )
-    assert second.status_code == 409
-    assert second.json()["code"] == "INVALID_SESSION_STATE"
+    assert second.status_code == 200, second.text
+
+    async with TestSession() as db:
+        cases = list(
+            await db.scalars(select(CaseRecord).where(CaseRecord.session_id == UUID(session_id)))
+        )
+        assert len(cases) == 2
+        assert len({case.requirement_id for case in cases}) == 2
+        tickets = list(await db.scalars(select(Ticket)))
+        assert len(tickets) == 2
+
+
+async def test_new_turn_after_human_handoff_is_rejected(client: AsyncClient) -> None:
+    """The other half of the rule: once a case is ASSIGNED, an executive owns it. The kiosk
+    must not open a parallel case behind a person who is already working the queue."""
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    turn = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Me robaron mi tarjeta, quiero bloquearla"},
+    )
+    assert turn.status_code == 200, turn.text
+    requirement_id = turn.json()["requirement_id"]
+    confirmation = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+        headers=headers,
+        json={"requirement_id": requirement_id, "confirmed": True},
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    identification = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/identification",
+        headers=headers,
+        json={"identifier": "6735666"},
+    )
+    assert identification.status_code == 200, identification.text
+    assert identification.json()["status"] == "ASSIGNED"
+
+    rejected = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Ahora quiero saber sobre creditos"},
+    )
+    assert rejected.status_code == 409
+    assert rejected.json()["code"] == "INVALID_SESSION_STATE"
 
 
 async def test_ambiguous_query_requests_clarification(client: AsyncClient) -> None:
@@ -642,3 +687,107 @@ async def test_out_of_scope_request_is_declined_without_case_or_ticket(
         tickets = list(await db.scalars(select(Ticket)))
         assert cases == []
         assert tickets == []
+
+
+async def test_general_label_on_a_fraud_report_still_requires_identification(
+    client: AsyncClient,
+) -> None:
+    """The failure mode of the 2026-08-18 eval run, pinned: the classifier returned GENERAL
+    at 0.99 confidence for a first-person fraud report, which under a GENERAL-means-skip
+    policy closed the ticket without ever asking who the customer was. Two things must now
+    stop that -- `sensitivity_floor` raises the level, and `requires_confirmation` refuses to
+    auto-resolve a REPORTE_FRAUDE -- so the case comes out PENDIENTE, not ANONIMO."""
+
+    class UnderLabellingProvider:
+        async def classify(self, _: str) -> ClassificationDecision:
+            return ClassificationDecision(
+                summary="Reporta un cargo no reconocido en su tarjeta",
+                customer_summary="Necesitas reportar un cargo que no reconoces.",
+                category=Category.REPORTE_FRAUDE,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.99,
+                ambiguous=False,
+            )
+
+    provider = UnderLabellingProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        session_id, token = await _session(client)
+        headers = {"X-Session-Token": token}
+        turn = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={
+                "turn_id": str(uuid4()),
+                "transcript": "Me apareció un cargo que no reconozco en mi tarjeta",
+            },
+        )
+        assert turn.status_code == 200, turn.text
+        analysis = turn.json()
+        assert analysis["next_action"] == "CONFIRM"
+        assert analysis["consultation_level"] == "SENSIBLE"
+
+        confirmation = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={"requirement_id": analysis["requirement_id"], "confirmed": True},
+        )
+        assert confirmation.status_code == 200, confirmation.text
+        assert confirmation.json()["next_action"] == "IDENTIFY"
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+    async with TestSession() as db:
+        case = await db.scalar(select(CaseRecord))
+        assert case is not None
+        assert case.consultation_level is ConsultationLevel.SENSIBLE
+        assert case.identification_status.value == "PENDIENTE"
+        requirement = await db.scalar(select(Requirement))
+        assert requirement is not None
+        assert requirement.classification_source == "MODEL+FLOOR"
+
+
+async def test_repeated_corrections_hand_the_session_to_a_person(client: AsyncClient) -> None:
+    """A customer who cannot phrase the request used to loop CONFIRM -> reject -> CAPTURE
+    forever and leave with no ticket at all (`cliente_no_entiende_la_pregunta`, 2/10, ending
+    in LISTENING). After `max_corrections` rejections the kiosk stops re-asking and routes
+    the case to an executive, skipping RAG on force_human."""
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    last: dict = {}
+    for _ in range(settings_for_tests.max_corrections):
+        turn = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={"turn_id": str(uuid4()), "transcript": "Quiero bloquear mi tarjeta"},
+        )
+        assert turn.status_code == 200, turn.text
+        assert turn.json()["next_action"] == "CONFIRM"
+        rejection = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={"requirement_id": turn.json()["requirement_id"], "confirmed": False},
+        )
+        assert rejection.status_code == 200, rejection.text
+        last = rejection.json()
+
+    assert last["next_action"] == "COMPLETE"
+    assert last["resolution_type"] == "HUMAN"
+    assert last["ticket"]["number"]
+
+    async with TestSession() as db:
+        session_row = await db.scalar(select(KioskSession))
+        assert session_row is not None
+        assert session_row.status.value == "ASSIGNED"
+        case = await db.scalar(select(CaseRecord))
+        assert case is not None and case.force_human is True
+        events = list(await db.scalars(select(TraceEvent)))
+        assert any(event.event_type == "CORRECTION_LIMIT_REACHED" for event in events)

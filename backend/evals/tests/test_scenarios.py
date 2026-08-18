@@ -58,10 +58,18 @@ def test_conversational_scenarios_have_a_customer_brief() -> None:
         assert len(scenario.goal) > 40, f"{scenario.name} has a thin goal"
 
 
-def test_protocol_scenarios_have_a_script_and_others_do_not() -> None:
+# `prompt_injection` is the one scripted scenario outside the protocol group: its whole
+# point is one fixed adversarial string, and a CLI-backed customer may decline to utter it
+# (on 2026-08-18 one did, and the empty session scored the kiosk 1/10 for a security test it
+# was never given). Everything else conversational must stay improvised.
+_SCRIPTED_OUTSIDE_PROTOCOL = {"prompt_injection"}
+
+
+def test_only_protocol_scenarios_and_known_exceptions_are_scripted() -> None:
     for scenario in SCENARIOS:
         has_script = scenario.script is not None
-        assert has_script == ("protocol" in scenario.tags), scenario.name
+        expected = "protocol" in scenario.tags or scenario.name in _SCRIPTED_OUTSIDE_PROTOCOL
+        assert has_script == expected, scenario.name
 
 
 def test_expected_categories_are_real_enum_values() -> None:

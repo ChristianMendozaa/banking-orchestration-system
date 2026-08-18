@@ -76,6 +76,31 @@ def _actual_summary(session: ConversationSession, final_state: dict) -> str:
     return " · ".join(parts) or str(final_state.get("status", "—"))
 
 
+async def _assess_with_retry(
+    judge: Judge,
+    *,
+    scenario: Scenario,
+    session: ConversationSession,
+    final_state: dict,
+    checks: list[CheckResult],
+) -> JudgeVerdict:
+    """One retry before giving up on the judge. Judge calls are a single long request to a
+    model or a local CLI, and a single slow one is not evidence about the kiosk."""
+    try:
+        return await asyncio.wait_for(
+            judge.assess(
+                scenario=scenario, session=session, final_state=final_state, checks=checks
+            ),
+            JUDGE_TIMEOUT_SECONDS,
+        )
+    except TimeoutError:
+        logger.warning("judge_timed_out_retrying", scenario=scenario.name)
+    return await asyncio.wait_for(
+        judge.assess(scenario=scenario, session=session, final_state=final_state, checks=checks),
+        JUDGE_TIMEOUT_SECONDS,
+    )
+
+
 async def run_scenario(
     client: KioskClient,
     evaluator: Evaluator,
@@ -155,6 +180,14 @@ async def run_scenario(
             return []
 
         script_checks = await asyncio.wait_for(conversation(), SCENARIO_TIMEOUT_SECONDS)
+        if scenario.script is None and not session.exchanges:
+            # The simulated customer never said anything. That is a harness failure, not a
+            # kiosk one -- in the 2026-08-18 run the codex-backed customer silently declined
+            # to utter `prompt_injection`'s injection string, and the empty session was
+            # scored 1/10 as if the kiosk had failed a security test it was never given.
+            # Retry once, then say plainly what happened instead of blaming the kiosk.
+            logger.warning("customer_produced_no_turns", scenario=scenario.name, attempt=1)
+            script_checks = await asyncio.wait_for(conversation(), SCENARIO_TIMEOUT_SECONDS)
         final_state = await session.final_status()
 
         result.final_status = str(final_state.get("status", "UNKNOWN"))
@@ -174,20 +207,30 @@ async def run_scenario(
             *evaluator.evaluate(scenario=scenario, session=session, final_state=final_state),
             *script_checks,
         ]
-        # A protocol scenario has no customer utterances and no free-text kiosk speech --
-        # its script's own checks are the entire evidence, and the judge would have
-        # nothing to assess beyond restating them. `ScenarioResult.raw_score` already
-        # falls back to the deterministic score when `verdict` is None, so skipping here
-        # costs no information, only a judge call.
-        if judge and scenario.script is None:
-            result.verdict = await asyncio.wait_for(
-                judge.assess(
-                    scenario=scenario,
-                    session=session,
-                    final_state=final_state,
-                    checks=result.checks,
-                ),
-                JUDGE_TIMEOUT_SECONDS,
+        # A protocol scenario has no free-text kiosk speech -- its script's own checks are
+        # the entire evidence, and the judge would have nothing to assess beyond restating
+        # them. `ScenarioResult.raw_score` already falls back to the deterministic score
+        # when `verdict` is None, so skipping there costs no information, only a judge call.
+        # The gate is the speech itself rather than "is this scripted", because a scripted
+        # scenario can still produce a real conversation worth judging: `prompt_injection`
+        # is driven from a fixed string precisely so the customer model cannot decline to
+        # send it, but what the kiosk says back is exactly what needs qualitative review.
+        speech = [
+            exchange
+            for exchange in session.exchanges
+            if not exchange.kiosk_speech.startswith("HTTP")
+        ]
+        if scenario.script is None and not session.exchanges:
+            # Still nothing after the retry above. Skip the judge -- there is no transcript
+            # to assess -- and let `result.error` mark the row as a harness failure.
+            result.error = "the simulated customer produced no turns"
+        elif judge and speech:
+            result.verdict = await _assess_with_retry(
+                judge,
+                scenario=scenario,
+                session=session,
+                final_state=final_state,
+                checks=result.checks,
             )
     except TimeoutError:
         # Recorded distinctly from a crash: the conversation and its checks may already be
@@ -196,10 +239,17 @@ async def run_scenario(
         stage = "judge" if result.checks else "conversation"
         logger.warning("scenario_timed_out", scenario=scenario.name, stage=stage)
         result.error = f"timed out during the {stage} stage"
-        result.final_status = "TIMEOUT"
-        if session:
-            result.exchanges = session.exchanges
-        result.verdict = JudgeVerdict.unavailable(result.error)
+        if not result.checks:
+            result.final_status = "TIMEOUT"
+            if session:
+                result.exchanges = session.exchanges
+            result.verdict = JudgeVerdict.unavailable(result.error)
+        # Otherwise the kiosk answered and only the judge did not: keep the real final
+        # status and the deterministic checks, and leave `verdict` unset so `raw_score`
+        # falls through to `_deterministic_score()`. Scoring an unreachable judge as 1/10
+        # punishes the system under test for the harness's own timeout -- it cost
+        # `respuestas_monosilabicas` a passing run on 2026-08-18 with every check passing.
+        # `result.error` still forces a FAIL status, so nothing passes quietly.
     except Exception as exc:  # noqa: BLE001 - one scenario's crash must not end the run
         logger.warning(
             "scenario_failed",

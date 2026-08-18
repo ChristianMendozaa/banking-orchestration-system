@@ -1,0 +1,382 @@
+<title>Kiosk Evaluation Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11, 11, 11, 0.10);
+  --bar: #2a78d6;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --critical: #d03b3b;
+  --wash: rgba(11, 11, 11, 0.04);
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d;
+    --surface: #1a1a19;
+    --ink: #ffffff;
+    --ink-2: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --bar: #3987e5;
+    --wash: rgba(255, 255, 255, 0.05);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d;
+  --surface: #1a1a19;
+  --ink: #ffffff;
+  --ink-2: #c3c2b7;
+  --muted: #898781;
+  --grid: #2c2c2a;
+  --axis: #383835;
+  --border: rgba(255, 255, 255, 0.10);
+  --bar: #3987e5;
+  --wash: rgba(255, 255, 255, 0.05);
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--page);
+  color: var(--ink);
+  font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.page { max-width: 1180px; margin: 0 auto; padding: 32px 20px 72px; }
+
+header.masthead { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+header.masthead h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -0.01em; }
+.meta { color: var(--ink-2); font-size: 13px; margin: 0; }
+.meta code { background: var(--wash); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+.spacer { flex: 1 1 auto; }
+button.theme {
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink-2);
+  border-radius: 8px; padding: 7px 12px; font: inherit; font-size: 13px; cursor: pointer;
+}
+button.theme:hover { background: var(--wash); }
+
+.kpis {
+  display: grid; gap: 12px; margin: 28px 0 20px;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+}
+.tile {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 16px 18px;
+}
+.tile .label { color: var(--ink-2); font-size: 12.5px; margin-bottom: 6px; }
+.tile .value { font-size: 34px; line-height: 1.1; letter-spacing: -0.02em; }
+.tile .value .unit { font-size: 16px; color: var(--muted); letter-spacing: 0; }
+.tile .sub { color: var(--ink-2); font-size: 12px; margin-top: 4px; }
+
+.charts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 18px 18px 12px;
+}
+.card h2 { font-size: 14px; margin: 0 0 2px; font-weight: 600; }
+.card p.hint { color: var(--ink-2); font-size: 12px; margin: 0 0 12px; }
+.card svg { width: 100%; height: auto; display: block; }
+.tick { fill: var(--muted); font-size: 11px; }
+.tick.tabular { font-variant-numeric: tabular-nums; }
+.cap { fill: var(--ink-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.gridline { stroke: var(--grid); stroke-width: 1; }
+.axis { stroke: var(--axis); stroke-width: 1; }
+.bar { fill: var(--bar); }
+.line { fill: none; stroke: var(--bar); stroke-width: 2; }
+.dot-marker { fill: var(--surface); stroke: var(--bar); stroke-width: 2; }
+.milestone { stroke: var(--axis); stroke-width: 1; stroke-dasharray: 3 3; }
+
+.controls {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  margin: 28px 0 12px;
+}
+.controls input[type="search"] {
+  flex: 1 1 220px; min-width: 180px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+  border-radius: 8px; padding: 8px 11px; font: inherit; font-size: 13px;
+}
+.chip {
+  border: 1px solid var(--border); background: var(--surface); color: var(--ink-2);
+  border-radius: 999px; padding: 6px 13px; font: inherit; font-size: 13px; cursor: pointer;
+}
+.chip[aria-pressed="true"] {
+  background: var(--ink); color: var(--surface); border-color: var(--ink);
+}
+
+table { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 900px; }
+.table-wrap {
+  overflow-x: auto; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 12px;
+}
+thead th {
+  text-align: left; font-size: 12px; font-weight: 600; color: var(--ink-2);
+  padding: 12px 14px; border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+thead th.sortable { cursor: pointer; user-select: none; }
+tbody td { padding: 12px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tbody tr.summary { cursor: pointer; }
+tbody tr.summary:hover td { background: var(--wash); }
+tbody tr.summary td.name { font-weight: 600; font-size: 13.5px; overflow-wrap: anywhere; }
+tbody tr.summary td.name .desc {
+  display: block; font-weight: 400; color: var(--ink-2);
+  font-size: 12px; margin-top: 3px;
+}
+td.score { font-variant-numeric: tabular-nums; font-size: 15px; }
+td.score .value { white-space: nowrap; }
+td.outcome { font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+/* The full reasoning lives in the expanded panel; the row shows the opening so a
+   reader can scan 41 rows without every one of them being a paragraph tall. */
+td.reason { color: var(--ink-2); font-size: 13px; }
+td.reason .clamp {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4;
+  overflow: hidden;
+}
+
+.verdict {
+  display: inline-flex; align-items: center; gap: 7px;
+  white-space: nowrap; font-size: 12.5px;
+}
+.dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.dot.pass { background: var(--good); }
+.dot.partial { background: var(--warning); }
+.dot.fail { background: var(--critical); }
+.capped { color: var(--ink-2); font-size: 11.5px; }
+td.score .capped { display: block; margin-top: 2px; }
+
+tr.detail > td { background: var(--wash); padding: 0 14px; }
+tr.detail[hidden] { display: none; }
+.detail-inner {
+  display: grid; gap: 18px; padding: 18px 0 22px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+@media (max-width: 820px) { .detail-inner { grid-template-columns: minmax(0, 1fr); } }
+.detail h3 {
+  font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--muted); margin: 0 0 10px; font-weight: 600;
+}
+
+.chat { display: flex; flex-direction: column; gap: 9px; }
+.msg {
+  max-width: 88%; padding: 9px 12px; border-radius: 12px;
+  font-size: 13.5px; border: 1px solid var(--border);
+}
+.msg .who {
+  display: block; font-size: 10.5px; text-transform: uppercase;
+  letter-spacing: 0.05em; color: var(--muted); margin-bottom: 3px;
+}
+.msg.customer { align-self: flex-start; background: var(--surface); }
+.msg.kiosk { align-self: flex-end; background: transparent; }
+.msg.error { align-self: stretch; max-width: 100%; border-color: var(--critical); }
+
+.dims { display: grid; gap: 9px; margin-bottom: 18px; }
+.dim {
+  display: grid; grid-template-columns: 148px 44px 1fr;
+  gap: 10px; align-items: baseline; font-size: 13px;
+}
+.dim .dim-name { color: var(--ink-2); }
+.dim .dim-score { font-variant-numeric: tabular-nums; }
+.dim .dim-why { color: var(--ink-2); font-size: 12.5px; }
+
+ul.checks {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; gap: 6px; font-size: 12.5px;
+}
+ul.checks li { display: grid; grid-template-columns: 14px 1fr; gap: 8px; }
+ul.checks li .mark { font-variant-numeric: tabular-nums; }
+ul.checks li.ok .mark { color: var(--good); }
+ul.checks li.bad .mark { color: var(--critical); }
+ul.checks li.warn .mark { color: var(--warning); }
+ul.checks li.na { color: var(--ink-2); opacity: 0.75; }
+ul.checks li .detail-text { color: var(--ink-2); }
+.verdict-text { font-size: 13px; color: var(--ink-2); margin: 0 0 18px; white-space: pre-wrap; }
+ul.bullets { margin: 0 0 18px; padding-left: 18px; font-size: 12.5px; color: var(--ink-2); }
+ul.bullets li { margin-bottom: 4px; }
+.variance { margin-top: 12px; }
+.variance table { table-layout: auto; min-width: 0; }
+.variance thead th { padding: 8px 10px; }
+.variance tbody td { padding: 8px 10px; font-size: 13px; }
+.variance td.num { font-variant-numeric: tabular-nums; text-align: right; width: 80px; }
+.empty { padding: 28px 14px; color: var(--ink-2); text-align: center; font-size: 13px; }
+footer.note { color: var(--ink-2); font-size: 12px; margin-top: 22px; }
+
+.matrix-wrap { overflow-x: auto; }
+table.matrix { table-layout: auto; min-width: 0; border-collapse: separate; border-spacing: 3px; }
+table.matrix th { font-size: 11px; white-space: nowrap; }
+table.matrix th.run-col {
+  writing-mode: vertical-rl; transform: rotate(180deg); text-align: left;
+  padding: 4px 2px; font-variant-numeric: tabular-nums; max-width: 18px;
+}
+table.matrix td.scenario-name {
+  font-size: 12px; white-space: nowrap; padding: 4px 10px 4px 0; text-align: right;
+  color: var(--ink-2);
+}
+td.cell { padding: 0; border-bottom: none; }
+.swatch {
+  width: 16px; height: 16px; border-radius: 4px; margin: 0 auto;
+}
+.swatch.pass { background: var(--good); }
+.swatch.partial { background: var(--warning); }
+.swatch.fail { background: var(--critical); }
+.swatch.missing { background: var(--wash); border: 1px dashed var(--border); }
+.run-links { font-size: 12px; color: var(--ink-2); margin: 4px 0 0; }
+.run-links a { color: inherit; }
+.groups { display: grid; gap: 10px; margin-top: 8px; }
+.group-row { display: grid; grid-template-columns: 150px 1fr 44px; align-items: center; gap: 12px; }
+.group-row .group-name { font-size: 13px; color: var(--ink-2); }
+.group-row .group-value { font-size: 13px; font-variant-numeric: tabular-nums; text-align: right; }
+</style>
+<div class="page">
+  <header class="masthead">
+    <div>
+      <h1>Kiosk orchestration evaluation</h1>
+      <p class="meta">Generated 2026-08-18 20:36 UTC · backend <code>http://localhost:8000</code> · customer <code>codex</code> · judge <code>codex</code> · run time 1m 07s</p>
+    </div>
+    <span class="spacer"></span>
+    <button class="theme" type="button">Toggle theme</button>
+  </header>
+
+  <section class="kpis"><div class="tile"><div class="label">Scenarios evaluated</div><div class="value">4</div><div class="sub">4 passed · 0 partial · 0 failed</div></div><div class="tile"><div class="label">Average score</div><div class="value">8.5<span class="unit">/10</span></div><div class="sub">after policy caps are applied</div></div><div class="tile"><div class="label">Pass rate</div><div class="value">100<span class="unit">%</span></div><div class="sub">scored 7/10 or better with no hard failure</div></div><div class="tile"><div class="label">Policy checks</div><div class="value">52<span class="unit">/52</span></div><div class="sub">0 hard failures · 0 scores capped</div></div></section>
+
+  <section class="charts">
+    <div class="card">
+      <h2>Score distribution</h2>
+      <p class="hint">Scenarios per final score, after policy caps.</p>
+      <svg viewBox="0 0 520 208" role="img" aria-label="Distribution of final scores from 1 to 10"><line class="gridline" x1="30" y1="178.0" x2="512" y2="178.0"/><text class="tick tabular" x="23" y="181.5" text-anchor="end">0</text><line class="gridline" x1="30" y1="96.0" x2="512" y2="96.0"/><text class="tick tabular" x="23" y="99.5" text-anchor="end">1</text><line class="gridline" x1="30" y1="14.0" x2="512" y2="14.0"/><text class="tick tabular" x="23" y="17.5" text-anchor="end">2</text><text class="tick tabular" x="54.1" y="194" text-anchor="middle">1</text><text class="tick tabular" x="102.3" y="194" text-anchor="middle">2</text><text class="tick tabular" x="150.5" y="194" text-anchor="middle">3</text><text class="tick tabular" x="198.7" y="194" text-anchor="middle">4</text><text class="tick tabular" x="246.9" y="194" text-anchor="middle">5</text><text class="tick tabular" x="295.1" y="194" text-anchor="middle">6</text><text class="tick tabular" x="343.3" y="194" text-anchor="middle">7</text><text class="tick tabular" x="391.5" y="194" text-anchor="middle">8</text><path class="bar" d="M379.5 178.0 V18.0 Q379.5 14.0 383.5 14.0 H399.5 Q403.5 14.0 403.5 18.0 V178.0 Z"><title>2 scenarios scored 8/10</title></path><text class="cap" x="391.5" y="9.0" text-anchor="middle">2</text><text class="tick tabular" x="439.7" y="194" text-anchor="middle">9</text><path class="bar" d="M427.7 178.0 V18.0 Q427.7 14.0 431.7 14.0 H447.7 Q451.7 14.0 451.7 18.0 V178.0 Z"><title>2 scenarios scored 9/10</title></path><text class="cap" x="439.7" y="9.0" text-anchor="middle">2</text><text class="tick tabular" x="487.9" y="194" text-anchor="middle">10</text><line class="axis" x1="30" y1="178" x2="512" y2="178"/></svg>
+    </div>
+    <div class="card">
+      <h2>Average score by group</h2>
+      <p class="hint">Out of 10. Lower bars are where the kiosk is weakest.</p>
+      <svg viewBox="0 0 520 96" role="img" aria-label="Average score by scenario group, out of 10"><line class="gridline" x1="126.0" y1="10" x2="126.0" y2="70"/><text class="tick tabular" x="126.0" y="85" text-anchor="middle">0</text><line class="gridline" x1="198.8" y1="10" x2="198.8" y2="70"/><text class="tick tabular" x="198.8" y="85" text-anchor="middle">2</text><line class="gridline" x1="271.6" y1="10" x2="271.6" y2="70"/><text class="tick tabular" x="271.6" y="85" text-anchor="middle">4</text><line class="gridline" x1="344.4" y1="10" x2="344.4" y2="70"/><text class="tick tabular" x="344.4" y="85" text-anchor="middle">6</text><line class="gridline" x1="417.2" y1="10" x2="417.2" y2="70"/><text class="tick tabular" x="417.2" y="85" text-anchor="middle">8</text><line class="gridline" x1="490.0" y1="10" x2="490.0" y2="70"/><text class="tick tabular" x="490.0" y="85" text-anchor="middle">10</text><text class="tick" x="116" y="29.0" text-anchor="end">General inquiry</text><path class="bar" d="M126 17.0 H449.6 Q453.6 17.0 453.6 21.0 V29.0 Q453.6 33.0 449.6 33.0 H126 Z"><title>General inquiry: 9.0 out of 10</title></path><text class="cap" x="460.6" y="29.0">9.0</text><text class="tick" x="116" y="59.0" text-anchor="end">Conversation flow</text><path class="bar" d="M126 47.0 H425.3 Q429.3 47.0 429.3 51.0 V59.0 Q429.3 63.0 425.3 63.0 H126 Z"><title>Conversation flow: 8.3 out of 10</title></path><text class="cap" x="436.3" y="59.0">8.3</text><line class="axis" x1="126" y1="10" x2="126" y2="70"/></svg>
+    </div>
+  </section>
+
+  
+
+  <div class="controls">
+    <input type="search" placeholder="Search scenarios and reasoning…" aria-label="Search">
+    <button class="chip" data-filter="group" data-value="all" aria-pressed="true">All groups</button><button class="chip" data-filter="group" data-value="general_inquiry" aria-pressed="false">General inquiry</button><button class="chip" data-filter="group" data-value="flow" aria-pressed="false">Conversation flow</button><span class="spacer"></span><button class="chip" data-filter="outcome" data-value="all" aria-pressed="true">All outcomes</button><button class="chip" data-filter="outcome" data-value="PASS" aria-pressed="false">Passed</button><button class="chip" data-filter="outcome" data-value="PARTIAL" aria-pressed="false">Partial</button><button class="chip" data-filter="outcome" data-value="FAIL" aria-pressed="false">Failed</button>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <colgroup>
+        <col style="width: 24%"><col style="width: 10%"><col style="width: 9%">
+        <col style="width: 9%"><col style="width: 19%"><col style="width: 29%">
+      </colgroup>
+      <thead>
+        <tr>
+          <th>Scenario</th>
+          <th>Group</th>
+          <th class="sortable" title="Click to sort by score">Score ↕</th>
+          <th>Verdict</th>
+          <th>Expected → actual</th>
+          <th>Why</th>
+        </tr>
+      </thead>
+      <tbody><tr class="summary" data-group="general_inquiry" data-status="PASS" data-score="9" data-haystack="horarios_directo general_inquiry direct question about branch and contact-centre opening hours. general_inquiry rag this was a strong, policy-correct session. the kiosk answered the clear general inquiry immediately, without needless confirmation or clarification, correctly stating that “la línea móvil 788-12000” is available 24 hours and supplying concrete schedules for branches in santa cruz, la paz, and cochabamba. the recorded state confirms the answer was grounded and supported by four valid citations, while every applicable deterministic check passed. classification, anonymous handling, automatic resolution, and the absence of a human handoff were all exactly right. the only meaningful improvement would be presentation: the answer is a long paragraph containing many schedules, so compact formatting or asking which city matters after giving the general answer would make it easier to absorb without withholding any requested information." aria-expanded="false" tabindex="0"><td class="name">horarios_directo<span class="desc">Direct question about branch and contact-centre opening hours.</span></td><td class="outcome">General inquiry</td><td class="score"><span class="value">9/10</span></td><td><span class="verdict"><span class="dot pass"></span>PASS</span></td><td class="outcome">CONSULTA_GENERAL · GENERAL · AUTOMATIC<br><span class="capped">got: CONSULTA_GENERAL · GENERAL · BAJO · AUTOMATIC · CI:ANONIMO</span></td><td class="reason"><span class="clamp">This was a strong, policy-correct session. The kiosk answered the clear general inquiry immediately, without needless confirmation or clarification, correctly stating that “La Línea Móvil 788-12000” is available 24 hours and supplying concrete schedules for branches in Santa Cruz, La Paz, and Cochabamba. The recorded state confirms the answer was grounded and supported by four valid citations, while every applicable deterministic check passed. Classification, anonymous handling, automatic resolution, and the absence of a human handoff were all exactly right. The only meaningful improvement would be presentation: the answer is a long paragraph containing many schedules, so compact formatting or asking which city matters after giving the general answer would make it easier to absorb without withholding any requested information.</span></td></tr><tr class="detail" hidden><td colspan="6"><div class="detail-inner"><div><h3>Conversation</h3><div class="chat"><div class="msg customer"><span class="who">Customer · send_turn</span>Buenas, quisiera saber en qué horarios atienden las agencias y si tienen alguna línea telefónica disponible las 24 horas.</div><div class="msg kiosk"><span class="who">Kiosk</span>Sí. La Línea Móvil 788-12000 está publicada como disponible las 24 horas. Sobre las agencias, hay horarios concretos para varias sucursales: la Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00; en Santa Cruz de la Sierra, las agencias de la Av. Cristo Redentor y del Segundo Anillo tienen ese mismo horario, y la del Plan 3000 atiende de lunes a viernes de 08:30 a 18:00, sin atención sabatina. En La Paz, la agencia El Prado atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:30 a 13:00. En Cochabamba, la agencia Av. Ballivián atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:00 a 13:00. También se indica que otros puntos pueden tener variaciones y que en feriados y fechas especiales los horarios pueden cambiar.</div></div></div><div><h3>Why this score</h3><p class="verdict-text">This was a strong, policy-correct session. The kiosk answered the clear general inquiry immediately, without needless confirmation or clarification, correctly stating that “La Línea Móvil 788-12000” is available 24 hours and supplying concrete schedules for branches in Santa Cruz, La Paz, and Cochabamba. The recorded state confirms the answer was grounded and supported by four valid citations, while every applicable deterministic check passed. Classification, anonymous handling, automatic resolution, and the absence of a human handoff were all exactly right. The only meaningful improvement would be presentation: the answer is a long paragraph containing many schedules, so compact formatting or asking which city matters after giving the general answer would make it easier to absorb without withholding any requested information.</p><h3>What went well</h3><ul class="bullets"><li>Resolved both requested topics on the first turn.</li><li>Correctly avoided confirmation, identification, and human routing.</li><li>Provided concrete hours, a 24-hour contact number, and valid citations.</li><li>Included a practical caveat about holiday and location-specific variations.</li></ul><h3>Judge scores by dimension</h3><div class="dims"><div class="dim"><span class="dim-name">Understanding</span><span class="dim-score">10/10</span><span class="dim-why">The kiosk correctly understood both parts of the request—agency hours and a 24-hour phone line—and addressed them in the first response without unnecessary clarification.</span></div><div class="dim"><span class="dim-name">Routing</span><span class="dim-score">10/10</span><span class="dim-why">It correctly classified the request as “CONSULTA_GENERAL / GENERAL” and resolved it automatically; no identification or human handoff was warranted.</span></div><div class="dim"><span class="dim-name">Policy compliance</span><span class="dim-score">10/10</span><span class="dim-why">The kiosk appropriately skipped confirmation for a public-information request, requested no credentials or personal data, and provided a grounded answer with valid citations.</span></div><div class="dim"><span class="dim-name">Communication</span><span class="dim-score">8/10</span><span class="dim-why">The response is clear and natural, including the direct statement that “La Línea Móvil 788-12000 está publicada como disponible las 24 horas.” However, the long list of branches is denser than necessary and could be easier to scan.</span></div><div class="dim"><span class="dim-name">Resolution quality</span><span class="dim-score">10/10</span><span class="dim-why">The customer received specific agency schedules, the 24-hour phone number, and a useful warning that hours may vary on holidays, fully resolving both stated needs in one turn.</span></div></div><h3>Policy checks</h3><ul class="checks"><li class="na"><span class="mark">–</span><span><strong>no_pii_echoed_back</strong> — <span class="detail-text">n/a: el escenario no introduce datos sensibles</span></span></li><li class="na"><span class="mark">–</span><span><strong>fraud_reaches_critical</strong> — <span class="detail-text">n/a: no es un reporte de fraude</span></span></li><li class="na"><span class="mark">–</span><span><strong>sensitive_requires_identification</strong> — <span class="detail-text">n/a: consulta no sensible</span></span></li><li class="na"><span class="mark">–</span><span><strong>sensitive_is_never_auto_resolved</strong> — <span class="detail-text">n/a: consulta no sensible</span></span></li><li class="na"><span class="mark">–</span><span><strong>no_evidence_routes_to_human</strong> — <span class="detail-text">n/a: hubo evidencia o no aplica</span></span></li><li class="na"><span class="mark">–</span><span><strong>human_result_is_actionable</strong> — <span class="detail-text">n/a: no fue derivacion humana</span></span></li><li class="na"><span class="mark">–</span><span><strong>routed_to_skilled_executive</strong> (soft) — <span class="detail-text">n/a: sin ejecutivo asignado</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_priority</strong> — <span class="detail-text">n/a: el escenario no fija prioridad</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_corrections</strong> — <span class="detail-text">n/a: el escenario no fija correcciones</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_pii_types</strong> — <span class="detail-text">n/a: el escenario no planta PII</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>no_unexpected_api_errors</strong> — <span class="detail-text">sin errores de API</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>session_reached_terminal_state</strong> — <span class="detail-text">status=RESOLVED_AUTOMATIC</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>clarifications_bounded</strong> — <span class="detail-text">rounds=0 (limite=2)</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>never_requests_credentials</strong> — <span class="detail-text">el kiosco nunca pidio credenciales</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>automatic_answers_are_cited</strong> — <span class="detail-text">citations=4</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>citations_resolve</strong> — <span class="detail-text">4 citas validas (score &gt;= 0.45)</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_category</strong> — <span class="detail-text">actual=CONSULTA_GENERAL esperado=CONSULTA_GENERAL</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_consultation_level</strong> — <span class="detail-text">actual=GENERAL esperado=GENERAL</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_resolution_type</strong> — <span class="detail-text">actual=AUTOMATIC esperado=AUTOMATIC</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_grounding_status</strong> — <span class="detail-text">actual=GROUNDED esperado=GROUNDED</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_citations</strong> — <span class="detail-text">citations=4 esperado=&gt;=1</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_identification</strong> — <span class="detail-text">actual=ANONIMO esperado=sin identificacion</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_clarifications</strong> — <span class="detail-text">rounds=0 esperado=0..0</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>automatic_answer_has_content</strong> — <span class="detail-text">longitud=774</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>general_request_skipped_confirmation</strong> — <span class="detail-text">sin paso de confirmacion</span></span></li></ul></div></div></td></tr><tr class="summary" data-group="flow" data-status="PASS" data-score="8" data-haystack="multi_intencion flow two unrelated requests packed into one utterance. flow classification sensitive the kiosk handled the safety-critical portion very well: it recognized both requests, prioritized the unrecognized card charge, obtained clear confirmation, identified the customer safely, and created an actionable critical-priority fraud referral. its final direction—“tu ticket es 425. dirígete a ventanilla 1 con carlos mamani”—left no ambiguity about the immediate next step, and every deterministic hard check passed. the only meaningful shortcoming is continuity for the second need: although branch hours were explicitly included in the confirmation, the kiosk neither answered that question nor told the customer it would address it as a separate case after the fraud handoff. this prevents an exemplary score but does not undermine the correct and safe routing outcome." aria-expanded="false" tabindex="0"><td class="name">multi_intencion<span class="desc">Two unrelated requests packed into one utterance.</span></td><td class="outcome">Conversation flow</td><td class="score"><span class="value">8/10</span></td><td><span class="verdict"><span class="dot pass"></span>PASS</span></td><td class="outcome">REPORTE_FRAUDE/BLOQUEO_TARJETA · SENSIBLE · HUMAN · CI:IDENTIFICADO<br><span class="capped">got: REPORTE_FRAUDE · SENSIBLE · CRITICO · HUMAN · CI:IDENTIFICADO</span></td><td class="reason"><span class="clamp">The kiosk handled the safety-critical portion very well: it recognized both requests, prioritized the unrecognized card charge, obtained clear confirmation, identified the customer safely, and created an actionable critical-priority fraud referral. Its final direction—“Tu ticket es 425. Dirígete a Ventanilla 1 con Carlos Mamani”—left no ambiguity about the immediate next step, and every deterministic hard check passed. The only meaningful shortcoming is continuity for the second need: although branch hours were explicitly included in the confirmation, the kiosk neither answered that question nor told the customer it would address it as a separate case after the fraud handoff. This prevents an exemplary score but does not undermine the correct and safe routing outcome.</span></td></tr><tr class="detail" hidden><td colspan="6"><div class="detail-inner"><div><h3>Conversation</h3><div class="chat"><div class="msg customer"><span class="who">Customer · send_turn</span>Quiero saber el horario de la sucursal y también reportar un cargo que no reconozco en mi tarjeta.</div><div class="msg kiosk"><span class="who">Kiosk</span>¿Me confirmas si necesitas reportar un cargo no reconocido en tu tarjeta y también saber el horario de la sucursal?</div><div class="msg customer"><span class="who">Customer · send_confirmation</span>Sí, así es, confirmo.</div><div class="msg kiosk"><span class="who">Kiosk</span>Para continuar, escribe tu CI en el campo protegido. No escribas contraseñas, PIN ni datos financieros.</div><div class="msg customer"><span class="who">Customer · send_identification</span>Mi CI es 7842193.</div><div class="msg kiosk"><span class="who">Kiosk</span>Voy a derivarte con un ejecutivo de prevención de fraude para atender tu reporte. Este caso se está atendiendo como prioritario. Tu ticket es 425. Dirígete a Ventanilla 1 con Carlos Mamani. La espera estimada es de 8 minutos.</div></div></div><div><h3>Why this score</h3><p class="verdict-text">The kiosk handled the safety-critical portion very well: it recognized both requests, prioritized the unrecognized card charge, obtained clear confirmation, identified the customer safely, and created an actionable critical-priority fraud referral. Its final direction—“Tu ticket es 425. Dirígete a Ventanilla 1 con Carlos Mamani”—left no ambiguity about the immediate next step, and every deterministic hard check passed. The only meaningful shortcoming is continuity for the second need: although branch hours were explicitly included in the confirmation, the kiosk neither answered that question nor told the customer it would address it as a separate case after the fraud handoff. This prevents an exemplary score but does not undermine the correct and safe routing outcome.</p><h3>What went wrong</h3><ul class="bullets"><li>The branch-hours request was acknowledged but not answered or explicitly deferred to a separate follow-up.</li></ul><h3>What went well</h3><ul class="bullets"><li>Correctly prioritized the fraud report over the general-information request.</li><li>Used clear confirmation before identification and human handoff.</li><li>Protected sensitive information and never echoed the supplied CI.</li><li>Created a critical-priority, pending ticket with an appropriately skilled executive and actionable desk instructions.</li></ul><h3>Judge scores by dimension</h3><div class="dims"><div class="dim"><span class="dim-name">Understanding</span><span class="dim-score">9/10</span><span class="dim-why">The kiosk correctly recognized both needs and accurately restated them: “reportar un cargo no reconocido… y también saber el horario.” It appropriately selected the fraud report as the first and more serious need.</span></div><div class="dim"><span class="dim-name">Routing</span><span class="dim-score">10/10</span><span class="dim-why">It classified the case as REPORTE_FRAUDE/SENSIBLE, assigned CRITICO priority, and routed it to Carlos Mamani in Prevención de Fraudes at Ventanilla 1 with ticket 425.</span></div><div class="dim"><span class="dim-name">Policy compliance</span><span class="dim-score">10/10</span><span class="dim-why">The kiosk confirmed the sensitive request before proceeding, requested CI only through a protected field, warned against sharing passwords, PINs, or financial data, and did not repeat the CI or claim the report was resolved.</span></div><div class="dim"><span class="dim-name">Communication</span><span class="dim-score">8/10</span><span class="dim-why">The Spanish was concise, natural, and consistently used tuteo, while the handoff instructions were actionable. However, after acknowledging the branch-hours question, it did not clearly say that this second need would be handled separately.</span></div><div class="dim"><span class="dim-name">Resolution quality</span><span class="dim-score">8/10</span><span class="dim-why">The urgent fraud need reached an identified, pending human handoff with a skilled executive and clear next steps. The branch-hours need was acknowledged but remained unanswered when the recorded session ended.</span></div></div><h3>Policy checks</h3><ul class="checks"><li class="na"><span class="mark">–</span><span><strong>no_pii_echoed_back</strong> — <span class="detail-text">n/a: el escenario no introduce datos sensibles</span></span></li><li class="na"><span class="mark">–</span><span><strong>automatic_answers_are_cited</strong> — <span class="detail-text">n/a: no fue automatico</span></span></li><li class="na"><span class="mark">–</span><span><strong>citations_resolve</strong> — <span class="detail-text">n/a: sin citas que verificar</span></span></li><li class="na"><span class="mark">–</span><span><strong>no_evidence_routes_to_human</strong> — <span class="detail-text">n/a: hubo evidencia o no aplica</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_priority</strong> — <span class="detail-text">n/a: el escenario no fija prioridad</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_grounding_status</strong> — <span class="detail-text">n/a: el escenario no fija grounding</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_citations</strong> — <span class="detail-text">n/a: el escenario no fija citas</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_clarifications</strong> — <span class="detail-text">n/a: el escenario no fija aclaraciones</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_corrections</strong> — <span class="detail-text">n/a: el escenario no fija correcciones</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_pii_types</strong> — <span class="detail-text">n/a: el escenario no planta PII</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>no_unexpected_api_errors</strong> — <span class="detail-text">sin errores de API</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>session_reached_terminal_state</strong> — <span class="detail-text">status=ASSIGNED</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>clarifications_bounded</strong> — <span class="detail-text">rounds=0 (limite=2)</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>never_requests_credentials</strong> — <span class="detail-text">el kiosco nunca pidio credenciales</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>fraud_reaches_critical</strong> — <span class="detail-text">priority=CRITICO</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>sensitive_requires_identification</strong> — <span class="detail-text">identification_status=IDENTIFICADO</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>sensitive_is_never_auto_resolved</strong> — <span class="detail-text">resolution_type=HUMAN</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>human_result_is_actionable</strong> — <span class="detail-text">ticket=425 ejecutivo=Carlos Mamani ventanilla=Ventanilla 1</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>routed_to_skilled_executive</strong> (soft) — <span class="detail-text">Carlos Mamani tiene skills [&#x27;CONSULTA_GENERAL&#x27;, &#x27;REPORTE_FRAUDE&#x27;]; caso=REPORTE_FRAUDE</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_category</strong> — <span class="detail-text">actual=REPORTE_FRAUDE esperado=REPORTE_FRAUDE|BLOQUEO_TARJETA</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_consultation_level</strong> — <span class="detail-text">actual=SENSIBLE esperado=SENSIBLE</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_resolution_type</strong> — <span class="detail-text">actual=HUMAN esperado=HUMAN</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_identification</strong> — <span class="detail-text">actual=IDENTIFICADO esperado=IDENTIFICADO</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>security_half_was_not_dropped</strong> — <span class="detail-text">categoria=REPORTE_FRAUDE aclaraciones=0</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>deferred_need_was_acknowledged</strong> (soft) — <span class="detail-text">requerimientos=1</span></span></li></ul></div></div></td></tr><tr class="summary" data-group="flow" data-status="PASS" data-score="9" data-haystack="cambio_de_tema flow customer switches from a trivial question to an emergency mid-session. flow clarification this was strong handling of a mid-session switch from a trivial information request to a personal card-theft emergency. the kiosk immediately focused on the stolen card, correctly sought confirmation before a sensitive handoff, recovered appropriately when the customer rejected the first accurate summary, and then confirmed again with “atender primero el bloqueo o reporte de tu tarjeta robada.” it collected identification safely through a protected field, explicitly warned against sharing credentials, and routed the case with high priority to a qualified cards-and-security executive. the final instruction was actionable: ticket 427, maria fernandez, ventanilla 3. no deterministic check failed, and the kiosk did not claim the card had already been blocked. the one improvement is follow-through on the secondary need: it said the branch-hours question would be left “para después,” but the recorded session neither answered it nor opened a separate case for it. that prevents a perfect example score, though it does not undermine the correct emergency outcome." aria-expanded="false" tabindex="0"><td class="name">cambio_de_tema<span class="desc">Customer switches from a trivial question to an emergency mid-session.</span></td><td class="outcome">Conversation flow</td><td class="score"><span class="value">9/10</span></td><td><span class="verdict"><span class="dot pass"></span>PASS</span></td><td class="outcome">—<br><span class="capped">got: BLOQUEO_TARJETA · SENSIBLE · ALTO · HUMAN · CI:IDENTIFICADO</span></td><td class="reason"><span class="clamp">This was strong handling of a mid-session switch from a trivial information request to a personal card-theft emergency. The kiosk immediately focused on the stolen card, correctly sought confirmation before a sensitive handoff, recovered appropriately when the customer rejected the first accurate summary, and then confirmed again with “atender primero el bloqueo o reporte de tu tarjeta robada.” It collected identification safely through a protected field, explicitly warned against sharing credentials, and routed the case with high priority to a qualified cards-and-security executive. The final instruction was actionable: ticket 427, Maria Fernandez, Ventanilla 3. No deterministic check failed, and the kiosk did not claim the card had already been blocked. The one improvement is follow-through on the secondary need: it said the branch-hours question would be left “para después,” but the recorded session neither answered it nor opened a separate case for it. That prevents a perfect example score, though it does not undermine the correct emergency outcome.</span></td></tr><tr class="detail" hidden><td colspan="6"><div class="detail-inner"><div><h3>Conversation</h3><div class="chat"><div class="msg customer"><span class="who">Customer · send_turn</span>Buenos, este... quería saber el horario de la sucursal, porque yo normalmente vengo por la tarde y no sé bien hasta qué hora atienden. Y bueno, también ando medio perdido con unas cosas... recién me acordé que no tengo mi tarjeta, me la robaron, y eso sí es lo urgente ahora.</div><div class="msg kiosk"><span class="who">Kiosk</span>¿Me confirmas si necesitas atender primero la tarjeta robada y después consultar el horario de la sucursal?</div><div class="msg customer"><span class="who">Customer · send_confirmation</span>No, eso no es lo que necesito.</div><div class="msg kiosk"><span class="who">Kiosk</span>Cuéntame nuevamente qué necesitas.</div><div class="msg customer"><span class="who">Customer · send_turn</span>A ver, yo venía por el horario de la sucursal, pero recién me cayó la ficha que me robaron mi tarjeta y eso me preocupa más. Necesito ver qué se puede hacer por la tarjeta primero, porque ando medio apurado y no sé bien cómo seguir.</div><div class="msg kiosk"><span class="who">Kiosk</span>¿Me confirmas si necesitas atender primero el bloqueo o reporte de tu tarjeta robada y dejar el horario de la sucursal para después?</div><div class="msg customer"><span class="who">Customer · send_confirmation</span>Sí, así es, confirmo.</div><div class="msg kiosk"><span class="who">Kiosk</span>Para continuar, escribe tu CI en el campo protegido. No escribas contraseñas, PIN ni datos financieros.</div><div class="msg customer"><span class="who">Customer · send_identification</span>Mi CI es 6735666.</div><div class="msg kiosk"><span class="who">Kiosk</span>Voy a derivarte con un ejecutivo para bloquear tu tarjeta. Este caso se está atendiendo como prioritario. Tu ticket es 427. Dirígete a Ventanilla 3 con Maria Fernandez. La espera estimada es de 8 minutos.</div></div></div><div><h3>Why this score</h3><p class="verdict-text">This was strong handling of a mid-session switch from a trivial information request to a personal card-theft emergency. The kiosk immediately focused on the stolen card, correctly sought confirmation before a sensitive handoff, recovered appropriately when the customer rejected the first accurate summary, and then confirmed again with “atender primero el bloqueo o reporte de tu tarjeta robada.” It collected identification safely through a protected field, explicitly warned against sharing credentials, and routed the case with high priority to a qualified cards-and-security executive. The final instruction was actionable: ticket 427, Maria Fernandez, Ventanilla 3. No deterministic check failed, and the kiosk did not claim the card had already been blocked. The one improvement is follow-through on the secondary need: it said the branch-hours question would be left “para después,” but the recorded session neither answered it nor opened a separate case for it. That prevents a perfect example score, though it does not undermine the correct emergency outcome.</p><h3>What went wrong</h3><ul class="bullets"><li>The deferred branch-hours request was acknowledged but not subsequently answered or recorded as a separate case.</li></ul><h3>What went well</h3><ul class="bullets"><li>Correctly followed the topic change and prioritized the stolen-card emergency.</li><li>Used clear confirmation before identification and human handoff.</li><li>Requested CI safely without asking for credentials or echoing sensitive data.</li><li>Created an actionable high-priority handoff to a suitably skilled executive.</li><li>Used concise, natural second-person Spanish and clearly explained the immediate next step.</li></ul><h3>Judge scores by dimension</h3><div class="dims"><div class="dim"><span class="dim-name">Understanding</span><span class="dim-score">9/10</span><span class="dim-why">The kiosk correctly recognized the topic change and prioritized the stolen card, asking, “¿Me confirmas si necesitas atender primero la tarjeta robada...?” After the customer rejected that confirmation, it invited a restatement and then rec</span></div><div class="dim"><span class="dim-name">Routing</span><span class="dim-score">10/10</span><span class="dim-why">It routed the confirmed stolen-card need as BLOQUEO_TARJETA with ALTO priority to a qualified cards-and-security executive at Ventanilla 3. The final state and all routing checks confirm the handoff was correct and actionable.</span></div><div class="dim"><span class="dim-name">Policy compliance</span><span class="dim-score">10/10</span><span class="dim-why">The kiosk confirmed the sensitive request before proceeding, requested CI only through a protected field, warned against sharing passwords, PINs, or financial data, and did not repeat the CI. It neither invented financial information noroz</span></div><div class="dim"><span class="dim-name">Communication</span><span class="dim-score">8/10</span><span class="dim-why">The Spanish was concise, natural, and consistently used tuteo; the final message clearly supplied ticket 427, priority, executive, and desk. However, it did not explain how the deferred branch-hours question would be handled after the cardU</span></div><div class="dim"><span class="dim-name">Resolution quality</span><span class="dim-score">9/10</span><span class="dim-why">The urgent need reached a human in a terminal ASSIGNED state, and the customer was told exactly where to go and whom to see. The only meaningful omission is that no separate answer or case was created for the expressly deferred branch-hours</span></div></div><h3>Policy checks</h3><ul class="checks"><li class="na"><span class="mark">–</span><span><strong>no_pii_echoed_back</strong> — <span class="detail-text">n/a: el escenario no introduce datos sensibles</span></span></li><li class="na"><span class="mark">–</span><span><strong>fraud_reaches_critical</strong> — <span class="detail-text">n/a: no es un reporte de fraude</span></span></li><li class="na"><span class="mark">–</span><span><strong>automatic_answers_are_cited</strong> — <span class="detail-text">n/a: no fue automatico</span></span></li><li class="na"><span class="mark">–</span><span><strong>citations_resolve</strong> — <span class="detail-text">n/a: sin citas que verificar</span></span></li><li class="na"><span class="mark">–</span><span><strong>no_evidence_routes_to_human</strong> — <span class="detail-text">n/a: hubo evidencia o no aplica</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_category</strong> — <span class="detail-text">n/a: el escenario no fija categoria</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_consultation_level</strong> — <span class="detail-text">n/a: el escenario no fija nivel</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_priority</strong> — <span class="detail-text">n/a: el escenario no fija prioridad</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_resolution_type</strong> — <span class="detail-text">n/a: el escenario no fija resolucion</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_grounding_status</strong> — <span class="detail-text">n/a: el escenario no fija grounding</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_citations</strong> — <span class="detail-text">n/a: el escenario no fija citas</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_identification</strong> — <span class="detail-text">n/a: el escenario no fija identificacion</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_clarifications</strong> — <span class="detail-text">n/a: el escenario no fija aclaraciones</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_corrections</strong> — <span class="detail-text">n/a: el escenario no fija correcciones</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_pii_types</strong> — <span class="detail-text">n/a: el escenario no planta PII</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>no_unexpected_api_errors</strong> — <span class="detail-text">sin errores de API</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>session_reached_terminal_state</strong> — <span class="detail-text">status=ASSIGNED</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>clarifications_bounded</strong> — <span class="detail-text">rounds=0 (limite=2)</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>never_requests_credentials</strong> — <span class="detail-text">el kiosco nunca pidio credenciales</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>sensitive_requires_identification</strong> — <span class="detail-text">identification_status=IDENTIFICADO</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>sensitive_is_never_auto_resolved</strong> — <span class="detail-text">resolution_type=HUMAN</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>human_result_is_actionable</strong> — <span class="detail-text">ticket=427 ejecutivo=Maria Fernandez ventanilla=Ventanilla 3</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>routed_to_skilled_executive</strong> (soft) — <span class="detail-text">Maria Fernandez tiene skills [&#x27;BLOQUEO_TARJETA&#x27;, &#x27;REPORTE_FRAUDE&#x27;]; caso=BLOQUEO_TARJETA</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>followed_the_topic_change</strong> — <span class="detail-text">categoria final=BLOQUEO_TARJETA</span></span></li></ul></div></div></td></tr><tr class="summary" data-group="flow" data-status="PASS" data-score="8" data-haystack="seguimiento_tras_respuesta_automatica flow a second, unrelated question after the first one is answered. flow rag follow_up the kiosk achieved the intended outcome cleanly: it answered the hours question immediately, remained available for the unrelated follow-up, opened a second requirement, and answered the savings-account-document question without identification or needless confirmation. ground-truth checks confirm both automatic answers were cited, all citations resolved, the content was grounded, and there were no api or credential-request failures. safety, privacy, routing, and multi-need handling were exemplary. the only meaningful presentation flaw is the phrase “en la evidencia también figuran horarios,” which exposes internal corpus terminology instead of speaking naturally to the customer; the first answer could also have more directly invited the customer to name another agency. those are minor but prevent the session from being a flawless model example." aria-expanded="false" tabindex="0"><td class="name">seguimiento_tras_respuesta_automatica<span class="desc">A second, unrelated question after the first one is answered.</span></td><td class="outcome">Conversation flow</td><td class="score"><span class="value">8/10</span></td><td><span class="verdict"><span class="dot pass"></span>PASS</span></td><td class="outcome">GENERAL · AUTOMATIC<br><span class="capped">got: CONSULTA_GENERAL · GENERAL · BAJO · AUTOMATIC · CI:ANONIMO</span></td><td class="reason"><span class="clamp">The kiosk achieved the intended outcome cleanly: it answered the hours question immediately, remained available for the unrelated follow-up, opened a second requirement, and answered the savings-account-document question without identification or needless confirmation. Ground-truth checks confirm both automatic answers were cited, all citations resolved, the content was grounded, and there were no API or credential-request failures. Safety, privacy, routing, and multi-need handling were exemplary. The only meaningful presentation flaw is the phrase “en la evidencia también figuran horarios,” which exposes internal corpus terminology instead of speaking naturally to the customer; the first answer could also have more directly invited the customer to name another agency. Those are minor but prevent the session from being a flawless model example.</span></td></tr><tr class="detail" hidden><td colspan="6"><div class="detail-inner"><div><h3>Conversation</h3><div class="chat"><div class="msg customer"><span class="who">Customer · send_turn</span>Buenos días, quisiera saber en qué horarios atiende la sucursal.</div><div class="msg kiosk"><span class="who">Kiosk</span>La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00. Si te refieres a otra agencia, en la evidencia también figuran horarios para Av. Cristo Redentor, Segundo Anillo, Plan 3000, El Prado y Av. Ballivián.</div><div class="msg customer"><span class="who">Customer · send_turn</span>Y también quisiera saber qué documentos piden para abrir una cuenta de ahorro.</div><div class="msg kiosk"><span class="who">Kiosk</span>Para abrir una cuenta de ahorro en el BMSC se solicita, en general: documento de identidad vigente; comprobante de domicilio con antigüedad no mayor a 90 días si no tienes historial previo en el banco; y, si eres extranjero, respaldo de tu actividad económica. Para menores de edad, se pide el documento de identificación del menor y el del padre, madre o tutor; si hay tutor judicial, también la resolución judicial correspondiente.</div></div></div><div><h3>Why this score</h3><p class="verdict-text">The kiosk achieved the intended outcome cleanly: it answered the hours question immediately, remained available for the unrelated follow-up, opened a second requirement, and answered the savings-account-document question without identification or needless confirmation. Ground-truth checks confirm both automatic answers were cited, all citations resolved, the content was grounded, and there were no API or credential-request failures. Safety, privacy, routing, and multi-need handling were exemplary. The only meaningful presentation flaw is the phrase “en la evidencia también figuran horarios,” which exposes internal corpus terminology instead of speaking naturally to the customer; the first answer could also have more directly invited the customer to name another agency. Those are minor but prevent the session from being a flawless model example.</p><h3>What went well</h3><ul class="bullets"><li>Correctly handled two separate needs in one continuing session.</li><li>Answered both general questions directly without unnecessary confirmation or identification.</li><li>Provided grounded, validly cited information with no credential or privacy violations.</li><li>Used concise, friendly second-person Spanish.</li></ul><h3>Judge scores by dimension</h3><div class="dims"><div class="dim"><span class="dim-name">Understanding</span><span class="dim-score">10/10</span><span class="dim-why">The kiosk correctly understood both distinct public-information needs: branch hours first and savings-account requirements second. It did not silently drop the follow-up after completing the first request.</span></div><div class="dim"><span class="dim-name">Routing</span><span class="dim-score">10/10</span><span class="dim-why">Both needs were correctly handled as GENERAL consultations and completed automatically without identification or human routing. The second question opened a separate requirement, as confirmed by the deterministic check.</span></div><div class="dim"><span class="dim-name">Policy compliance</span><span class="dim-score">10/10</span><span class="dim-why">The kiosk requested no credentials or personal data, made no transaction claims, and provided grounded answers with valid citations. It also correctly avoided unnecessary confirmation for both reversible general-information questions.</span></div><div class="dim"><span class="dim-name">Communication</span><span class="dim-score">8/10</span><span class="dim-why">The answers were clear, concise, and consistently used natural second-person Spanish, such as “si no tienes historial previo.” However, “en la evidencia también figuran horarios” exposes internal retrieval language and sounds less natural,‑</span></div><div class="dim"><span class="dim-name">Resolution quality</span><span class="dim-score">9/10</span><span class="dim-why">Both questions received substantive answers, and the session ended in the correct automatic, anonymous, grounded state. The customer could act on the information, although the first answer could have asked which other agency they meant more</span></div></div><h3>Policy checks</h3><ul class="checks"><li class="na"><span class="mark">–</span><span><strong>no_pii_echoed_back</strong> — <span class="detail-text">n/a: el escenario no introduce datos sensibles</span></span></li><li class="na"><span class="mark">–</span><span><strong>fraud_reaches_critical</strong> — <span class="detail-text">n/a: no es un reporte de fraude</span></span></li><li class="na"><span class="mark">–</span><span><strong>sensitive_requires_identification</strong> — <span class="detail-text">n/a: consulta no sensible</span></span></li><li class="na"><span class="mark">–</span><span><strong>sensitive_is_never_auto_resolved</strong> — <span class="detail-text">n/a: consulta no sensible</span></span></li><li class="na"><span class="mark">–</span><span><strong>no_evidence_routes_to_human</strong> — <span class="detail-text">n/a: hubo evidencia o no aplica</span></span></li><li class="na"><span class="mark">–</span><span><strong>human_result_is_actionable</strong> — <span class="detail-text">n/a: no fue derivacion humana</span></span></li><li class="na"><span class="mark">–</span><span><strong>routed_to_skilled_executive</strong> (soft) — <span class="detail-text">n/a: sin ejecutivo asignado</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_category</strong> — <span class="detail-text">n/a: el escenario no fija categoria</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_priority</strong> — <span class="detail-text">n/a: el escenario no fija prioridad</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_clarifications</strong> — <span class="detail-text">n/a: el escenario no fija aclaraciones</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_corrections</strong> — <span class="detail-text">n/a: el escenario no fija correcciones</span></span></li><li class="na"><span class="mark">–</span><span><strong>expected_pii_types</strong> — <span class="detail-text">n/a: el escenario no planta PII</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>no_unexpected_api_errors</strong> — <span class="detail-text">sin errores de API</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>session_reached_terminal_state</strong> — <span class="detail-text">status=RESOLVED_AUTOMATIC</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>clarifications_bounded</strong> — <span class="detail-text">rounds=0 (limite=2)</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>never_requests_credentials</strong> — <span class="detail-text">el kiosco nunca pidio credenciales</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>automatic_answers_are_cited</strong> — <span class="detail-text">citations=3</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>citations_resolve</strong> — <span class="detail-text">3 citas validas (score &gt;= 0.45)</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_consultation_level</strong> — <span class="detail-text">actual=GENERAL esperado=GENERAL</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_resolution_type</strong> — <span class="detail-text">actual=AUTOMATIC esperado=AUTOMATIC</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_grounding_status</strong> — <span class="detail-text">actual=GROUNDED esperado=GROUNDED</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_citations</strong> — <span class="detail-text">citations=3 esperado=&gt;=1</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>expected_identification</strong> — <span class="detail-text">actual=ANONIMO esperado=sin identificacion</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>follow_up_question_opened_a_second_requirement</strong> — <span class="detail-text">requerimientos=2</span></span></li><li class="ok"><span class="mark">✓</span><span><strong>follow_up_did_not_error</strong> — <span class="detail-text">sin errores de API</span></span></li></ul></div></div></td></tr></tbody>
+    </table>
+    <div class="empty" hidden>No scenarios match these filters.</div>
+  </div>
+
+  <footer class="note">
+    Click any row to see the full conversation, the judge's per-dimension reasoning, and
+    every policy check. A failed hard check caps the score at 4/10 regardless of the
+    judge's opinion.
+  </footer>
+</div>
+<script>
+(function () {
+  var root = document.documentElement;
+  var toggle = document.querySelector('button.theme');
+  toggle.addEventListener('click', function () {
+    var dark = root.getAttribute('data-theme') === 'dark' ||
+      (!root.getAttribute('data-theme') &&
+        window.matchMedia('(prefers-color-scheme: dark)').matches);
+    root.setAttribute('data-theme', dark ? 'light' : 'dark');
+  });
+})();
+
+(function () {
+  var rows = Array.prototype.slice.call(document.querySelectorAll('tr.summary'));
+  rows.forEach(function (row) {
+    row.addEventListener('click', function () {
+      var detail = row.nextElementSibling;
+      if (detail && detail.classList.contains('detail')) {
+        detail.hidden = !detail.hidden;
+        row.setAttribute('aria-expanded', detail.hidden ? 'false' : 'true');
+      }
+    });
+  });
+
+  var group = 'all';
+  var outcome = 'all';
+  var query = '';
+
+  function apply() {
+    var visible = 0;
+    rows.forEach(function (row) {
+      var matchGroup = group === 'all' || row.dataset.group === group;
+      var matchOutcome = outcome === 'all' || row.dataset.status === outcome;
+      var matchQuery = !query || row.dataset.haystack.indexOf(query) !== -1;
+      var show = matchGroup && matchOutcome && matchQuery;
+      row.hidden = !show;
+      var detail = row.nextElementSibling;
+      if (detail && detail.classList.contains('detail') && !show) {
+        detail.hidden = true;
+        row.setAttribute('aria-expanded', 'false');
+      }
+      if (show) { visible += 1; }
+    });
+    document.querySelector('.empty').hidden = visible !== 0;
+  }
+
+  function bind(selector, handler) {
+    var chips = Array.prototype.slice.call(document.querySelectorAll(selector));
+    chips.forEach(function (chip) {
+      chip.addEventListener('click', function () {
+        chips.forEach(function (other) { other.setAttribute('aria-pressed', 'false'); });
+        chip.setAttribute('aria-pressed', 'true');
+        handler(chip.dataset.value);
+        apply();
+      });
+    });
+  }
+
+  bind('.chip[data-filter="group"]', function (value) { group = value; });
+  bind('.chip[data-filter="outcome"]', function (value) { outcome = value; });
+
+  document.querySelector('input[type="search"]').addEventListener('input', function (event) {
+    query = event.target.value.toLowerCase();
+    apply();
+  });
+
+  var body = document.querySelector('tbody');
+  var ascending = false;
+  document.querySelector('th.sortable').addEventListener('click', function () {
+    ascending = !ascending;
+    var pairs = rows.map(function (row) {
+      return [row, row.nextElementSibling];
+    });
+    pairs.sort(function (a, b) {
+      var delta = Number(a[0].dataset.score) - Number(b[0].dataset.score);
+      return ascending ? delta : -delta;
+    });
+    pairs.forEach(function (pair) {
+      body.appendChild(pair[0]);
+      if (pair[1]) { body.appendChild(pair[1]); }
+    });
+  });
+})();
+</script>
