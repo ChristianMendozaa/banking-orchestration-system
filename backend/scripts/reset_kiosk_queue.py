@@ -1,12 +1,12 @@
 """Reset the kiosk's operational queue before a live eval run.
 
-`make evals-live` runs 41 scenarios against a real backend and never resets anything, so
-tickets accumulate across runs: `estimated_wait_minutes` is `(active_load + 1) *
+`make evals-live` runs the whole scenario catalog against a real backend and never resets
+anything, so tickets accumulate across runs: `estimated_wait_minutes` is `(active_load + 1) *
 estimated_service_minutes`, and `active_load` counts every `PENDIENTE`/`EN_ATENCION` ticket
 ever created (`app/db/repositories.py::ExecutiveRepository.active_loads`). After a handful of
 runs the reported waits are in the hundreds of minutes and say nothing about how the session
-under test was actually handled -- see `backend/evals/reports/latest.html`'s judge notes
-citing "344-minute wait" against otherwise-correct handoffs.
+under test was actually handled -- judge notes in `backend/evals/reports/runs/` cite a
+"344-minute wait" against otherwise-correct handoffs.
 
 Deleting every `KioskSession` row is sufficient: `Requirement`, `CaseRecord`,
 `ConversationMessage`, and (through `CaseRecord`) `Identification`, `Ticket` and `TraceEvent`

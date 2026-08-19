@@ -152,7 +152,7 @@ evals-deep: ## Full catalog, flagship judge -- billed at the harness's original 
 # still used for one thing in every mode: the kiosk backend under test itself
 # (classification/RAG/embeddings) -- that's the system being evaluated, not something
 # these providers stand in for. See
-# backend/evals/README.md#judging-with-a-local-cli-instead-of-openai_api_key.
+# backend/evals/README.md#running-on-a-local-cli-instead-of-openai.
 evals-live-claude-code: ## Full catalog, customer + judge on the local `claude` CLI instead of OpenAI
 	@$(call run_evals,evals:live-claude-code,--model claude-code --judge-model claude-code --concurrency 4)
 

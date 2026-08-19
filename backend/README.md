@@ -45,22 +45,36 @@ no deployment data or backup credentials live in code. Copy `.env.example` only 
 3. `POST .../realtime-token` creates an ephemeral secret for WebRTC. The regular API
    key never leaves the backend.
 4. `POST .../turns` masks PII and classifies. `turn_id` makes the operation idempotent.
-5. The flow responds `CLARIFY` or `CONFIRM`.
+5. The flow responds `CLARIFY`, `CONFIRM`, `DECLINE`, or `COMPLETE`. `COMPLETE` means a
+   confident `GENERAL` request skipped confirmation and finalized inside the same request,
+   with the answer or ticket already in `result` (`turn_nodes.requires_confirmation`).
+   A `REPORTE_FRAUDE` category or a `security_incident` / `distress_detected` flag always
+   forces `CONFIRM`, whatever consultation level the model returned.
 6. `POST .../confirmation` allows correction or starts finalization, where priority is
-   applied and the case is created.
+   applied and the case is created. Rejecting the summary `MAX_CORRECTIONS` times (default
+   2) records a `CORRECTION_LIMIT_REACHED` trace event and derives the case to an executive
+   instead of asking again.
 7. The `PERSONALIZADA` and `SENSIBLE` levels request the customer's CI through a
    protected field.
 8. `GENERAL` inquiries attempt RAG; any evidence gap routes to a person.
+9. A further question after an automatic answer reopens the session
+   (`RESOLVED_AUTOMATIC` -> `LISTENING`, per-need counters reset) and produces a second case
+   and ticket; `cases.session_id` is no longer unique. `ASSIGNED` sessions are excluded --
+   an executive already holds that case.
 
 `app/services/orchestrator.py` is a thin adapter over three LangGraph graphs:
-`turn_graph`, `confirmation_graph`, and `identification_graph`. The last two reuse the
+`turn_graph`, `confirmation_graph`, and `identification_graph`. All three reuse the one
 compiled `finalize` subgraph, which applies priority, attempts a grounded answer, and,
-when applicable, routes to a person. LangGraph uses LangChain Core abstractions as an
-underlying dependency; the kiosk does not maintain a second LangChain agent layer.
+when applicable, routes to a person -- `turn_graph` reaches it through `auto_capture` when
+a request resolves without a confirmation step. LangGraph uses LangChain Core abstractions
+as an underlying dependency; the kiosk does not maintain a second LangChain agent layer.
 
 Agents have separated responsibilities:
 
-- `ClassificationAgent`: category, level, ambiguity, and risk signals.
+- `ClassificationAgent`: category, level, ambiguity, and risk signals. `sensitivity_floor`
+  raises the level the model returned when the text is about the customer's own money,
+  plastic, or access (source `MODEL+FLOOR`); it never lowers it, and shares its keyword
+  tables with the offline fallback.
 - `PrioritizationAgent`: deterministic priority and preferential attention.
 - `InitialAttentionAgent`: response for the general level only, with RAG evidence.
 - `DerivationAgent`: exact skill, semantic similarity, experience, and workload.
@@ -118,8 +132,10 @@ Any failure of these conditions creates a human ticket.
 at `/mcp`, requires a valid executive or manager JWT, and shares domain functions and
 PostgreSQL with the API without sharing its process.
 
-MCP is not part of the kiosk path. The frontends, the LangGraph graphs, and the
-AutoGen harness continue to use the REST API. `search_knowledge` and
+MCP is not part of the kiosk path. The frontends, the LangGraph graphs, and the eval
+harness's kiosk contract all use the REST API. (`evals/harness/mcp_kiosk_server.py` is a
+separate, localhost-only MCP server that exists only during an eval run, so a local
+`claude` / `codex` CLI can play the customer; it does not ship.) `search_knowledge` and
 `explain_routing_decision` are the only MCP tools that may use OpenAI — the first for
 query embedding, the second because it reuses `DerivationAgent` for the case's semantic
 ranking; the other three query domain state without mutating it and without depending
@@ -140,6 +156,8 @@ Migrations are explicit and frozen:
 - `20260728_0007`: document queue, management controls, and closure privacy.
 - `20260813_0008`: historical revision kept for deployment compatibility.
 - `20260813_0009`: permanent retirement of the historical document-proposal table.
+- `20260818_0010`: drops the unique constraint on `cases.session_id` so one kiosk session
+  can hold several cases; `tickets.case_id` stays unique.
 
 Upgrading to `0009` deletes any records that may exist in that table. Take a backup
 before migrating if you need to keep them; a downgrade reconstructs only the empty
@@ -180,9 +198,11 @@ run), and cover the general flow, clarification, correction, identification, pri
 RAG, expiry, roles, refresh, concurrency, and the document lifecycle.
 
 The policy evaluation harness lives as an independent project in
-[`evals/`](evals/README.md). An AutoGen agent simulates five customer personas against
-a real REST API, and a deterministic evaluator scores the outcome. Its unit tests do
-not consume OpenAI:
+[`evals/`](evals/README.md). A simulated customer drives 42 scenarios against a real REST
+API turn by turn; each finished session is scored by a deterministic, non-LLM evaluator and
+by an LLM judge, with any failed hard check capping the score at 4/10 whatever the judge
+thought. Both the customer and the judge can run on OpenAI or on a local `claude` / `codex`
+CLI. Its unit tests do not consume OpenAI:
 
 ```bash
 cd evals
@@ -190,9 +210,11 @@ uv sync
 uv run pytest
 ```
 
-The end-to-end run does incur OpenAI cost and has no CI workflow; it is launched manually against
-a running local backend (`docker compose up`, or `make evals-live` from the repo root, which reads
-`OPENAI_API_KEY` and `MAX_CLARIFICATIONS` from `backend/.env`), never on every PR.
+The end-to-end run is billed and has no CI workflow; it is launched manually against a running
+local backend (`docker compose up`, or `make evals-live` / `make evals-live-codex` from the repo
+root, which read `OPENAI_API_KEY`, `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` from `backend/.env`),
+never on every PR. `OPENAI_API_KEY` pays for the backend under test in every mode, including the
+CLI-backed ones.
 
 To regenerate the executive catalog and the managed operational documents:
 

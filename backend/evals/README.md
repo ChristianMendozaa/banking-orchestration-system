@@ -73,7 +73,7 @@ cd backend/evals
 uv sync
 
 export OPENAI_API_KEY=...
-uv run python -m harness           # 41 scenarios, dashboard at reports/runs/<run_id>/report.html
+uv run python -m harness           # 42 scenarios, dashboard at reports/runs/<run_id>/report.html
 ```
 
 Or from the repository root, which reads `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` out of
@@ -189,9 +189,12 @@ enforces that shape natively, so there's no "please return only JSON" prompting 
 **The simulated customer** is a live, multi-turn session — it needs real tool-calling for
 its three bound tools (`send_turn`/`send_confirmation`/`send_identification`). Neither CLI
 accepts arbitrary caller-defined tools as a request parameter the way the OpenAI Chat
-Completions API does, so the harness stands up a small MCP server per scenario
-(`harness/mcp_kiosk_server.py`, in-process, localhost-only, torn down with the scenario)
-exposing those same 3 tools, and points the CLI at it (`harness/cli_customer.py`) — the
+Completions API does, so the harness stands up its own MCP servers
+(`harness/mcp_kiosk_server.py`, in-process, localhost-only) exposing those same 3 tools, and
+points the CLI at one of them (`harness/cli_customer.py`). `serve_kiosk_pool` keeps a small
+pool of them alive for the whole run and rebinds each to the scenario currently using it,
+rather than standing one up and tearing it down per scenario; `serve_kiosk_tools` is the
+one-server-one-session entry point the tests drive directly. Either way the
 CLI's own agentic loop then drives the session exactly as AutoGen does today, just over
 MCP instead of native tool-calling.
 
@@ -259,7 +262,7 @@ Every run — live or `--rejudge` — is kept forever, not just the last one:
 
 ## The scenario catalog
 
-41 scenarios in `harness/scenarios/`. A **scenario** is the test case; a **persona style**
+42 scenarios in `harness/scenarios/`. A **scenario** is the test case; a **persona style**
 is only how that customer speaks — distressed, terse, elderly, hostile, rambling — kept
 separate so the same situation can be re-tested through a different mouth, which is what
 makes `tarjeta_robada_angustiado` and `tarjeta_extraviada_calmado` a controlled comparison
@@ -310,7 +313,7 @@ like two different products.
 ## Testing the harness
 
 ```bash
-uv run pytest      # 180 tests, fully mocked -- no network, no key, no running backend
+uv run pytest      # 242 tests, fully mocked -- no network, no key, no running backend
 uv run ruff check .
 ```
 

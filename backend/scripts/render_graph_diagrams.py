@@ -26,12 +26,18 @@ START_MARKER = "<!-- BEGIN GENERATED GRAPH DIAGRAMS -->"
 END_MARKER = "<!-- END GENERATED GRAPH DIAGRAMS -->"
 
 GRAPHS = [
-    ("turn_graph", turn_graph, "Handles `POST /kiosk/sessions/{id}/turns`."),
+    (
+        "turn_graph",
+        turn_graph,
+        "Handles `POST /kiosk/sessions/{id}/turns`. `finalize` is the shared subgraph "
+        "below: a confident GENERAL classification reaches it through `auto_capture` "
+        "without a confirmation round-trip (see `turn_nodes.requires_confirmation`).",
+    ),
     (
         "confirmation_graph",
         confirmation_graph,
-        "Handles `POST /kiosk/sessions/{id}/confirmation`. `finalize` is the shared "
-        "subgraph below, reused verbatim by `identification_graph`.",
+        "Handles `POST /kiosk/sessions/{id}/confirmation`. `finalize` is the same "
+        "compiled subgraph `turn_graph` and `identification_graph` use.",
     ),
     (
         "identification_graph",
@@ -41,7 +47,7 @@ GRAPHS = [
     (
         "finalize_subgraph",
         finalize_subgraph,
-        "Compiled once in `builder.py` and added as the `finalize` node to both "
+        "Compiled once in `builder.py` and added as the `finalize` node to all three "
         "graphs above -- the same compiled instance, not a copy.",
     ),
 ]

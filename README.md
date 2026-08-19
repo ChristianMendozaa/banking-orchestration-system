@@ -13,7 +13,7 @@ The system combines a voice-enabled kiosk, an executive workspace, a management 
 - [System architecture](#system-architecture)
 - [Customer journey](#customer-journey)
 - [Backend design](#backend-design)
-- [MCP server](#mcp-server)
+- [MCP servers](#mcp-servers)
 - [Retrieval-augmented generation](#retrieval-augmented-generation)
 - [Security and privacy](#security-and-privacy)
 - [API overview](#api-overview)
@@ -43,7 +43,9 @@ The kiosk and staff applications are built from the same Next.js image but run a
 - **Voice-first accessible interaction** through OpenAI Realtime, with Spanish transcription, interruptions, short-lived browser credentials, live captions, and an always-available text alternative.
 - **Privacy-first processing** that masks card numbers, account numbers, phone numbers, customer identifiers, monetary values, and names before classification or retrieval.
 - **Structured request understanding** across card blocking, fraud reporting, general inquiries, credit requests, and digital banking.
-- **Explicit human confirmation** before a case is created, including clarification and correction loops with idempotent turn handling.
+- **Confirmation where confirmation is worth its cost**: a general question the kiosk is about to answer itself resolves in one turn, while anything personalized, sensitive, or flagged as a risk still has its summary read back before a case exists. Clarification and correction loops are bounded and idempotent per `turn_id`.
+- **Deterministic safety floors over the classifier**, so an intermittently over-confident `GENERAL` label cannot skip identification or escalation on a request about the customer's own money.
+- **Multi-need sessions**: a follow-up question after an automatic answer opens its own case and ticket instead of being rejected, so someone who asks two things gets two answers.
 - **Deterministic prioritization** based on category, urgency, security risk, distress signals, and preferential-attention policy.
 - **Protected identification** for personalized and sensitive cases using an HMAC-derived identifier, masked display value, and a customer-reference registry.
 - **Evidence-grounded answers** for eligible general inquiries using versioned PDF documents, pgvector retrieval, score thresholds, bounded context, and validated citations.
@@ -58,7 +60,9 @@ flowchart LR
     Customer[Branch customer] --> Kiosk[Kiosk surface<br/>Next.js]
     Executive[Bank executive] --> Staff[Staff surface<br/>Next.js]
     Manager[Manager] --> Staff
-    Eval[AutoGen evaluation harness] -.->|Kiosk REST contract| API
+    Eval[Evaluation harness<br/>simulated customer and judge] -.->|Kiosk REST contract| API
+    CliAgent[Local claude or codex CLI] -.->|Localhost MCP<br/>3 session tools| Bridge[Eval kiosk MCP bridge]
+    Bridge -.->|Same REST contract| API
 
     Kiosk -->|Allowlisted BFF proxy| API[FastAPI application]
     Staff -->|Allowlisted BFF proxy| API
@@ -90,8 +94,10 @@ flowchart LR
 
 The MCP server is a second ASGI process on its own port, sharing the backend's domain
 code and PostgreSQL database without becoming part of the kiosk request path. The kiosk,
-staff surfaces, and AutoGen harness use the REST API; authenticated external MCP clients
-use `/mcp`. See [MCP server](#mcp-server).
+staff surfaces, and the evaluation harness all reach the backend over REST; authenticated
+external MCP clients use `/mcp`. The harness runs a second, unrelated MCP server of its own
+so a local coding-agent CLI can play the customer -- see
+[MCP servers](#mcp-servers) for how the two differ.
 
 ### Deployment topology
 
@@ -148,24 +154,31 @@ sequenceDiagram
         UI->>API: Submit clarification turn
     end
 
-    Graph-->>API: Return next action and summary
-    API-->>UI: Present customer-facing summary
-    Customer->>UI: Confirm or correct
-    UI->>API: Submit confirmation
-    API->>Graph: Invoke confirmation_graph
-
-    alt Personalized or sensitive request
-        Graph-->>API: Require protected identification
-        API-->>UI: Request customer identity-card number (CI) in protected field
-        UI->>API: Submit identifier outside the voice transcript
-        API->>Graph: Invoke identification_graph
-        Graph->>DB: Store protected identifier and finalize
+    alt Confident general request with no risk signal
+        Graph->>Graph: Skip confirmation and finalize in the same request
+    else Personalized, sensitive, or risk-flagged request
+        Graph-->>API: Return next action and summary
+        API-->>UI: Present customer-facing summary
+        Customer->>UI: Confirm or correct
+        UI->>API: Submit confirmation
+        API->>Graph: Invoke confirmation_graph
+        opt Identification required
+            Graph-->>API: Require protected identification
+            API-->>UI: Request customer identity-card number (CI) in protected field
+            UI->>API: Submit identifier outside the voice transcript
+            API->>Graph: Invoke identification_graph
+            Graph->>DB: Store protected identifier and finalize
+        end
     end
 
     alt Eligible general inquiry with sufficient evidence
         Graph->>AI: Retrieve and generate from approved evidence
         Graph->>DB: Persist citations and audit outcome
         API-->>UI: Grounded answer with sources
+        opt Customer has another question
+            Customer->>UI: Ask again in the same session
+            UI->>API: Submit a new turn, opening a second case
+        end
     else Human service required
         Graph->>DB: Rank executives and create ticket
         API-->>UI: Ticket, desk, executive, and wait estimate
@@ -194,11 +207,50 @@ The application imports LangGraph directly. LangChain Core provides the underlyi
 runtime abstractions through LangGraph's dependency tree; there is no separate LangChain
 agent layer in the kiosk.
 
+#### When the kiosk answers without asking
+
+`turn_nodes.requires_confirmation` decides whether a turn stops at `AWAITING_CONFIRMATION`
+or resolves inside the same HTTP request. Confirmation is friction that only earns its keep
+when something irreversible follows -- identification, or a human handoff -- and `GENERAL`
+is exactly the consultation level that needs neither: its case is always `ANONIMO`, and it
+is the only level `InitialAttentionAgent` will ground at all. A confident `GENERAL`
+classification therefore skips the round-trip and `turn_graph` reaches the shared `finalize`
+subgraph itself, through `accept -> persist_requirement -> auto_capture`. The turn responds
+`next_action: COMPLETE` carrying the full result -- answer and citations, or ticket, desk and
+wait estimate -- instead of a summary to confirm.
+
+Two independent signals have to agree before a session resolves itself that way. The eval
+run of 2026-08-18 has the classifier returning `GENERAL` at 0.99 confidence for *"me robaron
+mi tarjeta de debito"* while its own `security_incident` and `distress_detected` flags said
+the opposite, so either risk flag -- or a `REPORTE_FRAUDE` category -- forces the
+confirmation step whatever the level says. `backend/scripts/probe_classifier.py` replays
+recorded openers through the classifier to measure how often a label actually flips, rather
+than inferring stability from a single eval run.
+
+#### Deterministic floors over the classifier
+
+`agents.sensitivity_floor()` derives, from the masked text alone, the lowest consultation
+level a request may be treated as: a fraud report, an incident that has already happened
+("me robaron", "no reconozco"), the customer's own banking objects, or their own file and
+access. `ClassificationAgent._enforce_sensitivity` applies it as a floor that only ever
+*raises* the model's answer -- the classification source becomes `MODEL+FLOOR` -- and never
+lowers it. Over-classification costs one confirmation turn; under-classification costs
+identification and human escalation outright. The keyword tables are shared with the offline
+fallback, so a floor and the fallback it mirrors cannot drift apart.
+
+Both loop counters are bounded, and neither ends in a dead session. When the clarification
+budget (`MAX_CLARIFICATIONS`) runs out, `force_human` drops the level to `GENERAL` -- asking
+for an identity card for a request nobody understood is the over-identification the policy
+forbids -- but keeps the *category*, which is what `PrioritizationAgent` and `DerivationAgent`
+read. When the correction budget (`MAX_CORRECTIONS`, default 2) runs out, the requirement is
+marked `force_human`, a `CORRECTION_LIMIT_REACHED` trace event is recorded, and the case goes
+straight to an executive with what was understood so far.
+
 <!-- BEGIN GENERATED GRAPH DIAGRAMS -->
 
 #### `turn_graph`
 
-Handles `POST /kiosk/sessions/{id}/turns`.
+Handles `POST /kiosk/sessions/{id}/turns`. `finalize` is the shared subgraph below: a confident GENERAL classification reaches it through `auto_capture` without a confirmation round-trip (see `turn_nodes.requires_confirmation`).
 
 ```mermaid
 ---
@@ -214,19 +266,27 @@ graph TD;
 	clarify(clarify)
 	force_human(force_human)
 	accept(accept)
+	decline(decline)
 	persist_requirement(persist_requirement)
+	auto_capture(auto_capture)
+	finalize(finalize)
 	__end__([<p>__end__</p>]):::last
 	__start__ --> guard_turn;
 	accept --> persist_requirement;
+	auto_capture --> finalize;
 	clarify --> persist_requirement;
 	classify -.-> accept;
 	classify -.-> clarify;
+	classify -.-> decline;
 	classify -.-> force_human;
+	decline --> persist_requirement;
 	force_human --> persist_requirement;
 	guard_turn -.-> __end__;
 	guard_turn -.-> mask_pii;
 	mask_pii --> classify;
-	persist_requirement --> __end__;
+	persist_requirement -. &nbsp;end&nbsp; .-> __end__;
+	persist_requirement -.-> auto_capture;
+	finalize --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc
@@ -234,7 +294,7 @@ graph TD;
 
 #### `confirmation_graph`
 
-Handles `POST /kiosk/sessions/{id}/confirmation`. `finalize` is the shared subgraph below, reused verbatim by `identification_graph`.
+Handles `POST /kiosk/sessions/{id}/confirmation`. `finalize` is the same compiled subgraph `turn_graph` and `identification_graph` use.
 
 ```mermaid
 ---
@@ -298,7 +358,7 @@ graph TD;
 
 #### `finalize_subgraph`
 
-Compiled once in `builder.py` and added as the `finalize` node to both graphs above -- the same compiled instance, not a copy.
+Compiled once in `builder.py` and added as the `finalize` node to all three graphs above -- the same compiled instance, not a copy.
 
 ```mermaid
 ---
@@ -339,21 +399,22 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | --- | --- |
 | `app/api` | HTTP contracts, dependency injection, kiosk session authorization, staff RBAC, pagination, and filters |
 | `app/services/orchestrator.py` | Thin adapter: session locking, invoking the LangGraph graphs below, and shaping their final state into API responses |
-| `app/services/graph` | The state machine itself -- turn/confirmation/identification graphs, the shared `finalize` subgraph, guard and idempotency logic (see [Orchestration policy](#orchestration-policy)) |
-| `app/services/agents.py` | Classification fallback, deterministic priority rules, evidence eligibility, and executive ranking |
+| `app/services/graph` | The state machine itself -- turn/confirmation/identification graphs, the shared `finalize` subgraph, the auto-resolve branch, guard and idempotency logic (see [Orchestration policy](#orchestration-policy)) |
+| `app/services/agents.py` | Classification fallback, the deterministic sensitivity floor over the classifier, priority rules, evidence eligibility, and executive ranking |
 | `app/services/openai_provider.py` | Structured model calls, embeddings, grounded generation, and realtime client-secret creation |
 | `app/services/pii.py` | Local PII detection and masking before downstream AI processing |
 | `app/knowledge` | PDF extraction, chunking, ingestion, retrieval, grounding validation, evaluation, and management lifecycle |
-| `app/mcp_server` | Read-only MCP tools for authenticated external clients -- bearer-authenticated, streamable-HTTP, never called by the frontends (see [MCP server](#mcp-server)) |
+| `app/mcp_server` | Read-only MCP tools for authenticated external clients -- bearer-authenticated, streamable-HTTP, never called by the frontends (see [MCP servers](#mcp-servers)) |
 | `app/db` | Async SQLAlchemy models, repositories, session management, and idempotent operational seeding |
 | `alembic` | Explicit, ordered schema migrations including pgvector and the HNSW vector index |
-| `evals/` (standalone project) | AutoGen scenario harness and LLM judge scoring policy compliance and service quality against a live backend; own venv, not part of the modular backend (see [Quality assurance](#quality-assurance)) |
+| `scripts/` | Operational scripts: OpenAPI export, graph-diagram rendering, operational-document rendering, pre-eval queue reset, classifier stability probe |
+| `evals/` (standalone project) | 42-scenario harness and LLM judge scoring policy compliance and service quality against a live backend; own venv, not part of the modular backend (see [Quality assurance](#quality-assurance)) |
 
 ### Specialized orchestration components
 
 | Component | Decision boundary |
 | --- | --- |
-| `ClassificationAgent` | Produces a validated structured category, consultation level, confidence, ambiguity status, customer-facing summary, and risk signals. A conservative local fallback is available in development. |
+| `ClassificationAgent` | Produces a validated structured category, consultation level, confidence, ambiguity status, customer-facing summary, and risk signals. A deterministic floor may raise the consultation level it returned, never lower it; a conservative local keyword fallback covers a provider outage. |
 | `PrioritizationAgent` | Assigns `BAJO`, `MEDIO`, `ALTO`, or `CRITICO` through deterministic banking rules; preferential attention can raise non-high priorities by one level. |
 | `InitialAttentionAgent` | Allows automatic answers only for `GENERAL` requests and only when `KnowledgeService` returns a grounded, naturally worded response. |
 | `DerivationAgent` | Filters to available executives with the required category, then ranks by semantic match (70%), experience (20%), and workload (10%). |
@@ -364,14 +425,30 @@ Concurrency-sensitive kiosk operations lock the session row on PostgreSQL. Stabl
 PENDIENTE -> EN_ATENCION -> CERRADO
 ```
 
-## MCP server
+## MCP servers
+
+This repository contains two MCP servers with nothing in common but the protocol. Keeping
+them straight matters, because one is part of the product and the other exists only while a
+test run is in flight.
+
+| | `backend/app/mcp_server/` | `backend/evals/harness/mcp_kiosk_server.py` |
+| --- | --- | --- |
+| Purpose | Read-only domain access for external MCP clients | Lets a local `claude` / `codex` CLI drive a live kiosk session as the simulated customer |
+| Tools | Five, all read-only | Three: `send_turn`, `send_confirmation`, `send_identification` -- the same bound methods the AutoGen customer agent calls |
+| Process | Own ASGI application on port `8100` | In-process, ephemeral localhost port, pooled for the length of one eval run |
+| Authentication | Staff JWT through `BearerAuthMiddleware` | None -- reachable only by the CLI subprocess the harness just spawned on the same machine |
+| Ships to production | Yes | No; it lives in the standalone eval project |
+
+The rest of this section is about the first one.
+
+### Read-only domain tools (`app/mcp_server/`)
 
 `app/mcp_server/` runs as a second ASGI application (`python -m app.mcp_server`, port
 `8100`) using the backend image and domain code but a separate process and database
 connection pool. It exposes five read-only tools over MCP's streamable-HTTP transport to
-authenticated external MCP clients. The kiosk and staff frontends call the typed REST
-API, while the [AutoGen eval harness](backend/evals/README.md) exercises that same kiosk
-REST contract. Neither the LangGraph nodes nor the AutoGen harness call MCP.
+authenticated external MCP clients. The kiosk and staff frontends call the typed REST API,
+and so does the [evaluation harness](backend/evals/README.md), whose scenarios exercise that
+same kiosk REST contract. The LangGraph nodes never call MCP.
 
 | Tool | Returns |
 | --- | --- |
@@ -409,6 +486,23 @@ After obtaining an executive or manager access token through the REST authentica
 API, configure the MCP client to connect to `http://localhost:8100/mcp` with
 `Authorization: Bearer <access-token>`.
 
+### Eval kiosk bridge (`evals/harness/mcp_kiosk_server.py`)
+
+The evaluation harness can put a local coding-agent CLI (`claude -p`, `codex exec`) in the
+customer's seat instead of an OpenAI model. Neither CLI accepts caller-defined tools as a
+request parameter the way the Chat Completions API does, but both run an agentic tool loop
+against an MCP server, so the harness stands up its own: three tools --
+`send_turn`, `send_confirmation`, `send_identification` -- wrapping the exact bound methods
+the AutoGen customer agent already calls, with the same 12-call budget. `serve_kiosk_pool`
+keeps a small pool of these servers alive for the whole run rather than rebuilding one per
+scenario; `serve_kiosk_tools` binds a single server to a single session and is what the
+harness's own tests exercise against a real MCP client.
+
+It is localhost-only and unauthenticated by design: the only thing that can reach it is the
+CLI subprocess the harness spawned seconds earlier on the same machine. It never runs outside
+an eval run, and it is not part of the deployed system. See
+[Running on a local CLI instead of OpenAI](backend/evals/README.md#running-on-a-local-cli-instead-of-openai).
+
 ## Retrieval-augmented generation
 
 The knowledge subsystem is governed rather than open-ended. It indexes only registered PDF documents and refuses to answer when retrieval or citation validation fails.
@@ -443,6 +537,12 @@ An automatic response requires all of the following:
 6. Every cited chunk belongs to the exact retrieved evidence set.
 
 Every retrieval attempt records its outcome, prompt version, retrieved chunk metadata, and an answer hash when applicable. The raw generated answer is not duplicated in the RAG audit record.
+
+The corpus itself is eight manifest-managed PDFs (`doc/rag/`), currently at version
+`2026.08.1` -- regenerated in August 2026 with the sections the eval runs showed missing
+(agency hours, accounts for minors, periodic-payment deposits, among others), each with a
+fresh `sha256`, `verified_at`, and `review_after` date that the ingestion CLI verifies before
+indexing.
 
 Managers can list, upload, update, version, download, reindex, and archive knowledge documents. Upload validation covers PDF signature, MIME type, file size, page count, extractable text, category metadata, and HTTP(S) source URLs; stored objects use generated UUID keys instead of user-supplied filenames.
 
@@ -483,6 +583,12 @@ notice, and a compatibility window; repository search alone is never sufficient 
 | Management reporting | `GET /management/metrics`, `GET /management/cases` | Manager bearer token |
 | Knowledge governance | `/management/knowledge/documents` and document version, reindex, download, and archive operations | Manager bearer token |
 
+The turns endpoint answers `CLARIFY`, `CONFIRM`, `DECLINE`, or -- when a confident general
+request resolved without a confirmation step -- `COMPLETE` with the full `result` (grounded
+answer and citations, or ticket, desk, executive, and wait estimate) already embedded, so the
+kiosk needs no second call. The generated TypeScript contract in `frontend/lib/generated-api.ts`
+is regenerated from the same OpenAPI schema and checked for drift in CI.
+
 The two Next.js surfaces call these endpoints through `/backend-api/api/v1/...`, a same-origin backend-for-frontend proxy that forwards only the API families allowlisted for the active surface.
 
 ## Data model
@@ -496,7 +602,7 @@ erDiagram
 
     KIOSK_SESSION ||--o{ REQUIREMENT : captures
     KIOSK_SESSION ||--o{ CONVERSATION_MESSAGE : retains_masked
-    KIOSK_SESSION ||--o| CASE_RECORD : creates
+    KIOSK_SESSION ||--o{ CASE_RECORD : creates
     REQUIREMENT ||--o| CASE_RECORD : confirms
     CASE_RECORD ||--o| IDENTIFICATION : verifies
     CLIENT_REFERENCE ||--o{ IDENTIFICATION : matches
@@ -547,9 +653,15 @@ erDiagram
     }
 ```
 
-Schema evolution is managed by nine ordered Alembic revisions covering the operational
+Schema evolution is managed by ten ordered Alembic revisions covering the operational
 model, pgvector knowledge schema, production hardening, the natural kiosk flow, the
 protected staff case file, and compatibility-safe retirement of superseded schema.
+
+`20260818_0010` dropped the unique constraint on `cases.session_id`, which had made
+"one case per kiosk session" a database fact rather than a policy choice -- it is why a
+follow-up question after an automatic answer had no row to occupy and was rejected with a
+`409`. `tickets.case_id` stays unique: one ticket per case is still correct, and a second
+case brings its own ticket.
 
 ## Technology stack
 
@@ -557,7 +669,7 @@ protected staff case file, and compatibility-safe retirement of superseded schem
 | --- | --- |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, OpenAI Agents SDK, Zod |
 | Backend | Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2 async, Uvicorn, Structlog |
-| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools), AutoGen (offline REST-based evaluation: simulated customer and LLM judge) |
+| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools, plus the eval kiosk bridge), AutoGen (offline REST-based evaluation: simulated customer and LLM judge), optional local `claude` / `codex` CLI backends for both eval roles |
 | Data | PostgreSQL 17, pgvector, HNSW cosine index, Alembic |
 | Security | Argon2, JWT access tokens, rotating opaque refresh tokens, HMAC identifier protection |
 | Tooling | Docker Compose, `uv`, `pnpm`, Ruff, Pytest, Vitest, ESLint |
@@ -576,7 +688,8 @@ protected staff case file, and compatibility-safe retirement of superseded schem
 │   │   ├── knowledge/           # Ingestion, retrieval, RAG, document management
 │   │   ├── mcp_server/          # Read-only MCP tools for authenticated external clients
 │   │   └── services/            # Orchestrator adapter, LangGraph graphs, agents, PII, OpenAI provider
-│   ├── evals/                   # Standalone AutoGen evaluation harness + judge (own project)
+│   ├── evals/                   # Standalone evaluation harness + judge (own project, own venv)
+│   ├── scripts/                 # OpenAPI export, graph diagrams, operational docs, eval queue reset
 │   ├── seed/                    # Deterministic branch and executive catalog
 │   └── tests/                   # Backend unit and integration suite
 ├── frontend/
@@ -719,7 +832,7 @@ make check     # everything CI runs, plus the evals suites CI doesn't, plus the 
 
 `make test` needs nothing running -- it's the fast, free path for everyday iteration. `make
 check` adds linting, typechecking, `next build`, the OpenAPI contract-drift check, and the live
-AutoGen harness described below (`evals-live` -- one of three modes, see below); it starts
+evaluation harness described below (`evals-live` -- one of several provider modes); it starts
 `docker compose` and reads `OPENAI_API_KEY`, `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` straight out
 of `backend/.env` -- the last two are policy thresholds the harness asserts against, so reading
 them keeps the harness and the system under test in agreement rather than duplicating constants in
@@ -771,42 +884,86 @@ leaks into a test run). None of `make test`, `make lint`, `backend-build`, or `c
 Docker Compose or any other service running.
 
 [`backend/evals/`](backend/evals/README.md) additionally ships a separate, standalone-project
-**live** evaluation harness (`make evals-smoke` / `make evals-live` / `make evals-deep`, or
-`uv run python -m harness --html` from `backend/evals/`). An AutoGen agent plays a customer with a
-specific situation and a specific way of speaking, and drives a real kiosk session turn by turn
-against a **live** backend. The finished session is then scored twice:
+**live** evaluation harness (`make evals-smoke` / `evals-live` / `evals-deep` /
+`evals-live-codex` / `evals-live-claude-code`, or `uv run python -m harness --html` from
+`backend/evals/`). An agent plays a customer with a specific situation and a specific way of
+speaking, and drives a real kiosk session turn by turn against a **live** backend. The
+finished session is then scored twice:
 
 - A deterministic, non-LLM evaluator (`harness/evaluator.py`) checks everything decidable from
   recorded state -- did a fraud report reach `CRITICO`, was a sensitive case identified before it
   resolved, was every automatic answer cited, was a spoken card number ever echoed back. Each
   check carries a severity and an applicability flag, so a check that does not apply to a
   scenario reports as such instead of inflating the pass count.
-- A second AutoGen agent, the judge (`harness/judge.py`), scores understanding, routing, policy
+- A second agent, the judge (`harness/judge.py`), scores understanding, routing, policy
   compliance, communication and resolution quality from 1 to 10 and writes the reasoning shown in
   the report. It receives the deterministic results as ground truth it may explain but not
   contradict, and **any failed hard check caps the final score at 4/10** whatever the judge
   thought.
 
-The catalog covers 41 scenarios across all five categories, grounded and ungrounded inquiries,
+The catalog covers 42 scenarios across all five categories, grounded and ungrounded inquiries,
 the clarification and correction loops, preferential attention, adversarial input, and the
 state-machine guards. Each run produces a markdown scorecard, a JSON dump and a self-contained
-HTML dashboard, all kept forever under `backend/evals/reports/runs/<run_id>/` (with
-`reports/latest.{json,html,md}` pointing at the newest one), plus a summary line appended to the
-git-tracked `reports/history.jsonl` ledger and a second dashboard, `reports/index.html`, showing
-pass rate and score trends across every run ever made -- see
+HTML dashboard, all kept forever under `backend/evals/reports/runs/<run_id>/` -- there is no
+`reports/latest.*` alias; each run's directory is the only copy of it. Every run also appends a
+summary line to the git-tracked `reports/history.jsonl` ledger and rebuilds `reports/index.html`,
+a second dashboard showing pass rate and score trends across every run ever made, including a
+scenario-by-run matrix that tells "fixed and stayed fixed" apart from "flaky" -- see
 [Keeping this affordable](backend/evals/README.md#keeping-this-affordable) and
 [Run history](backend/evals/README.md#run-history) in the harness's own README.
 
-`evals-live` (the `make check` default) judges with `gpt-5.4-mini` rather than a flagship model --
-roughly a 90% cheaper judge with comparable discrimination -- and skips the judge entirely for the
-six `protocol` scenarios, which have no free text for it to assess. `evals-smoke` skips the judge
-altogether (deterministic checks only, free); `evals-deep` uses the original flagship judge for a
-deliberate milestone run. `--rejudge` re-scores an existing report's stored sessions with the
-current judge at the cost of judge tokens only, with no backend or customer-simulator calls.
+Who plays the customer and who judges is chosen per run:
+
+| Target | Customer | Judge | Cost |
+| --- | --- | --- | --- |
+| `make evals-smoke` | `gpt-5.4-mini` | none -- deterministic checks only | Backend calls only |
+| `make evals-live` (the `make check` default) | `gpt-5.4-mini` | `gpt-5.4-mini` at high reasoning effort, skipped for the six judgement-free `protocol` scenarios | Roughly 90% under a flagship judge |
+| `make evals-deep` | `gpt-5.4-mini` | `gpt-5.4` | Milestone runs |
+| `make evals-live-codex` / `make evals-live-claude-code` | local `codex` / `claude` CLI over the harness's own MCP bridge | the same CLI | Billed against that CLI's own auth, not `OPENAI_API_KEY` |
+
+`make evals-retry[-codex|-claude-code]` re-runs only the scenarios that were not `PASS` in the
+most recent run, and any target accepts extra harness flags through
+`EVAL_ARGS="--tag adversarial --repeat 3"`. `--rejudge` re-scores an existing report's stored
+sessions with the current judge at the cost of judge tokens only, with no backend or
+customer-simulator calls. `OPENAI_API_KEY` is required in **every** mode regardless of who plays
+the customer: it pays for the backend under test's own classification, embedding and retrieval,
+which is the thing being evaluated. Each `make evals-*` target first runs
+`backend/scripts/reset_kiosk_queue.py`, because `estimated_wait_minutes` counts every open
+ticket ever created and otherwise reports hundreds of minutes after a few runs, which tells you
+nothing about the session under test.
+
+### Evaluated behavior
+
+The most recent full run --
+[`reports/runs/20260818T205536Z-8db975c`](backend/evals/reports/runs/20260818T205536Z-8db975c/report.html),
+customer and judge both on the local `codex` CLI, against `8db975c` with
+`MAX_CLARIFICATIONS=2` and `RAG_MIN_SCORE=0.45`, 448 seconds wall clock:
+
+| | |
+| --- | --- |
+| Scenarios | **42 / 42 passed** (0 partial, 0 failed) |
+| Average score | **9.19 / 10** |
+| Policy checks | **413 / 413 passed**, 0 hard failures, 0 capped scores |
+
+| Group | Average | Group | Average |
+| --- | --- | --- | --- |
+| `protocol` | 10.0 | `flow` | 9.17 |
+| `digital_credit` | 9.6 | `adversarial` | 8.83 |
+| `card_fraud` | 9.5 | `general_inquiry` | 8.78 |
+| | | `accessibility` | 8.5 |
+
+Read that as one measurement, not a guarantee: it is a single run, and scores from different
+judge models are not the same measurement -- `reports/index.html` marks where the judge changed
+for exactly that reason. The two full-catalog runs before it scored 95.2% and 92.9%, the latter
+with two hard policy failures in `general_inquiry` and `flow`; what closed them is the work
+described under [Orchestration policy](#orchestration-policy) -- the sensitivity floor, the
+category-preserving `force_human`, and treating a summary that hands the question back as the
+clarification it actually is. The full history is in `backend/evals/reports/history.jsonl`,
+plotted in `reports/index.html`.
 
 Its coverage is intentionally kept out of `backend/`'s `fail_under=90` gate, and there is no CI
-workflow for the live run -- each run makes real, billed OpenAI calls on three fronts (the
-simulated customer, the judge, and the backend's own classification/RAG), so it stays a manual,
+workflow for the live run -- each run makes real, billed calls on three fronts (the simulated
+customer, the judge, and the backend's own classification/RAG), so it stays a manual,
 local-only check against a `docker compose` backend rather than something triggered from a PR.
 
 Dependency auditing (`uv run --with pip-audit pip-audit`, `pnpm audit`) is not run in CI; run it
@@ -892,4 +1049,4 @@ When OpenAI is intentionally absent in development, deterministic classification
 
 - [Backend implementation guide](backend/README.md)
 - [Governed RAG manifest](doc/rag/manifest.json)
-- [Kiosk orchestration evaluation harness (AutoGen)](backend/evals/README.md)
+- [Kiosk orchestration evaluation harness](backend/evals/README.md)
