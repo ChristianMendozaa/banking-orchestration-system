@@ -18,7 +18,7 @@ class FakeRealtimeProvider:
         return {
             "value": "ephemeral-test-token",
             "expires_at": 1_800_000_000,
-            "session": {"model": "gpt-realtime-2.1-mini"},
+            "session": {"model": "gpt-realtime-2.1"},
         }
 
 
@@ -104,12 +104,12 @@ async def test_realtime_session_enables_conversation_and_interruptions(
     await OpenAIProvider(configured).create_realtime_client_secret("session-test")
     session = captured["json"]["session"]
     turn_detection = session["audio"]["input"]["turn_detection"]
-    assert session["model"] == "gpt-realtime-2.1-mini"
+    assert session["model"] == "gpt-realtime-2.1"
     assert session["output_modalities"] == ["audio"]
     assert session["audio"]["input"]["transcription"]["model"] == "gpt-realtime-whisper"
     assert session["audio"]["output"]["voice"] == "marin"
     assert "Dirígete siempre de tú" in session["instructions"]
-    assert "Pronuncia una sola vez" in session["instructions"]
+    assert "pronúncialo una sola vez" in session["instructions"]
     assert turn_detection == {
         "type": "semantic_vad",
         "eagerness": "auto",

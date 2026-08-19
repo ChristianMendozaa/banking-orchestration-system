@@ -14,9 +14,11 @@ import {
   flowToolOutput,
   flowTransitionKey,
   requestControlledResponse,
+  selectAuthoritativeTranscript,
   shouldApplyAnalysisResponse,
   shouldApplyFlowResponse,
   shouldReplayControlledTransition,
+  transcriptsDiverge,
 } from "../lib/kiosk-realtime"
 import { createKioskRealtimeAgent } from "../lib/kiosk-realtime-agent"
 import type { FlowResult, TurnAnalysis } from "../lib/types"
@@ -136,9 +138,89 @@ describe("captionsFromHistory", () => {
   })
 })
 
+describe("selectAuthoritativeTranscript", () => {
+  const caption = (
+    id: string,
+    role: "user" | "assistant",
+    text: string,
+    completed = true,
+  ) => ({ id, role, text, completed })
+
+  it("takes the customer's transcribed words and ignores the assistant's", () => {
+    const selection = selectAuthoritativeTranscript(
+      [
+        caption("a", "assistant", "¿En qué puedo ayudarte?"),
+        caption("b", "user", "Quiero reportar el robo de mi tarjeta de débito."),
+      ],
+      new Set(),
+    )
+
+    expect(selection).toEqual({
+      text: "Quiero reportar el robo de mi tarjeta de débito.",
+      itemIds: ["b"],
+    })
+  })
+
+  it("joins a turn that arrived split across two audio items", () => {
+    const selection = selectAuthoritativeTranscript(
+      [
+        caption("a", "user", "Quiero reportar"),
+        caption("b", "user", "el robo de mi tarjeta."),
+      ],
+      new Set(),
+    )
+
+    expect(selection?.text).toBe("Quiero reportar el robo de mi tarjeta.")
+    expect(selection?.itemIds).toEqual(["a", "b"])
+  })
+
+  it("never re-sends a transcript that a previous turn already consumed", () => {
+    const captions = [caption("a", "user", "Quiero reportar el robo.")]
+
+    expect(selectAuthoritativeTranscript(captions, new Set(["a"]))).toBeNull()
+  })
+
+  it("waits for a transcription that is still in progress", () => {
+    const selection = selectAuthoritativeTranscript(
+      [caption("a", "user", "Quiero repor", false)],
+      new Set(),
+    )
+
+    expect(selection).toBeNull()
+  })
+})
+
+describe("transcriptsDiverge", () => {
+  it("flags the corruption seen in production", () => {
+    // The kiosk transcribed this correctly and the model typed the second version into the
+    // tool call; the backend classified the second one and asked the customer whether they
+    // meant "portar el juego de tu tarjeta".
+    expect(
+      transcriptsDiverge(
+        "Quiero reportar el robo de mi tarjeta de débito.",
+        "Quiero portar el juego de mi tarjeta de débito.",
+      ),
+    ).toBe(true)
+  })
+
+  it("tolerates ordinary punctuation and accent differences", () => {
+    expect(
+      transcriptsDiverge(
+        "Quiero reportar el robo de mi tarjeta de débito.",
+        "quiero reportar el robo de mi tarjeta de debito",
+      ),
+    ).toBe(false)
+  })
+
+  it("says nothing when there is no model text to compare against", () => {
+    expect(transcriptsDiverge("Quiero bloquear mi tarjeta.", "")).toBe(false)
+  })
+})
+
 describe("createKioskRealtimeAgent", () => {
   it("exposes only the tools that delegate to the backend", () => {
     const agent = createKioskRealtimeAgent({
+      resolveSpokenText: async (fallback: string) => fallback,
       analyzeRequirement: vi.fn(),
       confirmRequirement: vi.fn(),
     })
@@ -153,6 +235,7 @@ describe("createKioskRealtimeAgent", () => {
   it("returns results in the background to prevent the SDK from auto-responding", async () => {
     const analyzeRequirement = vi.fn().mockResolvedValue(analysis)
     const agent = createKioskRealtimeAgent({
+      resolveSpokenText: async (fallback: string) => fallback,
       analyzeRequirement,
       confirmRequirement: vi.fn(),
     })
@@ -165,7 +248,7 @@ describe("createKioskRealtimeAgent", () => {
 
     const output = await analyzeTool.invoke(
       {} as never,
-      JSON.stringify({ transcript: "  Fraude   en mi tarjeta " }),
+      JSON.stringify({ fallback_transcript: "  Fraude   en mi tarjeta " }),
       { toolCall: { callId: "call-1" } } as never,
     )
 
@@ -183,6 +266,7 @@ describe("createKioskRealtimeAgent", () => {
   it("also keeps confirmation out of the automatic continuation", async () => {
     const confirmRequirement = vi.fn().mockResolvedValue(completed)
     const agent = createKioskRealtimeAgent({
+      resolveSpokenText: async (fallback: string) => fallback,
       analyzeRequirement: vi.fn(),
       confirmRequirement,
     })
@@ -209,9 +293,66 @@ describe("createKioskRealtimeAgent", () => {
     })
   })
 
+  it("classifies the transcription, not the model's retelling of it", async () => {
+    // The production failure this exists to prevent: the customer said "reportar el robo" and
+    // the model typed "portar el juego" into the tool call.
+    const analyzeRequirement = vi.fn().mockResolvedValue(analysis)
+    const agent = createKioskRealtimeAgent({
+      resolveSpokenText: async () => "Quiero reportar el robo de mi tarjeta de débito.",
+      analyzeRequirement,
+      confirmRequirement: vi.fn(),
+    })
+    const analyzeTool = agent.tools.find(
+      (candidate) => candidate.type === "function" && candidate.name === "analizar_requerimiento",
+    )
+    if (!analyzeTool || analyzeTool.type !== "function") {
+      throw new Error("No se encontró la herramienta de análisis")
+    }
+
+    await analyzeTool.invoke(
+      {} as never,
+      JSON.stringify({ fallback_transcript: "Quiero portar el juego de mi tarjeta de débito." }),
+      { toolCall: { callId: "call-9" } } as never,
+    )
+
+    expect(analyzeRequirement).toHaveBeenCalledWith(
+      "Quiero reportar el robo de mi tarjeta de débito.",
+      "call-9",
+    )
+  })
+
+  it("refuses a confirmation the transcription does not support", async () => {
+    // A mis-heard "no" would otherwise open a case the customer just declined: `confirmed`
+    // is the model's own reading, and it has to agree with what was actually transcribed.
+    const confirmRequirement = vi.fn()
+    const agent = createKioskRealtimeAgent({
+      resolveSpokenText: async () => "No, eso no es lo que necesito",
+      analyzeRequirement: vi.fn(),
+      confirmRequirement,
+    })
+    const confirmTool = agent.tools.find(
+      (candidate) =>
+        candidate.type === "function" && candidate.name === "confirmar_requerimiento",
+    )
+    if (!confirmTool || confirmTool.type !== "function") {
+      throw new Error("No se encontró la herramienta de confirmación")
+    }
+
+    const output = await confirmTool.invoke(
+      {} as never,
+      JSON.stringify({ confirmed: true, user_response: "Sí, correcto" }),
+      { toolCall: { callId: "call-10" } } as never,
+    )
+
+    expect(confirmRequirement).not.toHaveBeenCalled()
+    if (!isBackgroundResult<Record<string, unknown>>(output)) return
+    expect(output.content).toMatchObject({ next_action: "ASK_EXPLICIT_CONFIRMATION" })
+  })
+
   it("asks for an unambiguous confirmation without calling the backend or auto-responding", async () => {
     const confirmRequirement = vi.fn()
     const agent = createKioskRealtimeAgent({
+      resolveSpokenText: async (fallback: string) => fallback,
       analyzeRequirement: vi.fn(),
       confirmRequirement,
     })

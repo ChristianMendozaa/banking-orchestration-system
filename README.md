@@ -40,7 +40,7 @@ The kiosk and staff applications are built from the same Next.js image but run a
 
 ## Key capabilities
 
-- **Voice-first accessible interaction** through OpenAI Realtime, with Spanish transcription, interruptions, short-lived browser credentials, live captions, and an always-available text alternative.
+- **Voice-first accessible interaction** through OpenAI Realtime, with Spanish transcription, interruptions, short-lived browser credentials, live captions, and an always-available text alternative. What the backend classifies is the session's own audio transcription, never the realtime model's retelling of it.
 - **Privacy-first processing** that masks card numbers, account numbers, phone numbers, customer identifiers, monetary values, and names before classification or retrieval.
 - **Structured request understanding** across card blocking, fraud reporting, general inquiries, credit requests, and digital banking.
 - **Confirmation where confirmation is worth its cost**: a general question the kiosk is about to answer itself resolves in one turn, while anything personalized, sensitive, or flagged as a risk still has its summary read back before a case exists. Clarification and correction loops are bounded and idempotent per `turn_id`.
@@ -122,6 +122,8 @@ flowchart LR
 
 The backend owns the business state machine. The realtime agent provides the conversational channel, while controlled tools delegate analysis, confirmation, identification, retrieval, and ticket creation to the API.
 
+The realtime agent decides *when* a request has been stated; it never decides *what* was said. The transcript submitted with each turn is taken from the voice session's own Spanish transcription, which is also what the live captions show, so the text that gets masked, classified, prioritized and routed is the same text the customer sees on screen. Everything the kiosk speaks is likewise a controlled response over text the backend produced — the model is never asked to compose customer-facing wording.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -140,7 +142,9 @@ sequenceDiagram
     API->>AI: Create restricted realtime session
     AI-->>UI: Ephemeral client secret
 
-    UI->>API: Submit transcript with stable turn_id
+    Customer->>UI: Speak the request
+    AI-->>UI: Spanish transcription of the turn
+    UI->>API: Submit that transcription with a stable turn_id
     API->>Graph: Invoke turn_graph
     Graph->>Graph: Mask PII
     Graph->>AI: Classify masked request
@@ -856,6 +860,16 @@ uv run coverage run -m pytest -q
 uv run coverage report
 ```
 
+`make transcript-fidelity` is separate from the suites: it audits real voice sessions in the
+running database rather than testing code. For every spoken turn it compares the voice
+session's own transcription against the text the classifier was actually given, and exits
+non-zero on any divergence. That invariant is the one a live kiosk session broke on
+2026-08-19, and it is checkable against branch traffic without any audio harness:
+
+```bash
+cd backend && PYTHONPATH=. uv run python scripts/check_transcript_fidelity.py --since-hours 24
+```
+
 `backend/evals`' own suite is mocked and makes no LLM calls (`evals-lint`, `evals-test` --
 equivalent to running these from `backend/evals/`):
 
@@ -901,9 +915,19 @@ finished session is then scored twice:
   contradict, and **any failed hard check caps the final score at 4/10** whatever the judge
   thought.
 
-The catalog covers 42 scenarios across all five categories, grounded and ungrounded inquiries,
-the clarification and correction loops, preferential attention, adversarial input, and the
-state-machine guards. Each run produces a markdown scorecard, a JSON dump and a self-contained
+The catalog covers 45 scenarios across all five categories, grounded and ungrounded inquiries,
+the clarification and correction loops, preferential attention, adversarial input, transcription
+noise, and the state-machine guards.
+
+**What this harness does not measure.** It drives the kiosk's REST contract with written text.
+It never opens a Realtime session, never produces or consumes audio, and never plays a
+`speech_text` line, so it grades the orchestrator rather than the kiosk a customer speaks to. A
+high score here is not evidence that the voice layer works. Three things narrow that gap: the
+`asr_noise` group feeds transcripts corrupted the way a Spanish speech recogniser corrupts them,
+so a mangled sentence has to be questioned rather than confidently routed; every scorecard
+carries per-operation latency percentiles, so a fast score cannot hide a slow kiosk; and
+`make transcript-fidelity` audits real voice sessions after the fact, comparing what the
+transcription recorded against what the classifier was actually given. Each run produces a markdown scorecard, a JSON dump and a self-contained
 HTML dashboard, all kept forever under `backend/evals/reports/runs/<run_id>/` -- there is no
 `reports/latest.*` alias; each run's directory is the only copy of it. Every run also appends a
 summary line to the git-tracked `reports/history.jsonl` ledger and rebuilds `reports/index.html`,

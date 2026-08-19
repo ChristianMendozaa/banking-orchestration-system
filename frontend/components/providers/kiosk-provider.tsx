@@ -29,10 +29,12 @@ import {
   isTerminalFlowResult,
   kioskRouteForState,
   requestControlledResponse,
+  selectAuthoritativeTranscript,
   shouldApplyAnalysisResponse,
   shouldApplyFlowResponse,
   shouldReplayControlledTransition,
   TRANSITION_METADATA_KEY,
+  transcriptsDiverge,
   type ControlledTransition,
   type ConversationCaption,
 } from "@/lib/kiosk-realtime"
@@ -56,6 +58,19 @@ const TERMINAL_AUDIO_TIMEOUT_MS = 30_000
 // waiting for a person to decide whether they have another question, not for audio to
 // finish playing.
 const FOLLOW_UP_WINDOW_MS = 45_000
+// How long analyzeRequirement waits for the session's audio transcription to land before it
+// falls back to the model's own reading of the turn. The transcription usually arrives around
+// the same time as the tool call, so this is a settle window, not a poll loop: the common case
+// resolves on the first check.
+const TRANSCRIPT_SETTLE_TIMEOUT_MS = 1_500
+const TRANSCRIPT_SETTLE_INTERVAL_MS = 100
+// How long a tool may run before the kiosk says something. Measured against the live backend:
+// a turn that only classifies answers in about 2s, while one that also retrieves and grounds
+// takes 4-6s. The threshold sits above the first and below the second on purpose -- covering a
+// two-second gap would delay an answer that was already arriving, and it is the long silences
+// that read as broken.
+const WAITING_SPEECH_DELAY_MS = 2_000
+const WAITING_SPEECH_TEXT = "Un momento, estoy revisando eso."
 
 export type VoiceState =
   | "idle"
@@ -151,6 +166,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const completedTransitionsRef = useRef(new Set<string>())
   const turnIdsRef = useRef(new Map<string, string>())
   const syncedConversationItemsRef = useRef(new Set<string>())
+  const userCaptionsRef = useRef<ConversationCaption[]>([])
+  const consumedTranscriptItemsRef = useRef(new Set<string>())
+  const waitingSpeechTimeoutRef = useRef<number | null>(null)
   const confirmationPromisesRef = useRef(
     new Map<string, { promise: Promise<FlowResult>; revision: number }>(),
   )
@@ -191,6 +209,10 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       window.clearTimeout(interruptedReplayTimeoutRef.current)
       interruptedReplayTimeoutRef.current = null
     }
+    if (waitingSpeechTimeoutRef.current !== null) {
+      window.clearTimeout(waitingSpeechTimeoutRef.current)
+      waitingSpeechTimeoutRef.current = null
+    }
   }, [])
 
   const disposeRealtime = useCallback(() => {
@@ -224,6 +246,10 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       window.clearTimeout(interruptedReplayTimeoutRef.current)
       interruptedReplayTimeoutRef.current = null
     }
+    if (waitingSpeechTimeoutRef.current !== null) {
+      window.clearTimeout(waitingSpeechTimeoutRef.current)
+      waitingSpeechTimeoutRef.current = null
+    }
     activeTransitionKeyRef.current = null
     audioDoneTransitionKeyRef.current = null
   }, [])
@@ -252,6 +278,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     inputSpeechActiveRef.current = false
     turnIdsRef.current.clear()
     syncedConversationItemsRef.current.clear()
+    userCaptionsRef.current = []
+    consumedTranscriptItemsRef.current.clear()
     confirmationPromisesRef.current.clear()
     identificationPromiseRef.current = null
     reconciliationPromiseRef.current = null
@@ -535,6 +563,41 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     reset()
   }, [reset])
 
+  // The authoritative record of what the customer said is the session's own audio
+  // transcription, not the string the realtime model types into the tool call. The model has
+  // been observed corrupting it outright ("reportar el robo" -> "portar el juego"), and the
+  // backend then classifies the corruption. The transcription normally lands within a few
+  // hundred milliseconds of the tool call, so wait a bounded moment for it and only fall back
+  // to the model's own reading when it never arrives.
+  const resolveTurnTranscript = useCallback(
+    async (fallbackTranscript: string): Promise<string> => {
+      const deadline = Date.now() + TRANSCRIPT_SETTLE_TIMEOUT_MS
+      for (;;) {
+        const selection = selectAuthoritativeTranscript(
+          userCaptionsRef.current,
+          consumedTranscriptItemsRef.current,
+        )
+        if (selection) {
+          selection.itemIds.forEach((itemId) =>
+            consumedTranscriptItemsRef.current.add(itemId),
+          )
+          if (fallbackTranscript && transcriptsDiverge(selection.text, fallbackTranscript)) {
+            console.warn(
+              "[kiosco] La transcripción y lo que el modelo entendió difieren; se usa la transcripción.",
+              { transcripcion: selection.text, modelo: fallbackTranscript },
+            )
+          }
+          return selection.text
+        }
+        if (Date.now() >= deadline) return fallbackTranscript
+        await new Promise((resolve) =>
+          window.setTimeout(resolve, TRANSCRIPT_SETTLE_INTERVAL_MS),
+        )
+      }
+    },
+    [],
+  )
+
   const requestTransitionSpeech = useCallback(
     (realtime: RealtimeSession, transition: ControlledTransition): boolean => {
       const interrupted = interruptedReplayRef.current
@@ -685,6 +748,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           stateRef.current.result?.requirement_id ??
           null
         const agent = createKioskRealtimeAgent({
+          resolveSpokenText: resolveTurnTranscript,
           analyzeRequirement: async (transcript, callId) => {
             const key = callId ?? crypto.randomUUID()
             const requestRevision = businessRevisionRef.current
@@ -694,6 +758,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             if (!turnId) {
               turnId = crypto.randomUUID()
               turnIdsRef.current.set(key, turnId)
+            }
+            if (!transcript) {
+              throw new Error("No pude entender lo que dijiste; inténtalo nuevamente")
             }
 
             try {
@@ -903,13 +970,15 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         })
 
         const realtime = new RealtimeSessionClass(agent, {
-          model: secret.session?.model ?? "gpt-realtime-2.1-mini",
+          // Mirrors Settings.voice_model. The backend already pins the model when it mints the
+          // client secret; this fallback only matters if that field is ever absent, and it must
+          // not silently pin the weaker mini model behind the backend's back.
+          model: secret.session?.model ?? "gpt-realtime-2.1",
           historyStoreAudio: false,
           tracingDisabled: true,
           config: {
             outputModalities: ["audio"],
             parallelToolCalls: false,
-            reasoning: { effort: "low" },
             audio: {
               input: {
                 noiseReduction: { type: "near_field" },
@@ -948,6 +1017,34 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             window.clearTimeout(interruptedReplayTimeoutRef.current)
             interruptedReplayTimeoutRef.current = null
           }
+        }
+        const cancelWaitingSpeech = () => {
+          if (waitingSpeechTimeoutRef.current !== null) {
+            window.clearTimeout(waitingSpeechTimeoutRef.current)
+            waitingSpeechTimeoutRef.current = null
+          }
+        }
+        // Classification, retrieval and the grounded answer are serial round-trips, so a turn
+        // can take several seconds. The agent instructions forbid the model from filling that
+        // gap on its own -- it would invent content -- so the application says one fixed line
+        // instead, and only once the wait is long enough to be worth acknowledging. The result
+        // speech is queued behind it by the transport and still plays in full.
+        const armWaitingSpeech = (transitionKey: string) => {
+          if (waitingSpeechTimeoutRef.current !== null) return
+          waitingSpeechTimeoutRef.current = window.setTimeout(() => {
+            waitingSpeechTimeoutRef.current = null
+            if (!isCurrentRealtime() || activeToolCallsRef.current.size === 0) return
+            try {
+              requestTransitionSpeech(realtime, {
+                transitionKey,
+                speechText: WAITING_SPEECH_TEXT,
+                nextAction: "WAITING",
+                terminal: false,
+              })
+            } catch {
+              // A courtesy phrase must never be able to break the turn it is covering for.
+            }
+          }, WAITING_SPEECH_DELAY_MS)
         }
         const replayInterruptedTransition = () => {
           interruptedReplayTimeoutRef.current = null
@@ -1066,6 +1163,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           if (!isCurrentRealtime()) return
           const nextCaptions = captionsFromHistory(history)
           setCaptions(nextCaptions)
+          userCaptionsRef.current = nextCaptions
           const session = stateRef.current.session
           const pending = nextCaptions.filter(
             (caption) =>
@@ -1098,12 +1196,14 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             // The authoritative response will keep controlling the flow phase.
           }
           setVoiceState("thinking")
+          armWaitingSpeech(`waiting:${callKey}`)
         })
         realtime.on("agent_tool_end", (_context, _agent, _tool, result, details) => {
           if (!isCurrentRealtime()) return
           const callKey = toolCallKey(details.toolCall, _tool.name)
           const startingRevision = toolCallRevisionsRef.current.get(callKey)
           activeToolCallsRef.current.delete(callKey)
+          cancelWaitingSpeech()
           toolCallRevisionsRef.current.delete(callKey)
           const transition = controlledTransitionFromToolResult(result)
           if (
@@ -1371,6 +1471,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   }, [
     cancelFollowUpWindow,
     disposeRealtime,
+    resolveTurnTranscript,
     handleExpiredSession,
     reconcileSession,
     requestTransitionSpeech,

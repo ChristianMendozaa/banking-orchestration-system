@@ -14,6 +14,10 @@ export interface ConversationCaption {
 }
 
 export interface KioskRealtimeCallbacks {
+  // Replaces whatever the model typed with the voice session's own transcription of that
+  // turn, when it has one. Both tools go through it: a mis-typed request is misrouted, and a
+  // mis-typed "no" opens a case the customer just declined.
+  resolveSpokenText: (fallback: string) => Promise<string>
   analyzeRequirement: (transcript: string, callId?: string) => Promise<TurnAnalysis>
   confirmRequirement: (confirmed: boolean, callId?: string) => Promise<FlowResult>
 }
@@ -59,8 +63,18 @@ export function requestControlledResponse(
   realtime.transport.sendEvent({ type: "response.create", response })
 }
 
+// `response.create` sends these as `response.instructions`, which *replaces* the session
+// instructions for that response rather than adding to them. Every sentence the kiosk speaks
+// goes through here, so leaving it at a bare "read this string" meant the Spanish persona
+// configured on the session (openai_provider.create_realtime_client_secret) and on the agent
+// applied to nothing the customer ever hears -- which is why the delivery read as flat and
+// oddly accented. The exact-text constraint stays: these strings are business-critical.
+export const CONTROLLED_SPEECH_PERSONA =
+  "Eres la asistente virtual femenina de un kiosco bancario en Bolivia. Habla en español " +
+  "boliviano natural, cordial y cálido, con ritmo de conversación y no de lectura."
+
 export function controlledSpeechInstructions(speechText: string): string {
-  return `Pronuncia exactamente este mensaje, sin agregar, repetir ni reformular nada: ${JSON.stringify(
+  return `${CONTROLLED_SPEECH_PERSONA} Pronuncia exactamente este mensaje, sin agregar, repetir ni reformular nada: ${JSON.stringify(
     compactText(speechText),
   )}`
 }
@@ -76,19 +90,34 @@ function normalizeConfirmation(value: string): string {
     .replace(/\p{Diacritic}/gu, "")
 }
 
+// Bolivian Spanish answers a yes/no question with far more than "si": "claro", "asi es",
+// "exacto", "por supuesto" and "ya" are all ordinary confirmations. Every one of them used to
+// fall through to ASK_EXPLICIT_CONFIRMATION, so the kiosk re-asked a question the customer had
+// already answered -- which reads as the kiosk not listening.
+const NEGATIVE_CONFIRMATION =
+  /\b(no|incorrecto|incorrecta|corregir|correccion|cambiar|equivocado|equivocada|negativo|tampoco|para nada|nada que ver|mas bien)\b/
+const POSITIVE_CONFIRMATION =
+  /\b(si|sip|correcto|correcta|confirmo|confirmar|de acuerdo|esta bien|es correcto|es correcta|claro|exacto|exactamente|asi es|asi mismo|eso es|por supuesto|obvio|dale|afirmativo|ya pues)\b/
+
+const ADVERSATIVE_CONNECTOR = /\b(pero|aunque|sin embargo|en realidad|mejor dicho|espera)\b/
+
 export function explicitConfirmation(value: string): boolean | null {
   const normalized = normalizeConfirmation(value)
-  const negative =
-    /\b(no|incorrecto|incorrecta|corregir|correccion|cambiar|equivocado|equivocada)\b/.test(
-      normalized,
-    )
-  const positive =
-    /\b(si|correcto|correcta|confirmo|confirmar|de acuerdo|esta bien|es correcto|es correcta)\b/.test(
-      normalized,
-    )
+  const negative = NEGATIVE_CONFIRMATION.test(normalized)
+  const positive = POSITIVE_CONFIRMATION.test(normalized)
 
-  if (positive === negative) return null
-  return positive
+  if (positive !== negative) return positive
+  if (!positive) return null
+
+  // Both cues matched. "Si, pero no" really is a retraction and must keep re-asking, so an
+  // adversative connector still means ambiguous. Without one, "Si, y ademas no reconozco un
+  // cargo" is a confirmation followed by more detail, and the cue that comes first is the
+  // answer -- re-asking there is the kiosk failing to hear a yes it was given.
+  if (ADVERSATIVE_CONNECTOR.test(normalized)) return null
+  const positiveIndex = normalized.search(POSITIVE_CONFIRMATION)
+  const negativeIndex = normalized.search(NEGATIVE_CONFIRMATION)
+  if (positiveIndex === negativeIndex) return null
+  return positiveIndex < negativeIndex
 }
 
 export function captionsFromHistory(history: RealtimeItem[]): ConversationCaption[] {
@@ -118,6 +147,70 @@ export function captionsFromHistory(history: RealtimeItem[]): ConversationCaptio
       },
     ]
   })
+}
+
+export interface TranscriptSelection {
+  text: string
+  itemIds: string[]
+}
+
+// The realtime model used to *retype* what it thought it heard into the tool argument, and the
+// backend classified that. On 2026-08-19 a customer said "Quiero reportar el robo de mi tarjeta
+// de debito"; the session's own Whisper transcription got it right and it is what these
+// captions carry, but the model typed "Quiero portar el juego de mi tarjeta de debito" and that
+// is what reached the classifier. The transcription is the authoritative record of what was
+// said, so it -- not the model's paraphrase -- is what gets classified.
+//
+// Multiple items are joined in history order: a single spoken turn can arrive split across two
+// conversation items when the customer pauses mid-sentence.
+export function selectAuthoritativeTranscript(
+  captions: ConversationCaption[],
+  consumed: ReadonlySet<string>,
+): TranscriptSelection | null {
+  const pending = captions.filter(
+    (caption) => caption.role === "user" && caption.completed && !consumed.has(caption.id),
+  )
+  if (pending.length === 0) return null
+  const text = compactText(pending.map((caption) => caption.text).join(" "))
+  if (!text) return null
+  return { text, itemIds: pending.map((caption) => caption.id) }
+}
+
+function transcriptWords(value: string): string[] {
+  return compactText(value)
+    .toLocaleLowerCase("es")
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^\p{Letter}\p{Number}\s]/gu, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+}
+
+// Word pairs, not single words. The corruption this exists to catch replaces the two words that
+// carry the meaning while leaving the rest of the sentence intact -- "reportar el robo" became
+// "portar el juego" -- which single-word overlap scores as 0.6 similar and shrugs at. Comparing
+// adjacent pairs scores the same sentence at 0.33, because word order is what actually changed.
+function transcriptShingles(value: string): Set<string> {
+  const words = transcriptWords(value)
+  if (words.length < 2) return new Set(words)
+  return new Set(words.slice(0, -1).map((word, index) => `${word} ${words[index + 1]}`))
+}
+
+// Diagnostic only: a low token overlap between what was transcribed and what the model typed is
+// the exact signature of the "portar el juego" corruption. Surfacing it makes the next
+// occurrence visible instead of silently misrouting a case.
+export const TRANSCRIPT_DIVERGENCE_THRESHOLD = 0.6
+
+export function transcriptsDiverge(authoritative: string, modelSupplied: string): boolean {
+  const left = transcriptShingles(authoritative)
+  const right = transcriptShingles(modelSupplied)
+  if (left.size === 0 || right.size === 0) return false
+  let shared = 0
+  for (const token of left) {
+    if (right.has(token)) shared += 1
+  }
+  const union = left.size + right.size - shared
+  return union > 0 && shared / union < TRANSCRIPT_DIVERGENCE_THRESHOLD
 }
 
 export function analysisTransitionKey(response: TurnAnalysis): string {
