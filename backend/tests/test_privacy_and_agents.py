@@ -31,6 +31,36 @@ def test_pii_masking_removes_sensitive_values() -> None:
     assert {"EMAIL", "TELEFONO", "TARJETA", "MONTO"}.issubset(result.counts)
 
 
+def test_pii_masking_still_removes_real_names() -> None:
+    service = PIIMaskingService()
+    for text in (
+        "Me llamo Juan Pérez y quiero bloquear mi tarjeta",
+        "Mi nombre es María Fernanda Rojas",
+        "Soy Roberto Torrez",
+    ):
+        result = service.mask(text)
+        assert "[NOMBRE]" in result.masked_text, text
+
+
+def test_pii_masking_keeps_ordinary_spanish_that_follows_soy() -> None:
+    """The NOMBRE pattern used to apply `(?i)` to the name characters too, so "soy" plus any
+    one-to-four following words became [NOMBRE]. A live kiosk session stored its own greeting
+    as "Hola, [NOMBRE]." after eating "soy tu asistente virtual", and the same masker runs over
+    customer transcripts *before* classification -- so "soy adulto mayor y no puedo entrar a mi
+    cuenta" reached the classifier with both the preferential-attention and the access signal
+    deleted."""
+    service = PIIMaskingService()
+    for text in (
+        "Hola, soy tu asistente virtual. ¿En qué puedo ayudarte hoy?",
+        "Soy adulto mayor y no puedo entrar a mi cuenta",
+        "soy cliente del banco desde hace años",
+        "Soy titular de la cuenta y no reconozco un cargo",
+    ):
+        result = service.mask(text)
+        assert "[NOMBRE]" not in result.masked_text, text
+        assert "NOMBRE" not in result.counts, text
+
+
 def test_grounded_answer_naturalness_allows_third_person_verbs_about_the_bank() -> None:
     """`grounded_answer_is_natural` must be narrower than `customer_facing_text_is_natural`:
     a multi-sentence RAG answer legitimately says "el banco puede pedir..." or "la tasa

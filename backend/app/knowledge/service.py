@@ -63,6 +63,16 @@ class KnowledgeService:
                 for item in chunks
             ]
             if not chunks:
+                # Only `rag_interactions` used to record this, and those rows cascade-delete
+                # with the kiosk session -- so a general question that ended up at a human
+                # window left nothing behind to explain why. Log it where it survives.
+                logger.warning(
+                    "rag_no_evidence",
+                    case_id=str(case_id) if case_id else None,
+                    category=category.value,
+                    query=masked_query,
+                    min_score=self.settings.rag_min_score,
+                )
                 await self._log(db, case_id, masked_query, "NO_EVIDENCE", retrieved, None)
                 return None
             decision = await self.provider.grounded_answer(masked_query, chunks)
@@ -73,6 +83,18 @@ class KnowledgeService:
                 or not cited
                 or any(chunk_id not in allowed for chunk_id in cited)
             ):
+                logger.warning(
+                    "rag_invalid_grounding",
+                    case_id=str(case_id) if case_id else None,
+                    category=category.value,
+                    query=masked_query,
+                    supported=decision.supported,
+                    cited_count=len(cited),
+                    top_chunks=[
+                        (item.document.slug, item.chunk.section, round(item.score, 4))
+                        for item in chunks[:3]
+                    ],
+                )
                 await self._log(db, case_id, masked_query, "INVALID_GROUNDING", retrieved, None)
                 return None
             citations = [allowed[chunk_id].citation() for chunk_id in cited]

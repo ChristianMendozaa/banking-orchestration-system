@@ -154,7 +154,11 @@ class KnowledgeIngestionService:
 
     def _index_signature(self, categories: list[Category], sections: list[str]) -> str:
         configuration = {
-            "strategy": "declared-sections-v1",
+            # v2 embeds a "<document title> — <section>" header with each chunk instead of the
+            # bare body (see knowledge.indexing._embedding_text). Bumping the strategy is what
+            # makes an existing corpus re-embed: the signature is the only thing standing
+            # between a changed embedding recipe and a silently stale index.
+            "strategy": "declared-sections-v2",
             "embedding_model": self.settings.embedding_model,
             "chunk_tokens": self.settings.rag_chunk_tokens,
             "overlap_tokens": self.settings.rag_chunk_overlap,

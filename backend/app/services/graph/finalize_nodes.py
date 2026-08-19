@@ -9,6 +9,7 @@ every terminal node here sets `next_action = "BUILD_RESULT"` rather than buildin
 response itself.
 """
 
+import re
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -27,6 +28,27 @@ from app.domain.enums import (
     TicketStatus,
 )
 from app.services.graph.state import CLARIFICATION_JOINER, GraphContext, OrchestrationState
+
+# The classification prompt asks for a summary that names the *principal* need and then says
+# explicitly which one is left for later ("Necesita el horario de atencion de la sucursal y deja
+# pendiente un problema bancario aun no descrito"). That is right for the executive reading the
+# case and wrong for retrieval, which embeds the same string: the trailing clause pulls the
+# vector toward whatever the undescribed second need sounds like. On 2026-08-19 that exact
+# summary retrieved "¿Que hago si no reconozco un movimiento?" at 0.61 as its top chunk, the
+# grounded answer was correctly unsupported, and a question about branch hours got a ticket.
+_SECONDARY_NEED = re.compile(
+    r"\s+(?:y|e)\s*,?\s*(?:luego|despu[eé]s|aparte|adem[aá]s|tambi[eé]n|"
+    r"(?:le\s+)?queda\s+pendiente|deja\s+pendiente)\b",
+    re.IGNORECASE,
+)
+
+
+def principal_need(summary: str) -> str | None:
+    """The leading clause of a multi-need summary, or None when it names a single need."""
+    match = _SECONDARY_NEED.search(summary)
+    if not match or match.start() == 0:
+        return None
+    return summary[: match.start()].strip(" ,;.") or None
 
 
 async def ticket_guard(state: OrchestrationState, runtime: Runtime[GraphContext]) -> Command:
@@ -101,6 +123,27 @@ async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphCon
                 case.category,
                 case.consultation_level,
                 clarification,
+            )
+    if grounded_response is None:
+        # Still nothing. If the summary names a second, deferred need, the first clause is the
+        # question actually being asked; retry on that alone before sending a public-information
+        # question to a person. Safe by construction: this only ever runs after a failure, so a
+        # bad split costs nothing that was not already lost.
+        principal = principal_need(grounding_query)
+        if principal and principal != grounding_query:
+            runtime.context.db.add(
+                TraceEvent(
+                    case_id=case.id,
+                    event_type="RAG_RETRY_ON_PRINCIPAL_NEED",
+                    description="Reintento de recuperacion usando solo la necesidad principal",
+                )
+            )
+            grounded_response = await runtime.context.initial_attention.run(
+                runtime.context.db,
+                case.id,
+                case.category,
+                case.consultation_level,
+                principal,
             )
     # InitialAttentionAgent.run bails out immediately (no knowledge lookup at all) for any
     # consultation level other than GENERAL, so grounding was only genuinely attempted -- as

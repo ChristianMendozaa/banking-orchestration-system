@@ -47,11 +47,45 @@ class PIIMaskingService:
         ),
         (
             "NOMBRE",
+            # The `(?i)` used to cover the name characters too, so "soy" plus any one-to-four
+            # following words became [NOMBRE]: a live session stored its own greeting as
+            # "Hola, [NOMBRE]." after eating "soy tu asistente virtual", and "soy adulto mayor y
+            # no puedo entrar a mi cuenta" lost both the preferential-attention and the access
+            # signal before the classifier ever saw it. The trigger stays case-insensitive; the
+            # name itself must now actually look like a name.
             re.compile(
-                r"(?i)\b(?:me llamo|mi nombre es|soy)\s+"
-                r"[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑa-záéíóúñ]+){0,3}"
+                r"(?i:\b(?:me llamo|mi nombre es|soy)\s+)"
+                r"(?-i:[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+(?:\s+[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+){0,3})"
             ),
         ),
+    )
+
+    # Words that are capitalised only because they open a sentence ("Soy cliente del banco") and
+    # never identify anyone. Without this, sentence-initial "Soy Jubilado" would still be masked.
+    _NOT_A_NAME = frozenset(
+        {
+            "cliente",
+            "clienta",
+            "jubilado",
+            "jubilada",
+            "titular",
+            "adulto",
+            "adulta",
+            "mayor",
+            "nuevo",
+            "nueva",
+            "usuario",
+            "usuaria",
+            "beneficiario",
+            "beneficiaria",
+            "estudiante",
+            "tu",
+            "su",
+            "el",
+            "la",
+            "un",
+            "una",
+        }
     )
 
     def mask(self, text: str) -> MaskingResult:
@@ -60,8 +94,21 @@ class PIIMaskingService:
         for entity_type, pattern in self._patterns:
 
             def replace(match: re.Match[str], kind: str = entity_type) -> str:
+                if kind == "NOMBRE" and self._opens_with_common_word(match.group(0)):
+                    return match.group(0)
                 counts[kind] += 1
                 return f"[{kind}]"
 
             masked = pattern.sub(replace, masked)
         return MaskingResult(masked_text=masked, counts=dict(counts))
+
+    @classmethod
+    def _opens_with_common_word(cls, matched: str) -> bool:
+        """True when the first captured 'name' word is an ordinary noun, not a name."""
+        words = matched.split()
+        # The trigger is one word ("soy") or three ("mi nombre es" / "me llamo" is two).
+        for index, word in enumerate(words):
+            if word.lower() in {"soy", "llamo", "es"}:
+                candidate = words[index + 1] if index + 1 < len(words) else ""
+                return candidate.lower() in cls._NOT_A_NAME
+        return False

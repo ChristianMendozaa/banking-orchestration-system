@@ -128,3 +128,43 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
     assert answer is None
     assert interaction is not None
     assert interaction.outcome == "INVALID_GROUNDING"
+
+
+def test_principal_need_splits_a_multi_need_summary() -> None:
+    """The retrieval query and the executive's case summary are the same string, and they want
+    different things from it.
+
+    The classification prompt asks for a summary that names the principal need and then says
+    which one is deferred. That trailing clause is exactly what an executive needs and pure
+    noise for pgvector: on 2026-08-19 "Necesita el horario de atencion de la sucursal y deja
+    pendiente un problema bancario aun no descrito" retrieved "¿Que hago si no reconozco un
+    movimiento?" as its top chunk, grounding correctly failed, and a question about branch
+    hours was handed to a person.
+    """
+    from app.services.graph.finalize_nodes import principal_need
+
+    assert (
+        principal_need(
+            "Necesita el horario de atencion de la sucursal y deja pendiente un problema "
+            "bancario aun no descrito."
+        )
+        == "Necesita el horario de atencion de la sucursal"
+    )
+    assert (
+        principal_need(
+            "Necesita resolver un problema con su tarjeta y, aparte, consultar los documentos "
+            "para un crédito."
+        )
+        == "Necesita resolver un problema con su tarjeta"
+    )
+
+
+def test_principal_need_leaves_a_single_need_summary_alone() -> None:
+    """A plain "y" joining two halves of one need must not be treated as a second need --
+    only the connectives that introduce a deferred one."""
+    from app.services.graph.finalize_nodes import principal_need
+
+    assert principal_need("Necesita los horarios de atencion de la sucursal.") is None
+    assert principal_need("Necesita saber los requisitos y documentos para abrir una cuenta.") is (
+        None
+    )

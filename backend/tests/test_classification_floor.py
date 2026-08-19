@@ -212,3 +212,34 @@ def test_category_from_keywords_is_the_shared_table() -> None:
     assert category_from_keywords("necesito bloquear la tarjeta") is Category.BLOQUEO_TARJETA
     assert category_from_keywords("cual es el horario") is Category.CONSULTA_GENERAL
     assert category_from_keywords("hola buenas tardes") is None
+
+
+def test_denied_incident_does_not_raise_the_floor() -> None:
+    """ "No me robaron nada" is someone saying nothing happened.
+
+    `_INCIDENT_EVENT` deliberately outranks the hypothetical guard -- "me robaron" is never
+    preventive -- so it used to fire on the negated form too, and a customer who spelled out
+    that their question was preventive got that very sentence read as a theft report. The
+    2026-08-19 eval run scored `donde_bloquear_tarjeta_informativo` 3/10 for exactly this:
+    the kiosk demanded an identity-card number for a question about public channels.
+    """
+    for text in (
+        "Solo quiero saber, por si algún día pierdo mi tarjeta, por qué canales se la puede "
+        "bloquear. No es un caso real ni me robaron nada.",
+        "Es una consulta preventiva, no me robaron nada ni tengo ningún problema.",
+        "Nunca me clonaron la tarjeta, solo quiero saber cómo prevenirlo.",
+    ):
+        assert sensitivity_floor(text, Category.BLOQUEO_TARJETA) is None, text
+
+
+def test_a_negation_that_is_not_negating_the_incident_still_raises_the_floor() -> None:
+    """The comma is the whole difference: "No, me robaron la tarjeta" answers a question and
+    then reports a theft. Only a negator directly governing the verb reverses it, and a
+    denial elsewhere in the sentence never cancels an incident reported alongside it."""
+    assert sensitivity_floor("No, me robaron la tarjeta", Category.BLOQUEO_TARJETA) is SENSIBLE
+    assert (
+        sensitivity_floor(
+            "No me robaron la tarjeta pero me clonaron el número", Category.BLOQUEO_TARJETA
+        )
+        is SENSIBLE
+    )

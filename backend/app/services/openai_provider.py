@@ -23,15 +23,16 @@ class OpenAIProvider:
                 "type": "realtime",
                 "model": self.settings.voice_model,
                 "instructions": (
-                    "Eres la asistente virtual femenina de un kiosco bancario. "
-                    "Habla en español boliviano claro, cordial y breve. Dirígete siempre de tú a "
+                    "Eres la asistente virtual femenina de un kiosco bancario en Bolivia. "
+                    "Habla en español boliviano natural, cordial y breve, con ritmo de "
+                    "conversación y no de lectura. Dirígete siempre de tú a "
                     "quien está frente al kiosco; nunca te refieras a quien habla como el usuario, "
                     "el cliente ni la persona. "
                     "Nunca solicites PIN, CVV, "
-                    "contrasenas, credenciales ni datos financieros completos. La aplicacion "
-                    "proveera herramientas para analizar y encaminar la atencion; no ejecutas "
-                    "operaciones bancarias. Pronuncia una sola vez cada mensaje que provea la "
-                    "aplicación y espera la siguiente acción."
+                    "contraseñas, credenciales ni datos financieros completos. La aplicación "
+                    "proveerá herramientas para analizar y encaminar la atención; no ejecutas "
+                    "operaciones bancarias. La aplicación te dará el texto exacto de cada "
+                    "mensaje: pronúncialo una sola vez y espera la siguiente acción."
                 ),
                 "output_modalities": ["audio"],
                 "audio": {
@@ -150,6 +151,11 @@ necesidad bancaria real y debe clasificarse y derivarse con normalidad."""
                 {"role": "system", "content": system},
                 {"role": "user", "content": masked_text},
             ],
+            # This call sits directly between the customer finishing a sentence and the kiosk
+            # answering, so its latency is dead air the person hears. Measured on gpt-5.4-mini
+            # against this prompt: 2.43s at the default effort, 1.57s at "low", same decision.
+            # "minimal" is rejected by the model with a 400.
+            reasoning={"effort": "low"},
             text_format=ClassificationDecision,
         )
         parsed = response.output_parsed
@@ -204,6 +210,19 @@ necesidad bancaria real y debe clasificarse y derivarse con normalidad."""
                         "de las que se pidieron. Una pregunta preventiva o hipotetica sobre un "
                         "procedimiento se responde con el procedimiento que la evidencia "
                         "documenta: no la marques false solo porque el hecho todavia no ocurrio. "
+                        "Tampoco la marques false porque la evidencia sea mas ESPECIFICA que la "
+                        "pregunta. Si preguntan en general y la evidencia documenta casos "
+                        "concretos y nombrados, eso si responde: entrega lo documentado y di a "
+                        "que alcanza, en lugar de exigir que primero precisen cual. Por ejemplo, "
+                        'ante "cual es el horario de la sucursal" con evidencia que publica los '
+                        "horarios de agencias con nombre, supported es true: se responden esos "
+                        "horarios diciendo de que agencias son. Derivar a una persona una "
+                        "pregunta cuya respuesta publica esta en la evidencia es un fallo, no una "
+                        "precaucion. "
+                        "Quien lee tu respuesta esta frente a un kiosco y no sabe que existe "
+                        'un corpus: no digas "la evidencia", "los documentos" ni "segun lo '
+                        'publicado", y no describas de donde sacaste el dato. Da el dato '
+                        "directamente. "
                         "Habla directamente de tú, nunca de "
                         "usted, "
                         "y no te refieras a quien consulta como el usuario, el cliente ni la "
@@ -217,6 +236,8 @@ necesidad bancaria real y debe clasificarse y derivarse con normalidad."""
                     "content": f"Consulta enmascarada: {summary}\n\nEvidencia:\n{evidence}",
                 },
             ],
+            # Same reasoning as `classify`: this runs in the same blocking turn, after it.
+            reasoning={"effort": "low"},
             text_format=GroundedAnswerDecision,
         )
         parsed = response.output_parsed
