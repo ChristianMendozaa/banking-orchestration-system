@@ -215,10 +215,16 @@ async def run_scenario(
         # scenario can still produce a real conversation worth judging: `prompt_injection`
         # is driven from a fixed string precisely so the customer model cannot decline to
         # send it, but what the kiosk says back is exactly what needs qualitative review.
+        # `kiosk_speech` is None for an exchange whose API call failed (`session._call`'s
+        # error path), and an errored turn carries no speech to judge. Reading `.startswith`
+        # off it crashed the whole scenario -- `cambio_de_tema` scored 1/10 on 2026-08-19 for
+        # a harness AttributeError, after the kiosk had correctly refused an out-of-state
+        # confirmation with a 409. A harness that dies on the error path hides exactly the
+        # behaviour that path exists to test.
         speech = [
             exchange
             for exchange in session.exchanges
-            if not exchange.kiosk_speech.startswith("HTTP")
+            if exchange.kiosk_speech and not exchange.kiosk_speech.startswith("HTTP")
         ]
         if scenario.script is None and not session.exchanges:
             # Still nothing after the retry above. Skip the judge -- there is no transcript

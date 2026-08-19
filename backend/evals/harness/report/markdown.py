@@ -4,7 +4,13 @@ Deliberately compact: the dashboard is where a run is read in detail, so this vi
 answers only "did it pass, what scored badly, and why" without the transcripts.
 """
 
-from harness.scoring import ScenarioResult, group_averages, score_spreads, summarize
+from harness.scoring import (
+    ScenarioResult,
+    group_averages,
+    score_spreads,
+    summarize,
+    turn_latencies,
+)
 
 STATUS_MARK = {"PASS": "[PASS]", "PARTIAL": "[PART]", "FAIL": "[FAIL]"}
 
@@ -52,6 +58,26 @@ def to_markdown(results: list[ScenarioResult], *, duration_seconds: int = 0) -> 
             lines.append(
                 f"| {item.scenario} | {item.runs} | {item.mean:.1f} | "
                 f"{item.lowest}-{item.highest} | {item.spread} |"
+            )
+
+    latencies = turn_latencies(results)
+    if latencies:
+        lines.extend(
+            [
+                "",
+                "## How long the customer waits",
+                "",
+                "Wall-clock per API call. A voice turn also pays speech detection and "
+                "text-to-speech on top of these numbers.",
+                "",
+                "| Operation | Calls | p50 | p95 | Max |",
+                "| --- | --- | --- | --- | --- |",
+            ]
+        )
+        for item in latencies:
+            lines.append(
+                f"| {item.tool} | {item.calls} | {item.p50_ms / 1000:.1f}s | "
+                f"{item.p95_ms / 1000:.1f}s | {item.max_ms / 1000:.1f}s |"
             )
 
     problems = [result for result in results if result.status != "PASS"]

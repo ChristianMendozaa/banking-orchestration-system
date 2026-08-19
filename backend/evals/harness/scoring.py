@@ -11,6 +11,7 @@ Nothing here calls a model. `ScenarioResult` is the single object every report r
 consumes.
 """
 
+import math
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -222,6 +223,50 @@ def score_spreads(results: list[ScenarioResult]) -> list[ScoreSpread]:
         if len(scores) > 1
     ]
     return sorted(spreads, key=lambda item: (-item.spread, item.scenario))
+
+
+@dataclass(frozen=True, slots=True)
+class TurnLatency:
+    """How long the customer waits, per kiosk operation."""
+
+    tool: str
+    calls: int
+    p50_ms: int
+    p95_ms: int
+    max_ms: int
+
+
+def turn_latencies(results: list[ScenarioResult]) -> list[TurnLatency]:
+    """Percentiles per API operation across every exchange in the run.
+
+    The scorecard graded correctness and said nothing about waiting, so a kiosk could score
+    9.2/10 while leaving a person in silence for six seconds a turn -- which is what a live
+    session measured on 2026-08-19. Every exchange already carries `latency_ms`; this only
+    surfaces it. p95, not the mean: the slow turns are the ones people remember.
+    """
+    buckets: dict[str, list[int]] = {}
+    for result in results:
+        for exchange in result.exchanges:
+            if exchange.latency_ms > 0:
+                buckets.setdefault(exchange.tool, []).append(exchange.latency_ms)
+
+    def percentile(values: list[int], fraction: float) -> int:
+        # Nearest-rank: with a handful of samples per operation, interpolating between two
+        # measurements would invent a latency nothing actually took.
+        rank = max(1, math.ceil(fraction * len(values)))
+        return values[rank - 1]
+
+    latencies = [
+        TurnLatency(
+            tool=tool,
+            calls=len(values),
+            p50_ms=percentile(sorted(values), 0.50),
+            p95_ms=percentile(sorted(values), 0.95),
+            max_ms=max(values),
+        )
+        for tool, values in buckets.items()
+    ]
+    return sorted(latencies, key=lambda item: -item.p95_ms)
 
 
 def group_averages(results: list[ScenarioResult]) -> dict[str, float]:

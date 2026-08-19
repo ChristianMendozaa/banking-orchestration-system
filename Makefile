@@ -1,7 +1,7 @@
 .DEFAULT_GOAL := help
 .NOTPARALLEL:
 .PHONY: help install \
-	backend-lint backend-test backend-coverage \
+	backend-lint backend-test backend-coverage transcript-fidelity \
 	evals-lint evals-test evals-smoke evals-live evals-deep \
 	evals-live-claude-code evals-live-codex \
 	evals-retry evals-retry-claude-code evals-retry-codex \
@@ -83,6 +83,9 @@ backend-test: ## pytest under coverage (backend/) -- hermetic, in-memory SQLite
 
 backend-coverage: ## Enforce backend's fail_under=90 coverage gate
 	@$(call run_suite,backend:coverage,cd backend && uv run coverage report)
+
+transcript-fidelity: ## Check live voice sessions classified what the customer actually said
+	@cd backend && PYTHONPATH=. uv run python scripts/check_transcript_fidelity.py
 
 evals-lint: ## Ruff check (backend/evals/)
 	@$(call run_suite,evals:lint,cd backend/evals && uv run ruff check .)
