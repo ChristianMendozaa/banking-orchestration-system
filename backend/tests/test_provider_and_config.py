@@ -2,7 +2,6 @@ import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -21,6 +20,10 @@ def _provider() -> OpenAIProvider:
     provider.client = SimpleNamespace(
         responses=SimpleNamespace(parse=AsyncMock()),
         embeddings=SimpleNamespace(create=AsyncMock()),
+        realtime=SimpleNamespace(connect=None),
+        audio=SimpleNamespace(
+            speech=SimpleNamespace(with_streaming_response=SimpleNamespace(create=None))
+        ),
     )
     return provider
 
@@ -77,23 +80,64 @@ async def test_openai_provider_rejects_missing_structured_outputs() -> None:
         await provider.grounded_answer("consulta", [])
 
 
-async def test_realtime_http_failure_uses_public_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_transcription_session_is_configured_for_a_spoken_kiosk() -> None:
+    """The three settings that decide whether the kiosk hears people correctly.
+
+    A prompt and turn detection are the reason this is gpt-4o-transcribe and not
+    gpt-realtime-whisper, which accepts neither in a transcription session.
+    """
+    config = _provider().transcription_session_config()
+    audio_input = config["audio"]["input"]
+
+    assert config["type"] == "transcription"
+    assert audio_input["transcription"]["language"] == "es"
+    assert "robo" in audio_input["transcription"]["prompt"]
+    assert audio_input["turn_detection"] == {"type": "semantic_vad", "eagerness": "auto"}
+    # A transcription session has nothing to respond with, so it must not be told to.
+    assert "create_response" not in audio_input["turn_detection"]
+    assert audio_input["format"] == {"type": "audio/pcm", "rate": 24000}
+
+
+async def test_transcription_session_failure_uses_public_error() -> None:
     provider = _provider()
 
-    class BrokenClient:
+    def explode(**_kwargs):
+        raise RuntimeError("offline")
+
+    provider.client.realtime.connect = explode
+    with pytest.raises(AppError) as caught:
+        async with provider.open_transcription_session("session-hash"):
+            pass
+    assert caught.value.code == "VOICE_UNAVAILABLE"
+
+
+async def test_stream_speech_yields_pcm_frames() -> None:
+    provider = _provider()
+    frames = [b"\x01\x02", b"\x03\x04"]
+
+    class Streamed:
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, *_):
             return None
 
-        async def post(self, *_args, **_kwargs):
-            raise httpx.ConnectError("offline")
+        async def iter_bytes(self, _size):
+            for frame in frames:
+                yield frame
 
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **_: BrokenClient())
-    with pytest.raises(AppError) as caught:
-        await provider.create_realtime_client_secret("session-hash")
-    assert caught.value.code == "REALTIME_UNAVAILABLE"
+    captured: dict = {}
+
+    def create(**kwargs):
+        captured.update(kwargs)
+        return Streamed()
+
+    provider.client.audio.speech.with_streaming_response.create = create
+    assert [chunk async for chunk in provider.stream_speech("Hola")] == frames
+    # PCM rather than a container format: the browser plays it without a decoder, and a
+    # stream cut off by an interruption is still playable up to the cut.
+    assert captured["response_format"] == "pcm"
+    assert captured["voice"] == settings_for_tests.tts_voice
 
 
 async def test_retention_loop_logs_and_stops(monkeypatch: pytest.MonkeyPatch) -> None:

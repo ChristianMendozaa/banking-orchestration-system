@@ -35,12 +35,15 @@ class Settings(BaseSettings):
     metrics_token: SecretStr = SecretStr("")
 
     openai_api_key: SecretStr = SecretStr("")
-    voice_model: str = "gpt-realtime-2.1"
-    transcription_model: str = "gpt-realtime-whisper"
+    # The kiosk transcribes, reasons and speaks in three separate steps. gpt-4o-transcribe
+    # rather than gpt-realtime-whisper because a transcription session running the latter
+    # accepts neither a vocabulary prompt nor turn detection, and the kiosk needs both.
+    transcription_model: str = "gpt-4o-transcribe"
+    tts_model: str = "gpt-4o-mini-tts"
+    tts_voice: str = "marin"
     orchestration_model: str = "gpt-5.4-mini"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
-    realtime_voice: str = "marin"
 
     rag_top_k: int = 5
     rag_min_score: float = 0.45

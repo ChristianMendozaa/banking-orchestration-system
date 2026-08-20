@@ -1,6 +1,5 @@
 "use client"
 
-import type { RealtimeSession } from "@openai/agents/realtime"
 import { usePathname, useRouter } from "next/navigation"
 import {
   createContext,
@@ -13,31 +12,14 @@ import {
 } from "react"
 
 import { ApiError, errorMessage } from "@/lib/api"
+import { createKioskSession, kioskSessionRequest } from "@/lib/kiosk-api"
 import {
-  createKioskSession,
-  kioskSessionRequest,
-  type RealtimeSecret,
-} from "@/lib/kiosk-api"
-import {
-  analysisTransitionKey,
-  businessTransitionKey,
-  canReplayControlledSpeech,
-  captionsFromHistory,
-  controlledSpeechInstructions,
-  controlledTransitionFromToolResult,
-  flowTransitionKey,
   isTerminalFlowResult,
   kioskRouteForState,
-  requestControlledResponse,
-  selectAuthoritativeTranscript,
   shouldApplyAnalysisResponse,
   shouldApplyFlowResponse,
-  shouldReplayControlledTransition,
-  TRANSITION_METADATA_KEY,
-  transcriptsDiverge,
-  type ControlledTransition,
-  type ConversationCaption,
-} from "@/lib/kiosk-realtime"
+} from "@/lib/kiosk-flow"
+import { KioskVoiceConnection, type VoiceCaption } from "@/lib/kiosk-voice"
 import type {
   FlowResult,
   KioskSession,
@@ -52,25 +34,14 @@ const LEGACY_STORAGE_KEYS = [
   "orquestacion_kiosk_flow_v3",
 ]
 const COMPLETION_SECONDS = 20
-const TERMINAL_AUDIO_TIMEOUT_MS = 30_000
 // How long the kiosk keeps listening after answering a question by itself, before it
-// finishes the session on its own. Longer than TERMINAL_AUDIO_TIMEOUT_MS: this one is
-// waiting for a person to decide whether they have another question, not for audio to
-// finish playing.
+// finishes the session on its own. It is waiting for a person to decide whether they have
+// another question, not for audio to finish playing.
 const FOLLOW_UP_WINDOW_MS = 45_000
-// How long analyzeRequirement waits for the session's audio transcription to land before it
-// falls back to the model's own reading of the turn. The transcription usually arrives around
-// the same time as the tool call, so this is a settle window, not a poll loop: the common case
-// resolves on the first check.
-const TRANSCRIPT_SETTLE_TIMEOUT_MS = 1_500
-const TRANSCRIPT_SETTLE_INTERVAL_MS = 100
-// How long a tool may run before the kiosk says something. Measured against the live backend:
-// a turn that only classifies answers in about 2s, while one that also retrieves and grounds
-// takes 4-6s. The threshold sits above the first and below the second on purpose -- covering a
-// two-second gap would delay an answer that was already arriving, and it is the long silences
-// that read as broken.
-const WAITING_SPEECH_DELAY_MS = 2_000
-const WAITING_SPEECH_TEXT = "Un momento, estoy revisando eso."
+// A terminal result the backend never followed with `session.finished` -- a dropped socket,
+// most likely. The result is already on screen either way; this only decides when the kiosk
+// resets itself for the next person.
+const TERMINAL_TIMEOUT_MS = 30_000
 
 export type VoiceState =
   | "idle"
@@ -81,11 +52,6 @@ export type VoiceState =
   | "muted"
   | "error"
   | "closed"
-
-interface TransitionRequest {
-  transition: ControlledTransition
-  revision: number
-}
 
 export interface KioskState {
   session: KioskSession | null
@@ -107,7 +73,7 @@ interface KioskContextValue extends KioskState {
   hydrated: boolean
   voiceState: VoiceState
   voiceError: string | null
-  captions: ConversationCaption[]
+  captions: VoiceCaption[]
   completionSeconds: number | null
   beginSession: (preferentialAttention: boolean) => Promise<void>
   connectVoice: () => Promise<void>
@@ -121,16 +87,11 @@ interface KioskContextValue extends KioskState {
 
 const KioskContext = createContext<KioskContextValue | null>(null)
 
-function toolCallKey(toolCall: unknown, fallback: string): string {
-  if (toolCall && typeof toolCall === "object") {
-    if ("callId" in toolCall && typeof toolCall.callId === "string") {
-      return toolCall.callId
-    }
-    if ("id" in toolCall && typeof toolCall.id === "string") {
-      return toolCall.id
-    }
-  }
-  return fallback
+function backendWebSocketBase(): string {
+  return (
+    process.env.NEXT_PUBLIC_BACKEND_WS_URL ??
+    (typeof window === "undefined" ? "" : window.location.origin)
+  )
 }
 
 export function KioskProvider({ children }: { children: React.ReactNode }) {
@@ -140,38 +101,15 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false)
   const [voiceState, setVoiceState] = useState<VoiceState>("idle")
   const [voiceError, setVoiceError] = useState<string | null>(null)
-  const [captions, setCaptions] = useState<ConversationCaption[]>([])
+  const [captions, setCaptions] = useState<VoiceCaption[]>([])
   const [completionSeconds, setCompletionSeconds] = useState<number | null>(null)
 
   const stateRef = useRef(state)
   const businessRevisionRef = useRef(0)
-  const realtimeRef = useRef<RealtimeSession | null>(null)
+  const voiceRef = useRef<KioskVoiceConnection | null>(null)
   const connectPromiseRef = useRef<Promise<void> | null>(null)
   const connectionAttemptRef = useRef(0)
   const clarificationRef = useRef(false)
-  const terminalTransitionKeyRef = useRef<string | null>(null)
-  const activeTransitionKeyRef = useRef<string | null>(null)
-  const audioDoneTransitionKeyRef = useRef<string | null>(null)
-  const responseTransitionsRef = useRef(new Map<string, string>())
-  const activeToolCallsRef = useRef(new Set<string>())
-  const toolCallRevisionsRef = useRef(new Map<string, number>())
-  const pendingToolTransitionRef = useRef<ControlledTransition | null>(null)
-  const transitionRequestsRef = useRef(new Map<string, TransitionRequest>())
-  const audioProducedTransitionsRef = useRef(new Set<string>())
-  const replayAttemptsRef = useRef(new Map<string, number>())
-  const interruptedReplayRef = useRef<TransitionRequest | null>(null)
-  const postInterruptionResponseIdRef = useRef<string | null>(null)
-  const inputSpeechActiveRef = useRef(false)
-  const requestedTransitionsRef = useRef(new Set<string>())
-  const completedTransitionsRef = useRef(new Set<string>())
-  const turnIdsRef = useRef(new Map<string, string>())
-  const syncedConversationItemsRef = useRef(new Set<string>())
-  const userCaptionsRef = useRef<ConversationCaption[]>([])
-  const consumedTranscriptItemsRef = useRef(new Set<string>())
-  const waitingSpeechTimeoutRef = useRef<number | null>(null)
-  const confirmationPromisesRef = useRef(
-    new Map<string, { promise: Promise<FlowResult>; revision: number }>(),
-  )
   const identificationPromiseRef = useRef<Promise<FlowResult> | null>(null)
   const reconciliationPromiseRef = useRef<{
     sessionId: string
@@ -179,10 +117,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     promise: Promise<KioskSessionStatus>
   } | null>(null)
   const completionIntervalRef = useRef<number | null>(null)
-  const terminalAudioTimeoutRef = useRef<number | null>(null)
+  const terminalTimeoutRef = useRef<number | null>(null)
   const followUpTimeoutRef = useRef<number | null>(null)
   const followUpTransitionKeyRef = useRef<string | null>(null)
-  const interruptedReplayTimeoutRef = useRef<number | null>(null)
 
   const updateState = useCallback((updater: (current: KioskState) => KioskState) => {
     const next = updater(stateRef.current)
@@ -192,131 +129,44 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const clearTimers = useCallback(() => {
+    for (const ref of [terminalTimeoutRef, followUpTimeoutRef]) {
+      if (ref.current !== null) {
+        window.clearTimeout(ref.current)
+        ref.current = null
+      }
+    }
     if (completionIntervalRef.current !== null) {
       window.clearInterval(completionIntervalRef.current)
       completionIntervalRef.current = null
     }
-    if (terminalAudioTimeoutRef.current !== null) {
-      window.clearTimeout(terminalAudioTimeoutRef.current)
-      terminalAudioTimeoutRef.current = null
-    }
-    if (followUpTimeoutRef.current !== null) {
-      window.clearTimeout(followUpTimeoutRef.current)
-      followUpTimeoutRef.current = null
-    }
     followUpTransitionKeyRef.current = null
-    if (interruptedReplayTimeoutRef.current !== null) {
-      window.clearTimeout(interruptedReplayTimeoutRef.current)
-      interruptedReplayTimeoutRef.current = null
-    }
-    if (waitingSpeechTimeoutRef.current !== null) {
-      window.clearTimeout(waitingSpeechTimeoutRef.current)
-      waitingSpeechTimeoutRef.current = null
-    }
   }, [])
 
-  const disposeRealtime = useCallback(() => {
+  const disposeVoice = useCallback(() => {
     connectionAttemptRef.current += 1
-    const realtime = realtimeRef.current
-    realtimeRef.current = null
+    const voice = voiceRef.current
+    voiceRef.current = null
     connectPromiseRef.current = null
-    if (realtime) {
-      try {
-        realtime.close()
-      } catch {
-        // The connection may already have been closed by the transport.
-      }
-    }
-    for (const transitionKey of requestedTransitionsRef.current) {
-      if (!completedTransitionsRef.current.has(transitionKey)) {
-        requestedTransitionsRef.current.delete(transitionKey)
-      }
-    }
-    responseTransitionsRef.current.clear()
-    activeToolCallsRef.current.clear()
-    toolCallRevisionsRef.current.clear()
-    pendingToolTransitionRef.current = null
-    transitionRequestsRef.current.clear()
-    audioProducedTransitionsRef.current.clear()
-    replayAttemptsRef.current.clear()
-    interruptedReplayRef.current = null
-    postInterruptionResponseIdRef.current = null
-    inputSpeechActiveRef.current = false
-    if (interruptedReplayTimeoutRef.current !== null) {
-      window.clearTimeout(interruptedReplayTimeoutRef.current)
-      interruptedReplayTimeoutRef.current = null
-    }
-    if (waitingSpeechTimeoutRef.current !== null) {
-      window.clearTimeout(waitingSpeechTimeoutRef.current)
-      waitingSpeechTimeoutRef.current = null
-    }
-    activeTransitionKeyRef.current = null
-    audioDoneTransitionKeyRef.current = null
-  }, [])
-
-  const clearFlowTracking = useCallback(() => {
-    clarificationRef.current = false
-    terminalTransitionKeyRef.current = null
-    if (followUpTimeoutRef.current !== null) {
-      window.clearTimeout(followUpTimeoutRef.current)
-      followUpTimeoutRef.current = null
-    }
-    followUpTransitionKeyRef.current = null
-    activeTransitionKeyRef.current = null
-    audioDoneTransitionKeyRef.current = null
-    requestedTransitionsRef.current.clear()
-    completedTransitionsRef.current.clear()
-    responseTransitionsRef.current.clear()
-    activeToolCallsRef.current.clear()
-    toolCallRevisionsRef.current.clear()
-    pendingToolTransitionRef.current = null
-    transitionRequestsRef.current.clear()
-    audioProducedTransitionsRef.current.clear()
-    replayAttemptsRef.current.clear()
-    interruptedReplayRef.current = null
-    postInterruptionResponseIdRef.current = null
-    inputSpeechActiveRef.current = false
-    turnIdsRef.current.clear()
-    syncedConversationItemsRef.current.clear()
-    userCaptionsRef.current = []
-    consumedTranscriptItemsRef.current.clear()
-    confirmationPromisesRef.current.clear()
-    identificationPromiseRef.current = null
-    reconciliationPromiseRef.current = null
+    voice?.close()
   }, [])
 
   const reset = useCallback(() => {
     clearTimers()
-    disposeRealtime()
-    clearFlowTracking()
+    disposeVoice()
+    clarificationRef.current = false
+    identificationPromiseRef.current = null
+    reconciliationPromiseRef.current = null
     setCaptions([])
     setVoiceError(null)
     setVoiceState("idle")
     setCompletionSeconds(null)
     updateState(() => emptyState)
-  }, [clearFlowTracking, clearTimers, disposeRealtime, updateState])
+  }, [clearTimers, disposeVoice, updateState])
 
   const startCompletionCountdown = useCallback(() => {
     if (completionIntervalRef.current !== null) return
-
-    terminalTransitionKeyRef.current = null
-    activeTransitionKeyRef.current = null
-    audioDoneTransitionKeyRef.current = null
-    if (terminalAudioTimeoutRef.current !== null) {
-      window.clearTimeout(terminalAudioTimeoutRef.current)
-      terminalAudioTimeoutRef.current = null
-    }
-    if (followUpTimeoutRef.current !== null) {
-      window.clearTimeout(followUpTimeoutRef.current)
-      followUpTimeoutRef.current = null
-    }
-    followUpTransitionKeyRef.current = null
-    try {
-      realtimeRef.current?.mute(true)
-    } catch {
-      // The subsequent close guarantees the microphone ends up released.
-    }
-    disposeRealtime()
+    clearTimers()
+    disposeVoice()
     setVoiceState("closed")
     setCompletionSeconds(COMPLETION_SECONDS)
 
@@ -325,14 +175,13 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       remaining -= 1
       setCompletionSeconds(remaining)
       if (remaining > 0) return
-
       if (completionIntervalRef.current !== null) {
         window.clearInterval(completionIntervalRef.current)
         completionIntervalRef.current = null
       }
       reset()
     }, 1_000)
-  }, [disposeRealtime, reset])
+  }, [clearTimers, disposeVoice, reset])
 
   const cancelFollowUpWindow = useCallback(() => {
     if (followUpTimeoutRef.current !== null) {
@@ -342,30 +191,85 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     followUpTransitionKeyRef.current = null
   }, [])
 
-  const armFollowUpWindow = useCallback((transitionKey: string) => {
-    if (followUpTransitionKeyRef.current === transitionKey) return
-    followUpTransitionKeyRef.current = transitionKey
-    if (followUpTimeoutRef.current !== null) {
-      window.clearTimeout(followUpTimeoutRef.current)
-    }
-    followUpTimeoutRef.current = window.setTimeout(
-      startCompletionCountdown,
-      FOLLOW_UP_WINDOW_MS,
-    )
-  }, [startCompletionCountdown])
+  const armFollowUpWindow = useCallback(
+    (key: string) => {
+      if (followUpTransitionKeyRef.current === key) return
+      followUpTransitionKeyRef.current = key
+      if (followUpTimeoutRef.current !== null) {
+        window.clearTimeout(followUpTimeoutRef.current)
+      }
+      followUpTimeoutRef.current = window.setTimeout(
+        startCompletionCountdown,
+        FOLLOW_UP_WINDOW_MS,
+      )
+    },
+    [startCompletionCountdown],
+  )
 
-  const armTerminalCompletion = useCallback((transitionKey: string) => {
-    if (terminalTransitionKeyRef.current === transitionKey) return
-    terminalTransitionKeyRef.current = transitionKey
-    audioDoneTransitionKeyRef.current = null
-    if (terminalAudioTimeoutRef.current !== null) {
-      window.clearTimeout(terminalAudioTimeoutRef.current)
-    }
-    terminalAudioTimeoutRef.current = window.setTimeout(
-      startCompletionCountdown,
-      TERMINAL_AUDIO_TIMEOUT_MS,
-    )
-  }, [startCompletionCountdown])
+  // ---------------------------------------------------------------- reducers
+  //
+  // Voice and text funnel through these. That is the point of the change: the socket hands
+  // back the same TurnAnalysis / FlowResult the HTTP endpoints do, because on the backend
+  // it is the same orchestrator call. There is no longer a voice-shaped copy of the flow.
+
+  const applyAnalysis = useCallback(
+    (response: TurnAnalysis, startingRequirementId: string | null, revision: number) => {
+      if (response.next_action === "COMPLETE" && response.result) {
+        return response.result
+      }
+      if (
+        !shouldApplyAnalysisResponse(
+          stateRef.current,
+          response,
+          startingRequirementId,
+          businessRevisionRef.current !== revision,
+        )
+      ) {
+        return null
+      }
+      setVoiceError(null)
+      const isClarification = response.next_action === "CLARIFY"
+      clarificationRef.current = isClarification
+      updateState((stored) => ({
+        ...stored,
+        session: stored.session
+          ? { ...stored.session, status: response.status }
+          : stored.session,
+        analysis: response,
+        result: null,
+        isClarification,
+      }))
+      return null
+    },
+    [updateState],
+  )
+
+  const applyFlow = useCallback(
+    (response: FlowResult, startingRequirementId: string, revision: number) => {
+      if (
+        !shouldApplyFlowResponse(
+          stateRef.current,
+          response,
+          startingRequirementId,
+          businessRevisionRef.current !== revision,
+        )
+      ) {
+        return
+      }
+      setVoiceError(null)
+      clarificationRef.current = false
+      updateState((stored) => ({
+        ...stored,
+        session: stored.session
+          ? { ...stored.session, status: response.status }
+          : stored.session,
+        analysis: null,
+        result: response,
+        isClarification: false,
+      }))
+    },
+    [updateState],
+  )
 
   const reconcileSession = useCallback(
     async (activeSession: KioskSession): Promise<KioskSessionStatus | null> => {
@@ -412,20 +316,6 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             isClarification,
           }
         })
-        if (
-          snapshot.result?.next_action === "IDENTIFY" ||
-          snapshot.result?.next_action === "COMPLETE"
-        ) {
-          const realtime = realtimeRef.current
-          try {
-            if (realtime?.transport.status === "connected") {
-              realtime.mute(true)
-              setVoiceState("muted")
-            }
-          } catch {
-            // The retrieved snapshot remains the source of truth.
-          }
-        }
         return snapshot
       } catch (reason) {
         if (
@@ -458,10 +348,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           let restored: KioskState | null = null
           try {
             restored = JSON.parse(raw) as KioskState
-            if (
-              restored.session &&
-              new Date(restored.session.expires_at) > new Date()
-            ) {
+            if (restored.session && new Date(restored.session.expires_at) > new Date()) {
               restored.interactionMode =
                 restored.interactionMode === "text" ? "text" : "voice"
               stateRef.current = restored
@@ -502,52 +389,39 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     if (pathname !== target) router.replace(target)
   }, [hydrated, pathname, router, state])
 
+  // A terminal result ends the session; an automatic answer deliberately does not, so the
+  // microphone stays open for a follow-up until the window closes.
   useEffect(() => {
-    // An automatic answer is deliberately absent here: it no longer ends the session, so
-    // the microphone stays live for a follow-up question (see isTerminalFlowResult).
-    const terminalResult =
-      state.result?.next_action === "IDENTIFY" ||
-      (state.result ? isTerminalFlowResult(state.result) : false)
-    const declined = state.analysis?.next_action === "DECLINE"
-    if (!terminalResult && !declined) return
-    try {
-      realtimeRef.current?.mute(true)
-    } catch {
-      // Navigation and business state do not depend on the voice transport.
+    const result = state.result
+    if (!result) return
+    if (isTerminalFlowResult(result) || state.analysis?.next_action === "DECLINE") {
+      if (terminalTimeoutRef.current === null) {
+        terminalTimeoutRef.current = window.setTimeout(
+          startCompletionCountdown,
+          TERMINAL_TIMEOUT_MS,
+        )
+      }
+      return
     }
-  }, [state.result, state.analysis?.next_action])
-
-  useEffect(() => {
-    if (
-      hydrated &&
-      state.result?.next_action === "COMPLETE" &&
-      completionSeconds === null &&
-      realtimeRef.current?.transport.status !== "connected"
-    ) {
-      // Reached with no voice transport at all (text-only kiosk, or a dropped connection),
-      // so there is no follow-up to wait for either way -- automatic or not.
-      startCompletionCountdown()
+    if (result.next_action === "COMPLETE" && result.resolution_type === "AUTOMATIC") {
+      armFollowUpWindow(result.requirement_id)
     }
-  }, [
-    completionSeconds,
-    hydrated,
-    startCompletionCountdown,
-    state.result,
-  ])
+  }, [armFollowUpWindow, startCompletionCountdown, state.analysis, state.result])
 
   useEffect(
     () => () => {
       clearTimers()
-      disposeRealtime()
+      disposeVoice()
     },
-    [clearTimers, disposeRealtime],
+    [clearTimers, disposeVoice],
   )
 
   const beginSession = useCallback(
     async (preferentialAttention: boolean) => {
       clearTimers()
-      disposeRealtime()
-      clearFlowTracking()
+      disposeVoice()
+      clarificationRef.current = false
+      identificationPromiseRef.current = null
       setCaptions([])
       setVoiceError(null)
       setVoiceState("idle")
@@ -556,150 +430,15 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       const session = await createKioskSession(preferentialAttention)
       updateState(() => ({ ...emptyState, session }))
     },
-    [clearFlowTracking, clearTimers, disposeRealtime, updateState],
+    [clearTimers, disposeVoice, updateState],
   )
 
   const handleExpiredSession = useCallback(() => {
     reset()
   }, [reset])
 
-  // The authoritative record of what the customer said is the session's own audio
-  // transcription, not the string the realtime model types into the tool call. The model has
-  // been observed corrupting it outright ("reportar el robo" -> "portar el juego"), and the
-  // backend then classifies the corruption. The transcription normally lands within a few
-  // hundred milliseconds of the tool call, so wait a bounded moment for it and only fall back
-  // to the model's own reading when it never arrives.
-  const resolveTurnTranscript = useCallback(
-    async (fallbackTranscript: string): Promise<string> => {
-      const deadline = Date.now() + TRANSCRIPT_SETTLE_TIMEOUT_MS
-      for (;;) {
-        const selection = selectAuthoritativeTranscript(
-          userCaptionsRef.current,
-          consumedTranscriptItemsRef.current,
-        )
-        if (selection) {
-          selection.itemIds.forEach((itemId) =>
-            consumedTranscriptItemsRef.current.add(itemId),
-          )
-          if (fallbackTranscript && transcriptsDiverge(selection.text, fallbackTranscript)) {
-            console.warn(
-              "[kiosco] La transcripción y lo que el modelo entendió difieren; se usa la transcripción.",
-              { transcripcion: selection.text, modelo: fallbackTranscript },
-            )
-          }
-          return selection.text
-        }
-        if (Date.now() >= deadline) return fallbackTranscript
-        await new Promise((resolve) =>
-          window.setTimeout(resolve, TRANSCRIPT_SETTLE_INTERVAL_MS),
-        )
-      }
-    },
-    [],
-  )
-
-  const requestTransitionSpeech = useCallback(
-    (realtime: RealtimeSession, transition: ControlledTransition): boolean => {
-      const interrupted = interruptedReplayRef.current
-      if (
-        interrupted &&
-        interrupted.transition.transitionKey !== transition.transitionKey
-      ) {
-        const interruptedKey = interrupted.transition.transitionKey
-        completedTransitionsRef.current.add(interruptedKey)
-        requestedTransitionsRef.current.delete(interruptedKey)
-        transitionRequestsRef.current.delete(interruptedKey)
-        audioProducedTransitionsRef.current.delete(interruptedKey)
-        replayAttemptsRef.current.delete(interruptedKey)
-        interruptedReplayRef.current = null
-        postInterruptionResponseIdRef.current = null
-        if (interruptedReplayTimeoutRef.current !== null) {
-          window.clearTimeout(interruptedReplayTimeoutRef.current)
-          interruptedReplayTimeoutRef.current = null
-        }
-      }
-      if (
-        realtimeRef.current !== realtime ||
-        realtime.transport.status !== "connected" ||
-        completedTransitionsRef.current.has(transition.transitionKey) ||
-        requestedTransitionsRef.current.has(transition.transitionKey)
-      ) {
-        return false
-      }
-
-      requestedTransitionsRef.current.add(transition.transitionKey)
-      transitionRequestsRef.current.set(transition.transitionKey, {
-        transition,
-        revision: businessRevisionRef.current,
-      })
-      try {
-        requestControlledResponse(
-          realtime,
-          controlledSpeechInstructions(transition.speechText),
-          transition.transitionKey,
-        )
-      } catch (reason) {
-        requestedTransitionsRef.current.delete(transition.transitionKey)
-        transitionRequestsRef.current.delete(transition.transitionKey)
-        throw reason
-      }
-
-      if (transition.terminal) {
-        armTerminalCompletion(transition.transitionKey)
-      } else if (transition.nextAction === "COMPLETE") {
-        // An automatic answer keeps the session open so the customer can ask something
-        // else, but a kiosk that waits forever is a kiosk nobody else can use. Give the
-        // follow-up a window; if nothing comes, finish the session the usual way.
-        armFollowUpWindow(transition.transitionKey)
-      }
-      return true
-    },
-    [armFollowUpWindow, armTerminalCompletion],
-  )
-
-  useEffect(() => {
-    const realtime = realtimeRef.current
-    if (realtime?.transport.status !== "connected") return
-    if (activeToolCallsRef.current.size > 0) return
-
-    let transition: ControlledTransition | null = null
-    if (state.result) {
-      transition = {
-        transitionKey: flowTransitionKey(state.result),
-        speechText: state.result.speech_text,
-        nextAction: state.result.next_action,
-        terminal: isTerminalFlowResult(state.result),
-      }
-    } else if (state.analysis) {
-      transition = {
-        transitionKey: analysisTransitionKey(state.analysis),
-        speechText: state.analysis.speech_text,
-        nextAction: state.analysis.next_action,
-        terminal: false,
-      }
-    }
-    if (!transition) return
-
-    try {
-      requestTransitionSpeech(realtime, transition)
-    } catch (reason) {
-      queueMicrotask(() => {
-        setVoiceError(errorMessage(reason))
-        setVoiceState("error")
-        if (transition.terminal) startCompletionCountdown()
-      })
-    }
-  }, [
-    requestTransitionSpeech,
-    startCompletionCountdown,
-    state.analysis,
-    state.result,
-    voiceState,
-  ])
-
   const connectVoice = useCallback(async () => {
-    const current = realtimeRef.current
-    if (current?.transport.status === "connected") return
+    if (voiceRef.current) return
     if (connectPromiseRef.current) return connectPromiseRef.current
 
     const activeSession = stateRef.current.session
@@ -709,12 +448,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     const isActiveAttempt = () =>
       attemptId === connectionAttemptRef.current &&
       stateRef.current.session?.session_id === activeSession.session_id
-    const isBusinessSessionCurrent = () =>
-      stateRef.current.session?.session_id === activeSession.session_id
 
     const connection = (async () => {
       setVoiceError(null)
-
       try {
         const reconciled = await reconcileSession(activeSession)
         if (!isActiveAttempt() || !reconciled) return
@@ -724,741 +460,63 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           return
         }
 
-        if (!navigator.mediaDevices?.getUserMedia) {
-          throw new Error("Este navegador no permite capturar audio")
-        }
         setVoiceState("connecting")
-
-        const secret = await kioskSessionRequest<RealtimeSecret>(
-          activeSession,
-          "/realtime-token",
-          { method: "POST" },
-        )
-        if (attemptId !== connectionAttemptRef.current) return
-
-        const [{ RealtimeSession: RealtimeSessionClass }, { createKioskRealtimeAgent }] =
-          await Promise.all([
-            import("@openai/agents/realtime"),
-            import("@/lib/kiosk-realtime-agent"),
-          ])
-        if (attemptId !== connectionAttemptRef.current) return
-
-        let agentRequirementId =
-          stateRef.current.analysis?.requirement_id ??
-          stateRef.current.result?.requirement_id ??
-          null
-        const agent = createKioskRealtimeAgent({
-          resolveSpokenText: resolveTurnTranscript,
-          analyzeRequirement: async (transcript, callId) => {
-            const key = callId ?? crypto.randomUUID()
-            const requestRevision = businessRevisionRef.current
+        const voice = new KioskVoiceConnection({
+          onState: (value) => {
+            if (isActiveAttempt()) setVoiceState(value)
+          },
+          onCaptions: (next) => {
+            if (isActiveAttempt()) setCaptions(next)
+          },
+          onAnalysis: (analysis) => {
+            if (!isActiveAttempt()) return
+            cancelFollowUpWindow()
             const startingRequirementId =
               stateRef.current.analysis?.requirement_id ?? null
-            let turnId = turnIdsRef.current.get(key)
-            if (!turnId) {
-              turnId = crypto.randomUUID()
-              turnIdsRef.current.set(key, turnId)
-            }
-            if (!transcript) {
-              throw new Error("No pude entender lo que dijiste; inténtalo nuevamente")
-            }
-
-            try {
-              cancelFollowUpWindow()
-              const response = await kioskSessionRequest<TurnAnalysis>(
-                activeSession,
-                "/turns",
-                {
-                  method: "POST",
-                  body: JSON.stringify({
-                    turn_id: turnId,
-                    transcript,
-                    is_clarification: clarificationRef.current,
-                  }),
-                },
-              )
-              agentRequirementId = response.requirement_id
-              if (!isBusinessSessionCurrent()) return response
-              // A confident GENERAL request resolves on this same turn -- no confirmation
-              // round-trip -- and next_action is COMPLETE with the answer embedded in
-              // `result`. Store it exactly like confirmRequirement / submitIdentification
-              // store a completed flow, so routing, terminal mute/completion-countdown and
-              // the transition-speech effect (all keyed off state.result) apply unchanged.
-              if (response.next_action === "COMPLETE" && response.result) {
-                const completed = response.result
-                if (
-                  !shouldApplyFlowResponse(
-                    stateRef.current,
-                    completed,
-                    startingRequirementId ?? completed.requirement_id,
-                    businessRevisionRef.current !== requestRevision,
-                  )
-                ) {
-                  return response
-                }
-                setVoiceError(null)
-                clarificationRef.current = false
-                updateState((stored) => ({
-                  ...stored,
-                  session: stored.session
-                    ? { ...stored.session, status: completed.status }
-                    : stored.session,
-                  analysis: null,
-                  result: completed,
-                  isClarification: false,
-                }))
-                return response
-              }
-              if (
-                !shouldApplyAnalysisResponse(
-                  stateRef.current,
-                  response,
-                  startingRequirementId,
-                  businessRevisionRef.current !== requestRevision,
-                )
-              ) {
-                return response
-              }
-              setVoiceError(null)
-              const isClarification = response.next_action === "CLARIFY"
-              clarificationRef.current = isClarification
-              updateState((stored) => ({
-                ...stored,
-                session: stored.session
-                  ? { ...stored.session, status: response.status }
-                  : stored.session,
-                analysis: response,
-                result: null,
-                isClarification,
-              }))
-              return response
-            } catch (reason) {
-              if (!isBusinessSessionCurrent()) {
-                throw reason
-              }
-              const currentState = stateRef.current
-              const requestWasSuperseded =
-                businessRevisionRef.current !== requestRevision &&
-                (currentState.result !== null ||
-                  (currentState.analysis !== null &&
-                    currentState.analysis.requirement_id !==
-                      startingRequirementId))
-              if (requestWasSuperseded) {
-                throw reason
-              } else if (
-                reason instanceof ApiError &&
-                reason.code === "SESSION_EXPIRED"
-              ) {
-                handleExpiredSession()
-              } else {
-                setVoiceError(errorMessage(reason))
-                setVoiceState("error")
-              }
-              throw reason
-            }
-          },
-          confirmRequirement: async (confirmed) => {
-            const requirementId =
-              stateRef.current.analysis?.requirement_id ??
-              stateRef.current.result?.requirement_id ??
-              agentRequirementId
-            if (!requirementId) {
-              throw new Error("No existe un requerimiento pendiente de confirmación")
-            }
-            const requestKey = `${activeSession.session_id}:${requirementId}:${confirmed}`
-            let requestEntry = confirmationPromisesRef.current.get(requestKey)
-            if (!requestEntry) {
-              requestEntry = {
-                revision: businessRevisionRef.current,
-                promise: kioskSessionRequest<FlowResult>(
-                  activeSession,
-                  "/confirmation",
-                  {
-                    method: "POST",
-                    body: JSON.stringify({
-                      requirement_id: requirementId,
-                      confirmed,
-                    }),
-                  },
-                ),
-              }
-              confirmationPromisesRef.current.set(requestKey, requestEntry)
-            }
-
-            try {
-              const response = await requestEntry.promise
-              if (!isBusinessSessionCurrent()) return response
-              if (
-                !shouldApplyFlowResponse(
-                  stateRef.current,
-                  response,
-                  requirementId,
-                  businessRevisionRef.current !== requestEntry.revision,
-                )
-              ) {
-                return response
-              }
-              setVoiceError(null)
-
-              if (!confirmed || response.next_action === "CAPTURE") {
-                clarificationRef.current = false
-                updateState((stored) => ({
-                  ...stored,
-                  session: stored.session
-                    ? { ...stored.session, status: response.status }
-                    : stored.session,
-                  analysis: null,
-                  result: response,
-                  isClarification: false,
-                }))
-                return response
-              }
-
-              updateState((stored) => ({
-                ...stored,
-                session: stored.session
-                  ? { ...stored.session, status: response.status }
-                  : stored.session,
-                analysis: null,
-                result: response,
-                isClarification: false,
-              }))
-              if (
-                response.next_action === "IDENTIFY" ||
-                response.next_action === "COMPLETE"
-              ) {
-                const realtime = realtimeRef.current
-                try {
-                  if (realtime?.transport.status === "connected") {
-                    realtime.mute(true)
-                    setVoiceState("muted")
-                  }
-                } catch {
-                  // Flow state and its route remain recoverable.
-                }
-              }
-              return response
-            } catch (reason) {
-              if (
-                confirmationPromisesRef.current.get(requestKey) === requestEntry
-              ) {
-                confirmationPromisesRef.current.delete(requestKey)
-              }
-              if (!isBusinessSessionCurrent()) {
-                throw reason
-              }
-              const currentState = stateRef.current
-              const requestWasSuperseded =
-                businessRevisionRef.current !== requestEntry.revision &&
-                (currentState.result !== null ||
-                  (currentState.analysis !== null &&
-                    currentState.analysis.requirement_id !== requirementId))
-              if (requestWasSuperseded) {
-                throw reason
-              } else if (
-                reason instanceof ApiError &&
-                reason.code === "SESSION_EXPIRED"
-              ) {
-                handleExpiredSession()
-              } else {
-                setVoiceError(errorMessage(reason))
-                setVoiceState("error")
-              }
-              throw reason
-            }
-          },
-        })
-
-        const realtime = new RealtimeSessionClass(agent, {
-          // Mirrors Settings.voice_model. The backend already pins the model when it mints the
-          // client secret; this fallback only matters if that field is ever absent, and it must
-          // not silently pin the weaker mini model behind the backend's back.
-          model: secret.session?.model ?? "gpt-realtime-2.1",
-          historyStoreAudio: false,
-          tracingDisabled: true,
-          config: {
-            outputModalities: ["audio"],
-            parallelToolCalls: false,
-            audio: {
-              input: {
-                noiseReduction: { type: "near_field" },
-                transcription: {
-                  model: "gpt-realtime-whisper",
-                  language: "es",
-                },
-                turnDetection: {
-                  type: "semantic_vad",
-                  eagerness: "auto",
-                  createResponse: true,
-                  interruptResponse: true,
-                },
-              },
-              output: {
-                voice: "marin",
-              },
-            },
-          },
-        })
-        realtimeRef.current = realtime
-        const isCurrentRealtime = () =>
-          isActiveAttempt() && realtimeRef.current === realtime
-        const clearInterruptedReplay = (consume: boolean) => {
-          const pending = interruptedReplayRef.current
-          if (!pending) return
-          const transitionKey = pending.transition.transitionKey
-          if (consume) completedTransitionsRef.current.add(transitionKey)
-          requestedTransitionsRef.current.delete(transitionKey)
-          transitionRequestsRef.current.delete(transitionKey)
-          audioProducedTransitionsRef.current.delete(transitionKey)
-          if (consume) replayAttemptsRef.current.delete(transitionKey)
-          interruptedReplayRef.current = null
-          postInterruptionResponseIdRef.current = null
-          if (interruptedReplayTimeoutRef.current !== null) {
-            window.clearTimeout(interruptedReplayTimeoutRef.current)
-            interruptedReplayTimeoutRef.current = null
-          }
-        }
-        const cancelWaitingSpeech = () => {
-          if (waitingSpeechTimeoutRef.current !== null) {
-            window.clearTimeout(waitingSpeechTimeoutRef.current)
-            waitingSpeechTimeoutRef.current = null
-          }
-        }
-        // Classification, retrieval and the grounded answer are serial round-trips, so a turn
-        // can take several seconds. The agent instructions forbid the model from filling that
-        // gap on its own -- it would invent content -- so the application says one fixed line
-        // instead, and only once the wait is long enough to be worth acknowledging. The result
-        // speech is queued behind it by the transport and still plays in full.
-        const armWaitingSpeech = (transitionKey: string) => {
-          if (waitingSpeechTimeoutRef.current !== null) return
-          waitingSpeechTimeoutRef.current = window.setTimeout(() => {
-            waitingSpeechTimeoutRef.current = null
-            if (!isCurrentRealtime() || activeToolCallsRef.current.size === 0) return
-            try {
-              requestTransitionSpeech(realtime, {
-                transitionKey,
-                speechText: WAITING_SPEECH_TEXT,
-                nextAction: "WAITING",
-                terminal: false,
-              })
-            } catch {
-              // A courtesy phrase must never be able to break the turn it is covering for.
-            }
-          }, WAITING_SPEECH_DELAY_MS)
-        }
-        const replayInterruptedTransition = () => {
-          interruptedReplayTimeoutRef.current = null
-          const pending = interruptedReplayRef.current
-          if (!pending || !isCurrentRealtime()) return
-          if (
-            !shouldReplayControlledTransition(
-              stateRef.current,
-              pending.transition,
-              pending.revision,
+            const embedded = applyAnalysis(
+              analysis,
+              startingRequirementId,
               businessRevisionRef.current,
             )
-          ) {
-            clearInterruptedReplay(true)
-            return
-          }
-          if (
-            inputSpeechActiveRef.current ||
-            postInterruptionResponseIdRef.current !== null ||
-            activeToolCallsRef.current.size > 0
-          ) {
-            scheduleInterruptedReplay(1_000)
-            return
-          }
-
-          const transition = pending.transition
-          clearInterruptedReplay(false)
-          try {
-            requestTransitionSpeech(realtime, transition)
-          } catch (reason) {
-            setVoiceError(errorMessage(reason))
+            if (embedded) {
+              applyFlow(
+                embedded,
+                startingRequirementId ?? embedded.requirement_id,
+                businessRevisionRef.current,
+              )
+            }
+          },
+          onResult: (result) => {
+            if (!isActiveAttempt()) return
+            cancelFollowUpWindow()
+            applyFlow(result, result.requirement_id, businessRevisionRef.current)
+          },
+          onFinished: () => {
+            if (isActiveAttempt()) startCompletionCountdown()
+          },
+          onError: (message) => {
+            if (!isActiveAttempt()) return
+            setVoiceError(message)
             setVoiceState("error")
-            if (transition.terminal) startCompletionCountdown()
-          }
+          },
+        })
+        voiceRef.current = voice
+        await voice.connect(activeSession, backendWebSocketBase())
+        if (!isActiveAttempt()) {
+          voice.close()
+          return
         }
-        function scheduleInterruptedReplay(delayMs: number) {
-          if (!interruptedReplayRef.current) return
-          if (interruptedReplayTimeoutRef.current !== null) {
-            window.clearTimeout(interruptedReplayTimeoutRef.current)
-          }
-          interruptedReplayTimeoutRef.current = window.setTimeout(
-            replayInterruptedTransition,
-            delayMs,
-          )
-        }
-        const queueInterruptedReplay = (
-          transitionKey: string,
-        ): "queued" | "exhausted" | "unavailable" => {
-          const request = transitionRequestsRef.current.get(transitionKey)
-          if (!request) return "unavailable"
-          const attempts = replayAttemptsRef.current.get(transitionKey) ?? 0
-          if (!canReplayControlledSpeech(attempts)) {
-            transitionRequestsRef.current.delete(transitionKey)
-            audioProducedTransitionsRef.current.delete(transitionKey)
-            setVoiceError(
-              request.transition.terminal
-                ? "No pude reproducir el cierre por voz; el resultado permanece en pantalla."
-                : "No pude reproducir el mensaje. Usa Reintentar voz para volver a intentarlo.",
-            )
-            setVoiceState("error")
-            return "exhausted"
-          }
-
-          replayAttemptsRef.current.set(transitionKey, attempts + 1)
-          interruptedReplayRef.current = request
-          postInterruptionResponseIdRef.current = null
-          scheduleInterruptedReplay(1_500)
-          return "queued"
-        }
-        const finishControlledPlayback = (interrupted: boolean) => {
-          const transitionKey = interrupted
-            ? activeTransitionKeyRef.current ?? audioDoneTransitionKeyRef.current
-            : audioDoneTransitionKeyRef.current
-          if (!transitionKey) {
-            setVoiceState(
-              activeTransitionKeyRef.current
-                ? "speaking"
-                : realtime.muted
-                  ? "muted"
-                  : "listening",
-            )
-            return
-          }
-          const audioProduced =
-            audioProducedTransitionsRef.current.has(transitionKey)
-          activeTransitionKeyRef.current = null
-          audioDoneTransitionKeyRef.current = null
-          if (!interrupted || audioProduced) {
-            completedTransitionsRef.current.add(transitionKey)
-            transitionRequestsRef.current.delete(transitionKey)
-            audioProducedTransitionsRef.current.delete(transitionKey)
-            replayAttemptsRef.current.delete(transitionKey)
-            if (
-              interruptedReplayRef.current?.transition.transitionKey === transitionKey
-            ) {
-              interruptedReplayRef.current = null
-              postInterruptionResponseIdRef.current = null
-              if (interruptedReplayTimeoutRef.current !== null) {
-                window.clearTimeout(interruptedReplayTimeoutRef.current)
-                interruptedReplayTimeoutRef.current = null
-              }
-            }
-          }
-
-          if (
-            (!interrupted || audioProduced) &&
-            transitionKey === terminalTransitionKeyRef.current
-          ) {
-            startCompletionCountdown()
-          } else {
-            setVoiceState(realtime.muted ? "muted" : "listening")
-          }
-        }
-
-        realtime.on("history_updated", (history) => {
-          if (!isCurrentRealtime()) return
-          const nextCaptions = captionsFromHistory(history)
-          setCaptions(nextCaptions)
-          userCaptionsRef.current = nextCaptions
-          const session = stateRef.current.session
-          const pending = nextCaptions.filter(
-            (caption) =>
-              caption.completed && !syncedConversationItemsRef.current.has(caption.id),
-          )
-          if (!session || pending.length === 0) return
-          pending.forEach((caption) => syncedConversationItemsRef.current.add(caption.id))
-          void kioskSessionRequest(session, "/conversation/messages", {
-            method: "POST",
-            body: JSON.stringify({
-              messages: pending.map((caption) => ({
-                item_id: caption.id,
-                role: caption.role === "user" ? "CUSTOMER" : "ASSISTANT",
-                text: caption.text,
-              })),
-            }),
-          }).catch(() => {
-            pending.forEach((caption) => syncedConversationItemsRef.current.delete(caption.id))
-          })
-        })
-        realtime.on("agent_tool_start", (_context, _agent, _tool, details) => {
-          if (!isCurrentRealtime()) return
-          clearInterruptedReplay(true)
-          const callKey = toolCallKey(details.toolCall, _tool.name)
-          activeToolCallsRef.current.add(callKey)
-          toolCallRevisionsRef.current.set(callKey, businessRevisionRef.current)
-          try {
-            realtime.mute(true)
-          } catch {
-            // The authoritative response will keep controlling the flow phase.
-          }
-          setVoiceState("thinking")
-          armWaitingSpeech(`waiting:${callKey}`)
-        })
-        realtime.on("agent_tool_end", (_context, _agent, _tool, result, details) => {
-          if (!isCurrentRealtime()) return
-          const callKey = toolCallKey(details.toolCall, _tool.name)
-          const startingRevision = toolCallRevisionsRef.current.get(callKey)
-          activeToolCallsRef.current.delete(callKey)
-          cancelWaitingSpeech()
-          toolCallRevisionsRef.current.delete(callKey)
-          const transition = controlledTransitionFromToolResult(result)
-          if (
-            transition &&
-            (businessTransitionKey(stateRef.current) === transition.transitionKey ||
-              startingRevision === businessRevisionRef.current)
-          ) {
-            pendingToolTransitionRef.current = transition
-          }
-          if (activeToolCallsRef.current.size > 0) return
-
-          const pendingTransition = pendingToolTransitionRef.current
-          pendingToolTransitionRef.current = null
-          const keepMuted =
-            pendingTransition?.nextAction === "IDENTIFY" ||
-            pendingTransition?.nextAction === "COMPLETE" ||
-            stateRef.current.result?.next_action === "IDENTIFY" ||
-            stateRef.current.result?.next_action === "COMPLETE"
-          try {
-            realtime.mute(keepMuted)
-          } catch {
-            // The visual route does not depend on being able to switch the input track.
-          }
-          if (!pendingTransition) {
-            setVoiceState(keepMuted ? "muted" : "listening")
-            return
-          }
-          try {
-            requestTransitionSpeech(realtime, pendingTransition)
-          } catch (reason) {
-            setVoiceError(errorMessage(reason))
-            setVoiceState("error")
-            if (pendingTransition.terminal) startCompletionCountdown()
-          }
-        })
-        realtime.on("audio_start", () => {
-          if (!isCurrentRealtime()) return
-          setVoiceState("speaking")
-        })
-        realtime.on("audio_stopped", () => {
-          if (!isCurrentRealtime()) return
-          // The SDK emits this event when it finishes generating, not necessarily when
-          // WebRTC playback finishes. The controlled transition completes
-          // with output_audio_buffer.stopped.
-          if (!audioDoneTransitionKeyRef.current) {
-            setVoiceState(realtime.muted ? "muted" : "listening")
-          }
-        })
-        realtime.on("audio_interrupted", () => {
-          if (!isCurrentRealtime()) return
-          // If no audio has been produced yet, a single retry is deferred until
-          // the turn that caused the interruption finishes.
-          finishControlledPlayback(true)
-        })
-        realtime.on("transport_event", (event) => {
-          if (!isCurrentRealtime()) return
-          if (event.type === "response.created") {
-            const responseId = event.response?.id
-            const transitionKey = event.response?.metadata?.[TRANSITION_METADATA_KEY]
-            if (
-              typeof responseId === "string" &&
-              typeof transitionKey === "string"
-            ) {
-              responseTransitionsRef.current.set(responseId, transitionKey)
-              setVoiceState("speaking")
-            } else if (
-              typeof responseId === "string" &&
-              interruptedReplayRef.current
-            ) {
-              postInterruptionResponseIdRef.current = responseId
-              if (interruptedReplayTimeoutRef.current !== null) {
-                window.clearTimeout(interruptedReplayTimeoutRef.current)
-                interruptedReplayTimeoutRef.current = null
-              }
-            }
-          } else if (event.type === "response.output_audio.delta") {
-            const transitionKey = responseTransitionsRef.current.get(event.response_id)
-            if (transitionKey) {
-              audioProducedTransitionsRef.current.add(transitionKey)
-              activeTransitionKeyRef.current = transitionKey
-            }
-          } else if (event.type === "response.output_audio.done") {
-            const transitionKey = responseTransitionsRef.current.get(event.response_id)
-            if (transitionKey) {
-              audioDoneTransitionKeyRef.current = transitionKey
-              activeTransitionKeyRef.current = transitionKey
-              responseTransitionsRef.current.delete(event.response_id)
-            }
-          } else if (event.type === "response.done") {
-            const responseId = event.response.id
-            if (typeof responseId === "string") {
-              if (postInterruptionResponseIdRef.current === responseId) {
-                postInterruptionResponseIdRef.current = null
-                scheduleInterruptedReplay(250)
-              }
-
-              const transitionKey = responseTransitionsRef.current.get(responseId)
-              if (
-                transitionKey &&
-                event.response.status &&
-                event.response.status !== "completed"
-              ) {
-                let waitingForReplay =
-                  interruptedReplayRef.current?.transition.transitionKey ===
-                  transitionKey
-                let replayExhausted = false
-                if (
-                  !waitingForReplay &&
-                  !audioProducedTransitionsRef.current.has(transitionKey)
-                ) {
-                  const replayStatus = queueInterruptedReplay(transitionKey)
-                  waitingForReplay = replayStatus === "queued"
-                  replayExhausted = replayStatus === "exhausted"
-                }
-                if (!waitingForReplay && !replayExhausted) {
-                  requestedTransitionsRef.current.delete(transitionKey)
-                  transitionRequestsRef.current.delete(transitionKey)
-                  audioProducedTransitionsRef.current.delete(transitionKey)
-                  replayAttemptsRef.current.delete(transitionKey)
-                }
-                responseTransitionsRef.current.delete(responseId)
-                if (activeTransitionKeyRef.current === transitionKey) {
-                  activeTransitionKeyRef.current = null
-                }
-                if (audioDoneTransitionKeyRef.current === transitionKey) {
-                  audioDoneTransitionKeyRef.current = null
-                }
-                if (
-                  transitionKey === terminalTransitionKeyRef.current &&
-                  !waitingForReplay
-                ) {
-                  startCompletionCountdown()
-                }
-              } else if (
-                transitionKey &&
-                !audioProducedTransitionsRef.current.has(transitionKey)
-              ) {
-                const replayStatus = queueInterruptedReplay(transitionKey)
-                responseTransitionsRef.current.delete(responseId)
-                activeTransitionKeyRef.current = null
-                if (replayStatus === "unavailable") {
-                  requestedTransitionsRef.current.delete(transitionKey)
-                  transitionRequestsRef.current.delete(transitionKey)
-                  replayAttemptsRef.current.delete(transitionKey)
-                } else if (
-                  replayStatus === "exhausted" &&
-                  transitionKey === terminalTransitionKeyRef.current
-                ) {
-                  startCompletionCountdown()
-                }
-              }
-            }
-          } else if (event.type === "output_audio_buffer.stopped") {
-            finishControlledPlayback(false)
-          } else if (event.type === "output_audio_buffer.cleared") {
-            finishControlledPlayback(true)
-          } else if (event.type === "input_audio_buffer.speech_started") {
-            inputSpeechActiveRef.current = true
-            setVoiceState("listening")
-          } else if (event.type === "input_audio_buffer.speech_stopped") {
-            inputSpeechActiveRef.current = false
-            if (
-              interruptedReplayRef.current &&
-              postInterruptionResponseIdRef.current === null
-            ) {
-              scheduleInterruptedReplay(4_000)
-            }
-            setVoiceState("thinking")
-          }
-        })
-        realtime.on("error", ({ error }) => {
-          if (!isCurrentRealtime()) return
-          setVoiceError(errorMessage(error))
-          setVoiceState("error")
-        })
-        realtime.transport.on("connection_change", (status) => {
-          if (
-            status === "disconnected" &&
-            realtimeRef.current === realtime
-          ) {
-            setVoiceError("Se perdió la conexión de voz")
-            void reconcileSession(activeSession).catch(() => {
-              // The transport error is already visible and can be retried manually.
-            })
-            if (terminalTransitionKeyRef.current) {
-              startCompletionCountdown()
-            } else {
-              setVoiceState("error")
-            }
-          }
-        })
-
-        await realtime.connect({ apiKey: secret.value })
-        if (attemptId !== connectionAttemptRef.current) return
         setVoiceState("listening")
-
-        const snapshot = stateRef.current
-        if (snapshot.result?.next_action === "IDENTIFY") {
-          realtime.mute(true)
-          setVoiceState("muted")
-          requestTransitionSpeech(realtime, {
-            transitionKey: flowTransitionKey(snapshot.result),
-            speechText: snapshot.result.speech_text,
-            nextAction: snapshot.result.next_action,
-            terminal: false,
-          })
-        } else if (snapshot.analysis?.next_action === "CONFIRM") {
-          requestTransitionSpeech(realtime, {
-            transitionKey: analysisTransitionKey(snapshot.analysis),
-            speechText: snapshot.analysis.speech_text,
-            nextAction: snapshot.analysis.next_action,
-            terminal: false,
-          })
-        } else if (snapshot.analysis?.next_action === "CLARIFY") {
-          requestTransitionSpeech(realtime, {
-            transitionKey: analysisTransitionKey(snapshot.analysis),
-            speechText: snapshot.analysis.speech_text,
-            nextAction: snapshot.analysis.next_action,
-            terminal: false,
-          })
-        } else if (snapshot.result?.next_action === "CAPTURE") {
-          requestTransitionSpeech(realtime, {
-            transitionKey: flowTransitionKey(snapshot.result),
-            speechText: snapshot.result.speech_text,
-            nextAction: snapshot.result.next_action,
-            terminal: false,
-          })
-        } else {
-          requestTransitionSpeech(realtime, {
-            transitionKey: `${activeSession.session_id}:WELCOME`,
-            speechText:
-              "Hola, soy tu asistente virtual. ¿En qué puedo ayudarte hoy?",
-            nextAction: "WELCOME",
-            terminal: false,
-          })
-        }
       } catch (reason) {
         if (attemptId !== connectionAttemptRef.current) return
-        disposeRealtime()
+        disposeVoice()
         if (reason instanceof ApiError && reason.code === "SESSION_EXPIRED") {
           handleExpiredSession()
           return
         }
-        let failure = reason
-        if (reason instanceof ApiError && reason.code === "INVALID_SESSION_STATE") {
-          try {
-            const snapshot = await reconcileSession(activeSession)
-            if (snapshot) return
-          } catch (reconciliationReason) {
-            failure = reconciliationReason
-          }
-        }
-        setVoiceError(errorMessage(failure))
+        setVoiceError(errorMessage(reason))
         setVoiceState("error")
-        throw failure
+        throw reason
       }
     })()
 
@@ -1469,56 +527,52 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       if (connectPromiseRef.current === connection) connectPromiseRef.current = null
     }
   }, [
+    applyAnalysis,
+    applyFlow,
     cancelFollowUpWindow,
-    disposeRealtime,
-    resolveTurnTranscript,
+    disposeVoice,
     handleExpiredSession,
     reconcileSession,
-    requestTransitionSpeech,
     startCompletionCountdown,
-    updateState,
   ])
 
   const retryVoice = useCallback(async () => {
-    disposeRealtime()
+    disposeVoice()
     setVoiceError(null)
     setVoiceState("idle")
     await connectVoice()
-  }, [connectVoice, disposeRealtime])
+  }, [connectVoice, disposeVoice])
 
   const selectInteractionMode = useCallback(
     (mode: "voice" | "text") => {
       if (mode === "text") {
-        disposeRealtime()
+        disposeVoice()
         setVoiceError(null)
         setVoiceState("idle")
       }
       updateState((stored) => ({ ...stored, interactionMode: mode }))
     },
-    [disposeRealtime, updateState],
+    [disposeVoice, updateState],
   )
 
   const syncTextExchange = useCallback(
-    (
-      activeSession: KioskSession,
-      customerText: string,
-      assistantText: string,
-    ) => {
-      const messages = [
-        {
-          item_id: `text-customer-${crypto.randomUUID()}`,
-          role: "CUSTOMER",
-          text: customerText,
-        },
-        {
-          item_id: `text-assistant-${crypto.randomUUID()}`,
-          role: "ASSISTANT",
-          text: assistantText,
-        },
-      ]
+    (activeSession: KioskSession, customerText: string, assistantText: string) => {
       void kioskSessionRequest(activeSession, "/conversation/messages", {
         method: "POST",
-        body: JSON.stringify({ messages }),
+        body: JSON.stringify({
+          messages: [
+            {
+              item_id: `text-customer-${crypto.randomUUID()}`,
+              role: "CUSTOMER",
+              text: customerText,
+            },
+            {
+              item_id: `text-assistant-${crypto.randomUUID()}`,
+              role: "ASSISTANT",
+              text: assistantText,
+            },
+          ],
+        }),
       }).catch(() => {
         // The business flow was already confirmed; sync can be skipped without duplicating it.
       })
@@ -1530,21 +584,19 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     async (transcript: string): Promise<TurnAnalysis> => {
       const activeSession = stateRef.current.session
       if (!activeSession) throw new Error("No existe una sesión activa")
+      const revision = businessRevisionRef.current
+      const startingRequirementId = stateRef.current.analysis?.requirement_id ?? null
       let response: TurnAnalysis
       try {
         cancelFollowUpWindow()
-        response = await kioskSessionRequest<TurnAnalysis>(
-          activeSession,
-          "/turns",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              turn_id: crypto.randomUUID(),
-              transcript: transcript.trim(),
-              is_clarification: clarificationRef.current,
-            }),
-          },
-        )
+        response = await kioskSessionRequest<TurnAnalysis>(activeSession, "/turns", {
+          method: "POST",
+          body: JSON.stringify({
+            turn_id: crypto.randomUUID(),
+            transcript: transcript.trim(),
+            is_clarification: clarificationRef.current,
+          }),
+        })
       } catch (reason) {
         if (reason instanceof ApiError && reason.code === "SESSION_EXPIRED") {
           handleExpiredSession()
@@ -1554,41 +606,20 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       if (stateRef.current.session?.session_id !== activeSession.session_id) {
         return response
       }
-      // A confident GENERAL request resolves on this same turn -- see the matching branch
-      // in connectVoice's analyzeRequirement callback for why this stores into `result`
-      // (a real FlowResult) instead of `analysis`.
-      if (response.next_action === "COMPLETE" && response.result) {
-        const completed = response.result
-        clarificationRef.current = false
-        setVoiceError(null)
-        updateState((stored) => ({
-          ...stored,
-          session: stored.session
-            ? { ...stored.session, status: completed.status }
-            : stored.session,
-          analysis: null,
-          result: completed,
-          isClarification: false,
-        }))
-        syncTextExchange(activeSession, transcript.trim(), response.speech_text)
-        return response
+      const embedded = applyAnalysis(response, startingRequirementId, revision)
+      if (embedded) {
+        applyFlow(embedded, startingRequirementId ?? embedded.requirement_id, revision)
       }
-      const isClarification = response.next_action === "CLARIFY"
-      clarificationRef.current = isClarification
-      setVoiceError(null)
-      updateState((stored) => ({
-        ...stored,
-        session: stored.session
-          ? { ...stored.session, status: response.status }
-          : stored.session,
-        analysis: response,
-        result: null,
-        isClarification,
-      }))
       syncTextExchange(activeSession, transcript.trim(), response.speech_text)
       return response
     },
-    [cancelFollowUpWindow, handleExpiredSession, syncTextExchange, updateState],
+    [
+      applyAnalysis,
+      applyFlow,
+      cancelFollowUpWindow,
+      handleExpiredSession,
+      syncTextExchange,
+    ],
   )
 
   const confirmText = useCallback(
@@ -1598,19 +629,13 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       if (!activeSession || !requirementId) {
         throw new Error("No existe un requerimiento pendiente de confirmación")
       }
+      const revision = businessRevisionRef.current
       let response: FlowResult
       try {
-        response = await kioskSessionRequest<FlowResult>(
-          activeSession,
-          "/confirmation",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              requirement_id: requirementId,
-              confirmed,
-            }),
-          },
-        )
+        response = await kioskSessionRequest<FlowResult>(activeSession, "/confirmation", {
+          method: "POST",
+          body: JSON.stringify({ requirement_id: requirementId, confirmed }),
+        })
       } catch (reason) {
         if (reason instanceof ApiError && reason.code === "SESSION_EXPIRED") {
           handleExpiredSession()
@@ -1620,17 +645,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       if (stateRef.current.session?.session_id !== activeSession.session_id) {
         return response
       }
-      clarificationRef.current = false
-      setVoiceError(null)
-      updateState((stored) => ({
-        ...stored,
-        session: stored.session
-          ? { ...stored.session, status: response.status }
-          : stored.session,
-        analysis: null,
-        result: response,
-        isClarification: false,
-      }))
+      applyFlow(response, requirementId, revision)
       syncTextExchange(
         activeSession,
         confirmed ? "Sí, confirmo." : "No, quiero corregir.",
@@ -1638,26 +653,20 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       )
       return response
     },
-    [handleExpiredSession, syncTextExchange, updateState],
+    [applyFlow, handleExpiredSession, syncTextExchange],
   )
 
   const submitIdentification = useCallback(
     async (identifier: string) => {
       const activeSession = stateRef.current.session
       if (!activeSession) throw new Error("No existe una sesión activa")
+      if (identificationPromiseRef.current) return identificationPromiseRef.current
 
-      if (identificationPromiseRef.current) {
-        return identificationPromiseRef.current
-      }
-
-      const request = kioskSessionRequest<FlowResult>(
-        activeSession,
-        "/identification",
-        {
-          method: "POST",
-          body: JSON.stringify({ identifier: identifier.trim() }),
-        },
-      )
+      const revision = businessRevisionRef.current
+      const request = kioskSessionRequest<FlowResult>(activeSession, "/identification", {
+        method: "POST",
+        body: JSON.stringify({ identifier: identifier.trim() }),
+      })
       identificationPromiseRef.current = request
 
       try {
@@ -1665,38 +674,12 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         if (stateRef.current.session?.session_id !== activeSession.session_id) {
           return completed
         }
-        updateState((stored) => ({
-          ...stored,
-          session: stored.session
-              ? { ...stored.session, status: completed.status }
-              : stored.session,
-          analysis: null,
-          result: completed,
-          isClarification: false,
-        }))
-
-        const realtime = realtimeRef.current
-        if (realtime?.transport.status === "connected") {
-          try {
-            realtime.mute(true)
-            setVoiceState("muted")
-            requestTransitionSpeech(realtime, {
-              transitionKey: flowTransitionKey(completed),
-              speechText: completed.speech_text,
-              nextAction: completed.next_action,
-              terminal: completed.next_action === "COMPLETE",
-            })
-          } catch {
-            setVoiceError(
-              "No fue posible reproducir el cierre por voz; el resultado permanece en pantalla.",
-            )
-            startCompletionCountdown()
-          }
-        } else if (stateRef.current.interactionMode === "voice") {
-          setVoiceError(
-            "La conexión de voz se cerró; el resultado permanece disponible en pantalla.",
-          )
-          startCompletionCountdown()
+        applyFlow(completed, completed.requirement_id, revision)
+        // Identification is the one step that happens off the socket -- the CI is typed
+        // into a protected field, never dictated -- so the voice session has to be told
+        // the flow moved on before it can speak the outcome.
+        if (voiceRef.current) {
+          voiceRef.current.resync()
         } else {
           startCompletionCountdown()
         }
@@ -1715,12 +698,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         throw reason
       }
     },
-    [
-      handleExpiredSession,
-      requestTransitionSpeech,
-      startCompletionCountdown,
-      updateState,
-    ],
+    [applyFlow, handleExpiredSession, startCompletionCountdown],
   )
 
   const value = useMemo<KioskContextValue>(
@@ -1744,15 +722,15 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       beginSession,
       captions,
       completionSeconds,
+      confirmText,
       connectVoice,
       hydrated,
       reset,
       retryVoice,
       selectInteractionMode,
       state,
-      submitTextTurn,
-      confirmText,
       submitIdentification,
+      submitTextTurn,
       voiceError,
       voiceState,
     ],

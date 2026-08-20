@@ -1,6 +1,7 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-import httpx
 from openai import AsyncOpenAI
 
 from app.core.config import Settings
@@ -10,6 +11,39 @@ from app.domain.schemas import ClassificationDecision, GroundedAnswerDecision
 if TYPE_CHECKING:
     from app.knowledge.repository import RetrievedChunk
 
+# Primes the transcriber with the vocabulary this kiosk actually hears. A general-purpose
+# Spanish recogniser has no reason to prefer "reportar el robo" over "portar el juego" --
+# both are grammatical -- and on 2026-08-19 it picked the wrong one and the case was routed
+# from a sentence nobody had said. The words below are the ones whose corruption changes
+# where a case goes, so they are the ones worth biasing towards.
+#
+# `prompt` is why this file no longer uses gpt-realtime-whisper: that model rejects both the
+# prompt and turn detection in a transcription session, which leaves no way to steer it and
+# no way to detect turns.
+SPANISH_BANKING_PROMPT = (
+    "Conversacion en espanol boliviano en un kiosco bancario. Espera terminos como: "
+    "reportar, robo, perdida, extravio, clonacion, fraude, cargo no reconocido, bloqueo, "
+    "bloquear mi tarjeta, tarjeta de debito, tarjeta de credito, cuenta, estado de cuenta, "
+    "transferencia, deposito, retiro, cajero, credito de consumo, prestamo, requisitos, "
+    "banca por internet, banca movil, aplicacion, contrasena olvidada, carnet de identidad, "
+    "CI, sucursal, agencia, horario de atencion, ejecutivo, ventanilla, boleta de pago."
+)
+
+# The voice the customer hears. This is the persona that used to be attached to every
+# controlled response on the realtime session (frontend/lib/kiosk-realtime.ts's
+# CONTROLLED_SPEECH_PERSONA); it belongs on the server now that the server is what speaks.
+# It steers delivery only -- the words themselves come from the orchestrator and are passed
+# to the TTS model verbatim, so there is no longer any model in a position to reword them.
+KIOSK_VOICE_INSTRUCTIONS = (
+    "Eres la asistente virtual femenina de un kiosco bancario en Bolivia. Habla en espanol "
+    "boliviano natural, cordial y calido, con ritmo de conversacion y no de lectura. "
+    "Pronuncia el texto tal como esta escrito, sin agregar ni omitir nada."
+)
+
+# 20 ms of 24 kHz mono PCM16 is 960 bytes; the browser sends frames that size and the TTS
+# stream is read back in whole frames so playback never has to reassemble a split sample.
+PCM_FRAME_BYTES = 960
+
 
 class OpenAIProvider:
     def __init__(self, settings: Settings) -> None:
@@ -17,61 +51,74 @@ class OpenAIProvider:
         api_key = settings.openai_api_key.get_secret_value()
         self.client = AsyncOpenAI(api_key=api_key, timeout=settings.openai_timeout_seconds)
 
-    async def create_realtime_client_secret(self, safety_identifier: str) -> dict[str, Any]:
-        payload = {
-            "session": {
-                "type": "realtime",
-                "model": self.settings.voice_model,
-                "instructions": (
-                    "Eres la asistente virtual femenina de un kiosco bancario en Bolivia. "
-                    "Habla en español boliviano natural, cordial y breve, con ritmo de "
-                    "conversación y no de lectura. Dirígete siempre de tú a "
-                    "quien está frente al kiosco; nunca te refieras a quien habla como el usuario, "
-                    "el cliente ni la persona. "
-                    "Nunca solicites PIN, CVV, "
-                    "contraseñas, credenciales ni datos financieros completos. La aplicación "
-                    "proveerá herramientas para analizar y encaminar la atención; no ejecutas "
-                    "operaciones bancarias. La aplicación te dará el texto exacto de cada "
-                    "mensaje: pronúncialo una sola vez y espera la siguiente acción."
-                ),
-                "output_modalities": ["audio"],
-                "audio": {
-                    "input": {
-                        "transcription": {
-                            "model": self.settings.transcription_model,
-                            "language": "es",
-                        },
-                        "turn_detection": {
-                            "type": "semantic_vad",
-                            "eagerness": "auto",
-                            "create_response": True,
-                            "interrupt_response": True,
-                        },
+    def transcription_session_config(self) -> dict[str, Any]:
+        """The session the kiosk transcribes with. Split out so tests can assert it."""
+        return {
+            "type": "transcription",
+            "audio": {
+                "input": {
+                    "format": {"type": "audio/pcm", "rate": 24000},
+                    "noise_reduction": {"type": "near_field"},
+                    "transcription": {
+                        "model": self.settings.transcription_model,
+                        "language": "es",
+                        "prompt": SPANISH_BANKING_PROMPT,
                     },
-                    "output": {"voice": self.settings.realtime_voice},
-                },
-            }
+                    # Semantic VAD rather than server VAD: a customer who says "quiero...
+                    # eeeh... bloquear mi tarjeta" is still mid-sentence, and an energy
+                    # threshold cannot tell that from a finished one. `create_response` and
+                    # `interrupt_response` are deliberately absent -- a transcription session
+                    # has nothing to respond with.
+                    "turn_detection": {"type": "semantic_vad", "eagerness": "auto"},
+                }
+            },
         }
-        headers = {
-            "Authorization": f"Bearer {self.settings.openai_api_key.get_secret_value()}",
-            "Content-Type": "application/json",
-            "OpenAI-Safety-Identifier": safety_identifier,
-        }
+
+    @asynccontextmanager
+    async def open_transcription_session(self, safety_identifier: str):
+        """Open a transcription-only realtime session and configure it.
+
+        Transcription sessions bill input audio only. The kiosk used to run a full
+        speech-to-speech session whose reasoning it then forbade from being used -- every
+        sentence was authored by the orchestrator and forced through the model verbatim --
+        so it paid audio output rates for a model that only ever read from a script.
+        """
         try:
-            async with httpx.AsyncClient(timeout=self.settings.openai_timeout_seconds) as client:
-                response = await client.post(
-                    "https://api.openai.com/v1/realtime/client_secrets",
-                    json=payload,
-                    headers=headers,
-                )
-                response.raise_for_status()
-                return response.json()
-        except (httpx.HTTPError, ValueError) as exc:
+            manager = self.client.realtime.connect(
+                # A transcription session is selected at the handshake, not by the
+                # session.update that follows: without `intent` the API is looking for a
+                # speech-to-speech `model` and rejects the connection with
+                # `invalid_request_error.missing_model`. The model to transcribe with is
+                # then named inside the session config.
+                extra_query={"intent": "transcription"},
+                extra_headers={"OpenAI-Safety-Identifier": safety_identifier},
+            )
+            async with manager as connection:
+                await connection.session.update(session=self.transcription_session_config())
+                yield connection
+        except Exception as exc:
             raise AppError(
-                "REALTIME_UNAVAILABLE",
-                "No fue posible iniciar el canal de voz; inténtalo nuevamente",
+                "VOICE_UNAVAILABLE",
+                "No fue posible iniciar el canal de voz; intentalo nuevamente",
                 503,
             ) from exc
+
+    async def stream_speech(self, text: str) -> AsyncIterator[bytes]:
+        """Stream `text` as 24 kHz mono PCM16, the same format the microphone produces.
+
+        PCM rather than mp3/opus so the browser can hand bytes straight to an AudioWorklet:
+        no decoder, no container, and a partial stream is still playable, which is what makes
+        an interruption instant rather than a decode error.
+        """
+        async with self.client.audio.speech.with_streaming_response.create(
+            model=self.settings.tts_model,
+            voice=self.settings.tts_voice,
+            input=text,
+            instructions=KIOSK_VOICE_INSTRUCTIONS,
+            response_format="pcm",
+        ) as response:
+            async for chunk in response.iter_bytes(PCM_FRAME_BYTES):
+                yield chunk
 
     async def classify(self, masked_text: str) -> ClassificationDecision:
         system = """Clasifica un requerimiento de atención bancaria presencial en Bolivia.

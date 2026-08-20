@@ -6,13 +6,13 @@ from uuid import UUID
 from fastapi import Depends, Header
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.core.config import Settings, get_settings
 from app.core.errors import AppError
 from app.core.security import decode_access_token, hash_token
 from app.db.models import KioskSession, User
-from app.db.session import get_db
+from app.db.session import SessionFactory, get_db
 from app.domain.enums import UserRole
 from app.knowledge.service import KnowledgeService
 from app.services.agents import (
@@ -32,6 +32,16 @@ bearer = HTTPBearer(auto_error=False)
 def get_openai_provider() -> OpenAIProvider | None:
     settings = get_settings()
     return OpenAIProvider(settings) if settings.openai_enabled else None
+
+
+def get_session_factory() -> async_sessionmaker[AsyncSession]:
+    """The session maker background work opens its own transactions with.
+
+    `get_db` yields one session scoped to one request, which is the right shape for HTTP and
+    the wrong shape for a voice socket that outlives dozens of turns. Exposing the factory as
+    a dependency keeps it overridable in tests the same way `get_db` is.
+    """
+    return SessionFactory
 
 
 @lru_cache
@@ -75,17 +85,22 @@ def require_roles(*roles: UserRole) -> Callable:
     return dependency
 
 
-async def get_kiosk_session(
-    session_id: UUID,
-    x_session_token: str | None = Header(default=None, alias="X-Session-Token"),
-    db: AsyncSession = Depends(get_db),
+async def resolve_kiosk_session(
+    db: AsyncSession, session_id: UUID, token: str | None
 ) -> KioskSession:
-    if not x_session_token:
+    """Authenticate a kiosk session from its opaque token.
+
+    Split out of `get_kiosk_session` so the voice WebSocket can apply the same rule. A
+    browser cannot set headers on a WebSocket handshake, so that transport carries the token
+    in the query string instead -- but which sessions exist, when they expire and what a bad
+    token means must not depend on how the request arrived.
+    """
+    if not token:
         raise AppError("SESSION_TOKEN_REQUIRED", "Falta el token de la sesion", 401)
     kiosk_session = await db.scalar(
         select(KioskSession).where(
             KioskSession.id == session_id,
-            KioskSession.access_token_hash == hash_token(x_session_token),
+            KioskSession.access_token_hash == hash_token(token),
         )
     )
     if not kiosk_session:
@@ -96,3 +111,11 @@ async def get_kiosk_session(
     if expires_at <= datetime.now(UTC):
         raise AppError("SESSION_EXPIRED", "La sesion de kiosco ha vencido", 401)
     return kiosk_session
+
+
+async def get_kiosk_session(
+    session_id: UUID,
+    x_session_token: str | None = Header(default=None, alias="X-Session-Token"),
+    db: AsyncSession = Depends(get_db),
+) -> KioskSession:
+    return await resolve_kiosk_session(db, session_id, x_session_token)

@@ -1015,6 +1015,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f1/b0/2291689e3ec4723fbf5bbf3b54afcd7b160f9ddc98ca7aedfd0132af5677/openai-2.45.0-py3-none-any.whl", hash = "sha256:5df105f5f8c9b711fcb9d06d2d3888cebc82506db216484c14a4e53cdf651777", size = 1629470, upload-time = "2026-07-09T18:02:42.21Z" },
 ]
 
+[package.optional-dependencies]
+realtime = [
+    { name = "websockets" },
+]
+
 [[package]]
 name = "opentelemetry-api"
 version = "1.44.0"
@@ -1839,7 +1844,7 @@ dependencies = [
     { name = "httpx" },
     { name = "langgraph" },
     { name = "mcp" },
-    { name = "openai" },
+    { name = "openai", extra = ["realtime"] },
     { name = "pgvector" },
     { name = "prometheus-client" },
     { name = "psycopg", extra = ["binary"] },
@@ -1874,7 +1879,7 @@ requires-dist = [
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "langgraph", specifier = ">=1.2.11" },
     { name = "mcp", specifier = ">=2.0.0" },
-    { name = "openai", specifier = ">=1.99.0" },
+    { name = "openai", extras = ["realtime"], specifier = ">=1.99.0" },
     { name = "pgvector", specifier = ">=0.4.1" },
     { name = "prometheus-client", specifier = ">=0.22.1" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2.9" },

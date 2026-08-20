@@ -21,7 +21,10 @@ os.environ["SEED_EXECUTIVE_PASSWORD"] = "test-executive-password"
 os.environ["SEED_MANAGER_PASSWORD"] = "test-manager-password"
 os.environ["KNOWLEDGE_STORAGE_DIR"] = "/tmp/sistema-orquestacion-tests-knowledge"
 
-from app.api.deps import get_orchestrator  # noqa: E402
+from app.api.deps import (
+    get_orchestrator,  # noqa: E402
+    get_session_factory,  # noqa: E402
+)
 from app.core.config import get_settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
 from app.db.models import KnowledgeChunk, KnowledgeDocument  # noqa: E402
@@ -58,6 +61,9 @@ async def override_db() -> AsyncIterator[AsyncSession]:
 
 
 app.dependency_overrides[get_db] = override_db
+# The voice socket opens its own transactions rather than borrowing the request's, so it
+# needs the in-memory factory too -- `get_db` alone would leave it talking to a real engine.
+app.dependency_overrides[get_session_factory] = lambda: TestSession
 
 
 def fake_embedding(text: str) -> list[float]:

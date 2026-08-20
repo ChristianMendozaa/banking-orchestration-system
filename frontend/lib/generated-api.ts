@@ -208,23 +208,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/kiosk/sessions/{session_id}/realtime-token": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Realtime Token */
-        post: operations["realtime_token_api_v1_kiosk_sessions__session_id__realtime_token_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/kiosk/sessions/{session_id}/turns": {
         parameters: {
             query?: never;
@@ -1069,17 +1052,6 @@ export interface components {
             /** Dashboard Refresh Ms */
             dashboard_refresh_ms: number;
         };
-        /** RealtimeTokenResponse */
-        RealtimeTokenResponse: {
-            /** Expires At */
-            expires_at?: number | null;
-            /** Session */
-            session?: {
-                [key: string]: unknown;
-            } | null;
-            /** Value */
-            value: string;
-        };
         /**
          * ResolutionOutcome
          * @enum {string}
@@ -1771,39 +1743,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FlowResult"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    realtime_token_api_v1_kiosk_sessions__session_id__realtime_token_post: {
-        parameters: {
-            query?: never;
-            header?: {
-                "X-Session-Token"?: string | null;
-            };
-            path: {
-                session_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RealtimeTokenResponse"];
                 };
             };
             /** @description Validation Error */

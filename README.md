@@ -40,7 +40,7 @@ The kiosk and staff applications are built from the same Next.js image but run a
 
 ## Key capabilities
 
-- **Voice-first accessible interaction** through OpenAI Realtime, with Spanish transcription, interruptions, short-lived browser credentials, live captions, and an always-available text alternative. What the backend classifies is the session's own audio transcription, never the realtime model's retelling of it.
+- **Voice-first accessible interaction** over a backend-brokered WebSocket: streaming Spanish recognition, barge-in, live captions, and an always-available text alternative. Speech recognition and synthesis are separate steps around the ordinary orchestrator, so there is exactly one transcript and no model positioned to reword it. No OpenAI credential ever reaches the browser.
 - **Privacy-first processing** that masks card numbers, account numbers, phone numbers, customer identifiers, monetary values, and names before classification or retrieval.
 - **Structured request understanding** across card blocking, fraud reporting, general inquiries, credit requests, and digital banking.
 - **Confirmation where confirmation is worth its cost**: a general question the kiosk is about to answer itself resolves in one turn, while anything personalized, sensitive, or flagged as a risk still has its summary read back before a case exists. Clarification and correction loops are bounded and idempotent per `turn_id`.
@@ -66,7 +66,7 @@ flowchart LR
 
     Kiosk -->|Allowlisted BFF proxy| API[FastAPI application]
     Staff -->|Allowlisted BFF proxy| API
-    Kiosk -.->|WebRTC with ephemeral secret| Realtime[OpenAI Realtime]
+    Kiosk -.->|Voice WebSocket<br/>PCM16 audio| API
 
     subgraph Backend[Modular backend]
         API --> Auth[Authentication and RBAC]
@@ -120,9 +120,9 @@ flowchart LR
 
 ## Customer journey
 
-The backend owns the business state machine. The realtime agent provides the conversational channel, while controlled tools delegate analysis, confirmation, identification, retrieval, and ticket creation to the API.
+The backend owns the business state machine, and the voice channel is a transport around it rather than a second implementation of it. A spoken turn is recognised, handed to the same `analyze_turn` the text kiosk and the evaluation harness call, and the answer the orchestrator produced is synthesised back as speech.
 
-The realtime agent decides *when* a request has been stated; it never decides *what* was said. The transcript submitted with each turn is taken from the voice session's own Spanish transcription, which is also what the live captions show, so the text that gets masked, classified, prioritized and routed is the same text the customer sees on screen. Everything the kiosk speaks is likewise a controlled response over text the backend produced — the model is never asked to compose customer-facing wording.
+No language model sits between the recogniser and the classifier. The text that is masked, classified, prioritised and routed is the transcript the recogniser produced, which is also what the live captions show — so what the customer reads on screen is what the case was opened from. Everything the kiosk says is backend-authored text passed verbatim to speech synthesis; no model is ever asked to compose customer-facing wording.
 
 ```mermaid
 sequenceDiagram
@@ -138,13 +138,14 @@ sequenceDiagram
     Customer->>UI: Start session and describe the request
     UI->>API: Create kiosk session
     API-->>UI: Opaque session token
-    UI->>API: Request realtime client secret
-    API->>AI: Create restricted realtime session
-    AI-->>UI: Ephemeral client secret
+    UI->>API: Open the voice WebSocket with that token
+    API->>AI: Open a transcription session
 
     Customer->>UI: Speak the request
-    AI-->>UI: Spanish transcription of the turn
-    UI->>API: Submit that transcription with a stable turn_id
+    UI->>API: Stream microphone audio (PCM16, 24 kHz)
+    API->>AI: Relay audio
+    AI-->>API: Spanish transcription of the turn
+    API->>API: Submit that transcription with a stable turn_id
     API->>Graph: Invoke turn_graph
     Graph->>Graph: Mask PII
     Graph->>AI: Classify masked request
@@ -405,7 +406,7 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | `app/services/orchestrator.py` | Thin adapter: session locking, invoking the LangGraph graphs below, and shaping their final state into API responses |
 | `app/services/graph` | The state machine itself -- turn/confirmation/identification graphs, the shared `finalize` subgraph, the auto-resolve branch, guard and idempotency logic (see [Orchestration policy](#orchestration-policy)) |
 | `app/services/agents.py` | Classification fallback, the deterministic sensitivity floor over the classifier, priority rules, evidence eligibility, and executive ranking |
-| `app/services/openai_provider.py` | Structured model calls, embeddings, grounded generation, and realtime client-secret creation |
+| `app/services/openai_provider.py` | Structured model calls, embeddings, grounded generation, speech recognition sessions, and speech synthesis |
 | `app/services/pii.py` | Local PII detection and masking before downstream AI processing |
 | `app/knowledge` | PDF extraction, chunking, ingestion, retrieval, grounding validation, evaluation, and management lifecycle |
 | `app/mcp_server` | Read-only MCP tools for authenticated external clients -- bearer-authenticated, streamable-HTTP, never called by the frontends (see [MCP servers](#mcp-servers)) |
@@ -554,10 +555,10 @@ Managers can list, upload, update, version, download, reindex, and archive knowl
 
 The implementation applies defense-in-depth controls appropriate to the project scope:
 
-- Raw audio is handled by the realtime channel and is not persisted by the application.
+- Raw audio is relayed to the recogniser and back to the browser and is never written to disk or to the database.
 - Original audio and unmasked transcripts are not stored. Completed dialogue messages are masked again by the backend, retained for 90 configurable days, and then purged automatically.
-- PINs, CVVs, passwords, credentials, and complete financial data are explicitly prohibited in realtime and grounded-answer instructions.
-- The regular OpenAI API key never reaches the browser. The browser receives only a short-lived realtime client secret tied to the kiosk session.
+- PINs, CVVs, passwords, credentials, and complete financial data are explicitly prohibited in the classification and grounded-answer instructions.
+- No OpenAI credential of any kind reaches the browser. Recognition and synthesis both run server-side; the browser holds only the opaque kiosk session token.
 - Kiosk access uses a high-entropy opaque token; only its SHA-256 hash is stored, and every protected kiosk route validates expiry.
 - Customer identity-card numbers (CI) keep the HMAC-SHA-256 digest and masked suffix, plus an AES-256-GCM encrypted value protected by a versioned key. Only the assigned executive can reveal it, and every reveal is audited.
 - Staff passwords use the recommended Argon2 password hash.
@@ -565,7 +566,7 @@ The implementation applies defense-in-depth controls appropriate to the project 
 - RBAC separates `EXECUTIVE` and `MANAGER`. Executives can access only their assigned tickets and reveal only those identifiers; managers receive masked, read-only case files, reporting, and knowledge-management permissions.
 - Ticket transitions are allowlisted and guarded by optimistic concurrency. A partial unique constraint permits only one active attendance per executive, and closing requires a structured outcome and protected note.
 - API errors share a stable contract with `code`, `message`, `details`, and `trace_id`; structured request logs include the same trace correlation header.
-- Login, kiosk-session creation, and realtime-token creation have basic per-process rate limits.
+- Login and kiosk-session creation have basic per-process rate limits.
 - Application settings validate secret length, CORS origins, vector dimensions, retrieval limits, and mandatory AI configuration in production.
 
 ## API overview
@@ -582,7 +583,7 @@ notice, and a compatibility window; repository search alone is never sufficient 
 | Public configuration | `GET /system/public-config` | Public |
 | Staff authentication | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me` | Credentials, refresh cookie, or bearer token |
 | Kiosk workflow | `POST /kiosk/sessions`, turns, confirmation, identification, conversation-message synchronization, and session status | Opaque `X-Session-Token` after creation |
-| Realtime voice | `POST /kiosk/sessions/{id}/realtime-token` | Opaque `X-Session-Token` |
+| Voice channel | `WS /kiosk/sessions/{id}/voice` | Opaque session token as a `token` query parameter, plus an `Origin` check |
 | Executive operations | Filtered `GET /executive/tickets`, `GET /tickets/{id}`, status transitions, and identifier reveal | Executive bearer token; managers have masked read-only ticket-detail access |
 | Management reporting | `GET /management/metrics`, `GET /management/cases` | Manager bearer token |
 | Knowledge governance | `/management/knowledge/documents` and document version, reindex, download, and archive operations | Manager bearer token |
@@ -673,7 +674,7 @@ case brings its own ticket.
 | --- | --- |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, OpenAI Agents SDK, Zod |
 | Backend | Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2 async, Uvicorn, Structlog |
-| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools, plus the eval kiosk bridge), AutoGen (offline REST-based evaluation: simulated customer and LLM judge), optional local `claude` / `codex` CLI backends for both eval roles |
+| AI | Streaming speech recognition and speech synthesis, structured Responses API calls, text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools, plus the eval kiosk bridge), AutoGen (offline REST-based evaluation: simulated customer and LLM judge), optional local `claude` / `codex` CLI backends for both eval roles |
 | Data | PostgreSQL 17, pgvector, HNSW cosine index, Alembic |
 | Security | Argon2, JWT access tokens, rotating opaque refresh tokens, HMAC identifier protection |
 | Tooling | Docker Compose, `uv`, `pnpm`, Ruff, Pytest, Vitest, ESLint |
@@ -699,8 +700,8 @@ case brings its own ticket.
 ├── frontend/
 │   ├── app/                     # Kiosk, executive, and management routes
 │   ├── components/              # Product and UI components
-│   ├── lib/                     # API client, realtime logic, domain types
-│   └── tests/                   # Surface isolation and realtime behavior tests
+│   ├── lib/                     # API client, voice channel, flow logic, domain types
+│   └── tests/                   # Surface isolation, voice channel and flow behavior tests
 ├── doc/
 │   ├── rag/                     # Governed source PDFs and manifest
 │   └── operacion/               # Generated operational documentation
@@ -713,7 +714,7 @@ case brings its own ticket.
 ### Prerequisites
 
 - Docker Engine with Docker Compose v2
-- An OpenAI API key for realtime voice, model-based classification, embeddings, and grounded answers
+- An OpenAI API key for speech recognition and synthesis, model-based classification, embeddings, and grounded answers
 - Available local ports `3000`, `3001`, `8000`, and `5432` (or custom values in `.env`)
 
 ### 1. Create local configuration
@@ -740,6 +741,13 @@ SEED_MANAGER_PASSWORD=<at-least-12-characters>
 ```
 
 Do not commit `.env` files or expose `OPENAI_API_KEY`. The configured `KIOSK_FRONTEND_ORIGIN` and `STAFF_FRONTEND_ORIGIN` must match the browser-visible origins, including deployments behind reverse proxies.
+
+`BACKEND_PUBLIC_URL` must also match a browser-visible origin. It is the one backend address
+the kiosk reaches directly, for the voice WebSocket: a Next.js route handler cannot upgrade a
+connection, so that socket is the single call that does not go through the frontend's proxy.
+It is compiled into the kiosk bundle at image build time and read again at run time by the
+middleware that writes the `Content-Security-Policy`, so changing it means rebuilding the
+frontend image, not just restarting it.
 
 ### 2. Start the platform
 
@@ -816,7 +824,7 @@ Run one surface at a time when using the shared local `.next` directory. Use Doc
 
 ## Quality assurance
 
-The backend suite covers kiosk state transitions, ambiguity and correction loops, idempotent retries, protected identification, priority rules, PII masking, role boundaries, refresh rotation, realtime-secret containment, RAG ingestion and grounding, executive routing, management metrics, and knowledge-document lifecycle.
+The backend suite covers kiosk state transitions, ambiguity and correction loops, idempotent retries, protected identification, priority rules, PII masking, role boundaries, refresh rotation, voice-channel authentication and turn handling, RAG ingestion and grounding, executive routing, management metrics, and knowledge-document lifecycle.
 
 `.github/workflows/ci.yml` runs on every pull request and on push to `main`. It skips backend or
 frontend jobs when the corresponding path did not change, runs the backend test suite on Python
@@ -858,16 +866,6 @@ uv run ruff format --check .
 uv run ruff check .
 uv run coverage run -m pytest -q
 uv run coverage report
-```
-
-`make transcript-fidelity` is separate from the suites: it audits real voice sessions in the
-running database rather than testing code. For every spoken turn it compares the voice
-session's own transcription against the text the classifier was actually given, and exits
-non-zero on any divergence. That invariant is the one a live kiosk session broke on
-2026-08-19, and it is checkable against branch traffic without any audio harness:
-
-```bash
-cd backend && PYTHONPATH=. uv run python scripts/check_transcript_fidelity.py --since-hours 24
 ```
 
 `backend/evals`' own suite is mocked and makes no LLM calls (`evals-lint`, `evals-test` --
@@ -919,15 +917,19 @@ The catalog covers 45 scenarios across all five categories, grounded and ungroun
 the clarification and correction loops, preferential attention, adversarial input, transcription
 noise, and the state-machine guards.
 
-**What this harness does not measure.** It drives the kiosk's REST contract with written text.
-It never opens a Realtime session, never produces or consumes audio, and never plays a
-`speech_text` line, so it grades the orchestrator rather than the kiosk a customer speaks to. A
-high score here is not evidence that the voice layer works. Three things narrow that gap: the
-`asr_noise` group feeds transcripts corrupted the way a Spanish speech recogniser corrupts them,
-so a mangled sentence has to be questioned rather than confidently routed; every scorecard
-carries per-operation latency percentiles, so a fast score cannot hide a slow kiosk; and
-`make transcript-fidelity` audits real voice sessions after the fact, comparing what the
-transcription recorded against what the classifier was actually given. Each run produces a markdown scorecard, a JSON dump and a self-contained
+**What this harness does and does not measure.** It drives the kiosk's REST contract with
+written text and produces no audio. That used to mean it was grading a different system than
+the one customers spoke to: the voice kiosk ran a speech-to-speech model that retyped what it
+thought it heard into the tool call, so production classified a paraphrase while the harness
+classified a clean sentence. It no longer does. The voice channel now hands the recogniser's
+transcript to the same `POST /turns` these scenarios call, so the orchestration path being
+scored is the one production runs.
+
+What remains outside it is recognition error itself and the wall-clock cost of recognition and
+synthesis. Two things narrow that: the `asr_noise` group feeds transcripts corrupted the way a
+Spanish recogniser corrupts them, so a mangled sentence has to be questioned rather than
+confidently routed; and every scorecard carries per-operation latency percentiles, so a fast
+score cannot hide a slow kiosk. Each run produces a markdown scorecard, a JSON dump and a self-contained
 HTML dashboard, all kept forever under `backend/evals/reports/runs/<run_id>/` -- there is no
 `reports/latest.*` alias; each run's directory is the only copy of it. Every run also appends a
 summary line to the git-tracked `reports/history.jsonl` ledger and rebuilds `reports/index.html`,
@@ -1067,7 +1069,7 @@ the recoverable encrypted CI; its hash, masked value, and audit events remain.
 
 Verify daily that the retention process ran, and document any exceptions.
 
-When OpenAI is intentionally absent in development, deterministic classification fallback remains available, realtime voice returns a controlled `503`, and RAG safely routes the case to a human. Production configuration rejects a missing OpenAI key at startup.
+When OpenAI is intentionally absent in development, deterministic classification fallback remains available, the voice channel refuses the handshake with a policy close, and RAG safely routes the case to a human. Production configuration rejects a missing OpenAI key at startup.
 
 ## Additional documentation
 

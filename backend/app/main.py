@@ -14,7 +14,16 @@ from fastapi.responses import JSONResponse, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from sqlalchemy.engine import make_url
 
-from app.api import auth, health, kiosk, knowledge, management, system, tickets
+from app.api import (
+    auth,
+    health,
+    kiosk,
+    kiosk_voice,
+    knowledge,
+    management,
+    system,
+    tickets,
+)
 from app.core.config import get_settings
 from app.core.errors import install_error_handlers
 from app.core.metrics import HTTP_DURATION, HTTP_REQUESTS, RATE_LIMITED
@@ -168,6 +177,7 @@ for api_router in (
     system.router,
     auth.router,
     kiosk.router,
+    kiosk_voice.router,
     tickets.router,
     management.router,
     knowledge.router,

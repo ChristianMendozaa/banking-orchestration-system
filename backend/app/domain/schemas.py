@@ -60,12 +60,6 @@ class SessionCreatedResponse(BaseModel):
     expires_at: datetime
 
 
-class RealtimeTokenResponse(BaseModel):
-    value: str
-    expires_at: int | None = None
-    session: dict[str, Any] | None = None
-
-
 class TurnRequest(BaseModel):
     turn_id: UUID
     transcript: str = Field(min_length=2, max_length=4000)

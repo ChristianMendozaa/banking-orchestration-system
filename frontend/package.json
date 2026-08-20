@@ -14,7 +14,6 @@
     "generate:api": "(cd ../backend && PYTHONPATH=. .venv/bin/python scripts/export_openapi.py ../frontend/openapi.json) && openapi-typescript openapi.json -o lib/generated-api.ts"
   },
   "dependencies": {
-    "@openai/agents": "0.13.5",
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",
     "next": "16.2.12",

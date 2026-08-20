@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { kioskRouteForState } from "../lib/kiosk-realtime"
+import { kioskRouteForState } from "../lib/kiosk-flow"
 import type { FlowResult, KioskSession } from "../lib/types"
 
 const session: KioskSession = {

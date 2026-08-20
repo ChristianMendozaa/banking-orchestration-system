@@ -23,6 +23,15 @@ asking for a credential, or answering beyond the retrieved evidence.
 
 The suite exists to find out where that breaks.
 
+It drives the kiosk with written Spanish over `POST /turns` and always has. That used to be
+a real limitation: the spoken kiosk ran a speech-to-speech model that retyped what it
+thought it had heard into the tool call, so production was classifying a paraphrase while
+this harness was classifying a clean sentence — two different inputs, and a scorecard that
+could read 42/42 while someone stood at the kiosk being misunderstood. The voice layer now
+sends the recogniser's transcript straight to the same `POST /turns` these scenarios call,
+so the path being scored here is the path production runs. What is left outside the
+harness is recognition error itself, which is what the `asr_noise` group exists to model.
+
 ## Two scores, and why both
 
 The previous version of this harness ran five personas against four deterministic checks
@@ -73,7 +82,7 @@ cd backend/evals
 uv sync
 
 export OPENAI_API_KEY=...
-uv run python -m harness           # 42 scenarios, dashboard at reports/runs/<run_id>/report.html
+uv run python -m harness           # 45 scenarios, dashboard at reports/runs/<run_id>/report.html
 ```
 
 Or from the repository root, which reads `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` out of
@@ -262,7 +271,7 @@ Every run — live or `--rejudge` — is kept forever, not just the last one:
 
 ## The scenario catalog
 
-42 scenarios in `harness/scenarios/`. A **scenario** is the test case; a **persona style**
+45 scenarios in `harness/scenarios/`. A **scenario** is the test case; a **persona style**
 is only how that customer speaks — distressed, terse, elderly, hostile, rambling — kept
 separate so the same situation can be re-tested through a different mouth, which is what
 makes `tarjeta_robada_angustiado` and `tarjeta_extraviada_calmado` a controlled comparison
@@ -282,6 +291,7 @@ free pass.
 | Conversation flow | `flow` | The clarification limit, the correction loop (`confirmed=false`), a mid-session change of topic, multi-intent, monosyllabic dead ends |
 | Accessibility | `accessibility` | Preferential attention raising priority — and correctly *not* raising it past `CRITICO` — plus comprehension of difficult speech |
 | Adversarial | `adversarial` | Prompt injection, requests to move money, a volunteered PIN, hostility, claimed staff identity, out-of-domain requests |
+| Transcription noise | `asr_noise` | Transcripts corrupted the way a Spanish recogniser corrupts them: a mangled request must reach the clarification ladder rather than a confident misroute, and losing the dangerous word must not downgrade a sensitive case |
 | Protocol | `protocol` | State-machine guards driven straight at the API with no LLM customer |
 
 The `protocol` group overlaps `backend/tests/test_kiosk_flow.py` by design and does not
@@ -339,6 +349,5 @@ alongside `backend/`. It is kept separate so its coverage never counts against `
 There is no CI workflow for the live evaluation, and there should not be: every run makes
 real billed calls on both sides. Run it manually against a `docker compose` backend.
 
-The hermetic `pytest` suite here is free and safe to run on every PR, but
-`.github/workflows/ci.yml` does not currently include a job for it — run `uv run pytest`
-here manually before pushing until that's wired up.
+The hermetic `pytest` suite here is free, needs nothing running and makes no model calls,
+so `.github/workflows/ci.yml` runs it on every PR through the `evals-test` job.

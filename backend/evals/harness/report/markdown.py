@@ -67,8 +67,9 @@ def to_markdown(results: list[ScenarioResult], *, duration_seconds: int = 0) -> 
                 "",
                 "## How long the customer waits",
                 "",
-                "Wall-clock per API call. A voice turn also pays speech detection and "
-                "text-to-speech on top of these numbers.",
+                "Wall-clock per API call. The spoken kiosk runs these same calls -- "
+                "transcript in, orchestrator, speech out -- so a voice turn is this "
+                "number plus recognition and synthesis, not a different measurement.",
                 "",
                 "| Operation | Calls | p50 | p95 | Max |",
                 "| --- | --- | --- | --- | --- |",

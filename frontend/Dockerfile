@@ -9,6 +9,12 @@ WORKDIR /app
 RUN corepack enable
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
+# NEXT_PUBLIC_* is inlined into the client bundle at build time, so the kiosk's voice
+# socket origin has to be known here and not only at run time. It is passed again as a
+# runtime variable in docker-compose.yml because the middleware that writes the
+# Content-Security-Policy reads it on the server, where nothing was inlined.
+ARG NEXT_PUBLIC_BACKEND_WS_URL=http://localhost:8000
+ENV NEXT_PUBLIC_BACKEND_WS_URL=${NEXT_PUBLIC_BACKEND_WS_URL}
 RUN pnpm build
 
 FROM node:22-alpine AS runner

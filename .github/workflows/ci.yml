@@ -31,6 +31,7 @@ jobs:
     timeout-minutes: 5
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
+      evals: ${{ steps.filter.outputs.evals }}
       frontend: ${{ steps.filter.outputs.frontend }}
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +41,8 @@ jobs:
           filters: |
             backend:
               - 'backend/**'
+            evals:
+              - 'backend/evals/**'
             frontend:
               - 'frontend/**'
               - 'backend/**'
@@ -85,6 +88,27 @@ jobs:
           name: backend-coverage
           path: backend/coverage.xml
           retention-days: 14
+
+  # The harness's own suite, not the evaluation. It is fully mocked -- no model calls, no
+  # running backend -- so unlike the live evaluation it is free and safe on every PR.
+  evals-quality:
+    needs: changes
+    if: needs.changes.outputs.evals == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend/evals
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/evals/uv.lock
+      - run: uv python install 3.12
+      - run: uv sync --locked --python 3.12
+      - run: uv run ruff check .
+      - run: uv run pytest -q
 
   api-contract:
     needs: changes
@@ -149,6 +173,7 @@ jobs:
     needs:
       - backend-quality
       - backend-tests
+      - evals-quality
       - api-contract
       - frontend-quality
       - frontend-tests
