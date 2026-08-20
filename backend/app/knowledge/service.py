@@ -5,6 +5,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.text import strip_internal_identifiers
 from app.db.models import RAGInteraction
 from app.domain.enums import Category
 from app.domain.schemas import GroundedResponse
@@ -98,8 +99,9 @@ class KnowledgeService:
                 await self._log(db, case_id, masked_query, "INVALID_GROUNDING", retrieved, None)
                 return None
             citations = [allowed[chunk_id].citation() for chunk_id in cited]
-            await self._log(db, case_id, masked_query, "GROUNDED", retrieved, decision.answer)
-            return GroundedResponse(answer=decision.answer.strip(), citations=citations)
+            answer = strip_internal_identifiers(decision.answer)
+            await self._log(db, case_id, masked_query, "GROUNDED", retrieved, answer)
+            return GroundedResponse(answer=answer, citations=citations)
         except Exception as exc:
             logger.warning(
                 "rag_provider_error",

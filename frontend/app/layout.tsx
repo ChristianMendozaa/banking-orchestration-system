@@ -37,7 +37,9 @@ export default async function RootLayout({
         >
           Saltar al contenido principal
         </a>
-        <AppProviders>{children}</AppProviders>
+        <AppProviders voiceBaseUrl={process.env.BACKEND_PUBLIC_URL ?? ""}>
+          {children}
+        </AppProviders>
       </body>
     </html>
   );

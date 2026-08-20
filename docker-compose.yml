@@ -29,7 +29,9 @@ x-frontend-environment: &frontend-environment
   BACKEND_INTERNAL_URL: http://backend:8000
   # The one backend origin the browser reaches directly: the kiosk voice WebSocket, which
   # cannot traverse the Next route-handler proxy that carries every other backend call.
-  NEXT_PUBLIC_BACKEND_WS_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8000}
+  # Read at request time by the middleware and by the root layout, so it is a property of
+  # the deployment rather than of the image.
+  BACKEND_PUBLIC_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8000}
   HOSTNAME: 0.0.0.0
   PORT: 3000
 
@@ -206,8 +208,6 @@ services:
     build:
       context: frontend
       dockerfile: Dockerfile
-      args:
-        NEXT_PUBLIC_BACKEND_WS_URL: ${BACKEND_PUBLIC_URL:-http://localhost:8000}
     environment:
       <<: *frontend-environment
       APP_SURFACE: kiosk

@@ -7,6 +7,7 @@ from openai import AsyncOpenAI
 from app.core.config import Settings
 from app.core.errors import AppError
 from app.domain.schemas import ClassificationDecision, GroundedAnswerDecision
+from app.services.voice.speech_text import for_speech
 
 if TYPE_CHECKING:
     from app.knowledge.repository import RetrievedChunk
@@ -113,7 +114,7 @@ class OpenAIProvider:
         async with self.client.audio.speech.with_streaming_response.create(
             model=self.settings.tts_model,
             voice=self.settings.tts_voice,
-            input=text,
+            input=for_speech(text),
             instructions=KIOSK_VOICE_INSTRUCTIONS,
             response_format="pcm",
         ) as response:

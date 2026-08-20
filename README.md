@@ -745,9 +745,11 @@ Do not commit `.env` files or expose `OPENAI_API_KEY`. The configured `KIOSK_FRO
 `BACKEND_PUBLIC_URL` must also match a browser-visible origin. It is the one backend address
 the kiosk reaches directly, for the voice WebSocket: a Next.js route handler cannot upgrade a
 connection, so that socket is the single call that does not go through the frontend's proxy.
-It is compiled into the kiosk bundle at image build time and read again at run time by the
-middleware that writes the `Content-Security-Policy`, so changing it means rebuilding the
-frontend image, not just restarting it.
+Both the middleware that writes the `Content-Security-Policy` and the root layout that hands
+the value to the browser read it from the environment at request time, so it is a property of
+the deployment rather than of the image -- changing it needs a restart, not a rebuild. Leave
+it empty when the backend answers on the page's own origin, as it does behind a single
+reverse proxy.
 
 ### 2. Start the platform
 

@@ -133,7 +133,9 @@ async def test_stream_speech_yields_pcm_frames() -> None:
         return Streamed()
 
     provider.client.audio.speech.with_streaming_response.create = create
-    assert [chunk async for chunk in provider.stream_speech("Hola")] == frames
+    assert [chunk async for chunk in provider.stream_speech("- Hola\n- Adiós")] == frames
+    # The screen gets the markdown; the speaker gets sentences.
+    assert captured["input"] == "Hola. Adiós."
     # PCM rather than a container format: the browser plays it without a decoder, and a
     # stream cut off by an interruption is still playable up to the cut.
     assert captured["response_format"] == "pcm"

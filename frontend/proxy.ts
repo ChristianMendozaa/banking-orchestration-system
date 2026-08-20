@@ -9,9 +9,12 @@ function contentSecurityPolicy(nonce: string): string {
   // upgrade a connection -- so this is the one origin the browser reaches directly, and it
   // has to be named here. Nothing in this app talks to api.openai.com any more: the
   // recogniser, the orchestrator and the speech synthesis all run server-side.
+  //
+  // Same variable the root layout hands to the browser, read at request time on both sides,
+  // so the policy and the connection it permits cannot drift apart.
   // Both schemes: a CSP http: source also matches ws:, but naming the ws: origin as well
   // keeps the policy readable and survives a stricter interpretation.
-  const backend = process.env.NEXT_PUBLIC_BACKEND_WS_URL ?? ""
+  const backend = process.env.BACKEND_PUBLIC_URL ?? ""
   const backendSources = backend
     ? [backend, backend.replace(/^http/, "ws")].join(" ")
     : ""

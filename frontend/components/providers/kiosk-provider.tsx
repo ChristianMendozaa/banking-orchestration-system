@@ -11,6 +11,7 @@ import {
   useState,
 } from "react"
 
+import { useRuntimeConfig } from "@/components/providers/app-providers"
 import { ApiError, errorMessage } from "@/lib/api"
 import { createKioskSession, kioskSessionRequest } from "@/lib/kiosk-api"
 import {
@@ -87,14 +88,10 @@ interface KioskContextValue extends KioskState {
 
 const KioskContext = createContext<KioskContextValue | null>(null)
 
-function backendWebSocketBase(): string {
-  return (
-    process.env.NEXT_PUBLIC_BACKEND_WS_URL ??
-    (typeof window === "undefined" ? "" : window.location.origin)
-  )
-}
-
 export function KioskProvider({ children }: { children: React.ReactNode }) {
+  // Empty when the backend is reachable on the page's own origin, which is the shape of a
+  // single-reverse-proxy deployment.
+  const { voiceBaseUrl } = useRuntimeConfig()
   const router = useRouter()
   const pathname = usePathname()
   const [state, setState] = useState<KioskState>(emptyState)
@@ -501,7 +498,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           },
         })
         voiceRef.current = voice
-        await voice.connect(activeSession, backendWebSocketBase())
+        await voice.connect(activeSession, voiceBaseUrl || window.location.origin)
         if (!isActiveAttempt()) {
           voice.close()
           return
@@ -534,6 +531,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     handleExpiredSession,
     reconcileSession,
     startCompletionCountdown,
+    voiceBaseUrl,
   ])
 
   const retryVoice = useCallback(async () => {

@@ -130,6 +130,50 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
     assert interaction.outcome == "INVALID_GROUNDING"
 
 
+async def test_an_echoed_chunk_id_never_reaches_the_answer() -> None:
+    """The model is handed evidence inside <evidence id="..."> blocks and has been seen
+    copying one of those ids into the answer -- a live kiosk answer ended with "ID de
+    respaldo: ce4c11e2-...". The prompt forbids it; this is the part that does not rely on
+    the model complying, which matters more now that answers are read aloud."""
+
+    class LeakyProvider:
+        async def embedding(self, text):
+            return await fake_provider.embedding(text)
+
+        async def grounded_answer(self, _query, chunks):
+            return GroundedAnswerDecision(
+                answer=(
+                    "La línea gratuita atiende de lunes a sábado de 09:00 a 18:00.\n\n"
+                    f"ID de respaldo: {chunks[0].chunk.id}"
+                ),
+                supported=True,
+                cited_chunk_ids=[chunks[0].chunk.id],
+            )
+
+    service = KnowledgeService(settings_for_tests, LeakyProvider())
+    async with TestSession() as db:
+        answer = await service.answer(
+            db,
+            case_id=None,
+            category=Category.CONSULTA_GENERAL,
+            masked_query="¿Cuál es el horario?",
+        )
+        await db.flush()
+        interaction = await db.scalar(
+            select(RAGInteraction).order_by(RAGInteraction.created_at.desc())
+        )
+
+    assert answer is not None
+    assert answer.answer == "La línea gratuita atiende de lunes a sábado de 09:00 a 18:00."
+    assert "ID de respaldo" not in answer.answer
+    # The citation itself is untouched: the id is legitimate metadata, just not prose.
+    assert len(answer.citations) == 1
+    # The audit row hashes what the customer got, not what the model returned, so the log
+    # cannot disagree with the screen.
+    assert interaction is not None
+    assert interaction.answer_sha256 == hashlib.sha256(answer.answer.encode()).hexdigest()
+
+
 def test_principal_need_splits_a_multi_need_summary() -> None:
     """The retrieval query and the executive's case summary are the same string, and they want
     different things from it.
