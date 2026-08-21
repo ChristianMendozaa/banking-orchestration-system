@@ -41,9 +41,13 @@ KIOSK_VOICE_INSTRUCTIONS = (
     "Pronuncia el texto tal como esta escrito, sin agregar ni omitir nada."
 )
 
-# 20 ms of 24 kHz mono PCM16 is 960 bytes; the browser sends frames that size and the TTS
-# stream is read back in whole frames so playback never has to reassemble a split sample.
-PCM_FRAME_BYTES = 960
+# 200 ms of 24 kHz mono PCM16, a whole multiple of the 960-byte frame the microphone uses so
+# playback never has to reassemble a split sample. A ten-second sentence
+# used to arrive as ~500 separate websocket frames, each one a main-thread `postMessage` on
+# the receiving side competing with React renders, and the player had no buffer to absorb a
+# late one. Ten times fewer frames costs nothing audible: the player primes before it starts,
+# so the extra fill time is hidden inside a pre-roll that already exists.
+PCM_FRAME_BYTES = 9600
 
 
 class OpenAIProvider:
@@ -185,6 +189,13 @@ hecho ya ocurrio o esta en curso sobre los productos de esa persona -- una pregu
 preventiva o hipotetica no es un incidente -- y distress_detected cuando el lenguaje refleja
 angustia o riesgo inmediato.
 
+Marca human_requested=true solo cuando la persona pide explicitamente que la atiendan o
+que le den un ticket: "quiero un ticket", "dame un turno", "quiero hablar con un ejecutivo",
+"prefiero que me atienda alguien". Preguntar algo que el kiosco puede responder no es pedir
+una persona, y preguntar COMO o CUANDO se atiende ("a que hora atienden los ejecutivos",
+"que necesito para que me atiendan") tampoco lo es: eso es informacion publica y se responde.
+Es la persona quien decide si quiere pasar a una fila, no el tema de su pregunta.
+
 Marca out_of_scope=true cuando el pedido no se puede atender de ninguna forma en este
 kiosco: (a) no tiene relacion alguna con la banca (clima, restaurantes, entretenimiento,
 temas personales ajenos al banco, etc.), o (b) reclama un rol privilegiado -- ser personal
@@ -230,12 +241,27 @@ necesidad bancaria real y debe clasificarse y derivarse con normalidad."""
         return result
 
     async def grounded_answer(
-        self, summary: str, chunks: list["RetrievedChunk"]
+        self, summary: str, chunks: list["RetrievedChunk"], *, branch_name: str = ""
     ) -> GroundedAnswerDecision:
         evidence = "\n\n".join(
             f'<evidence id="{item.chunk.id}" document="{item.document.title}" '
             f'page="{item.chunk.page}">\n{item.chunk.content}\n</evidence>'
             for item in chunks
+        )
+        # Where the kiosk physically stands. The corpus documents the whole branch network,
+        # so without this the honest answer to "cual es el horario" is every agency in three
+        # cities -- correct, and useless to someone standing in one of them.
+        location = (
+            (
+                f"Este kiosco esta fisicamente en la {branch_name}. Cuando la pregunta sea "
+                "sobre la sucursal, el horario, la direccion o la atencion presencial sin "
+                "nombrar otra agencia, responde SOLO por esta sucursal y no enumeres las "
+                "demas. Menciona otras agencias unicamente si preguntan por ellas. Si la "
+                "evidencia no distingue esta sucursal de las otras, responde con lo que "
+                "aplique a toda la red sin listarlas una por una. "
+            )
+            if branch_name
+            else ""
         )
         response = await self.client.responses.parse(
             model=self.settings.orchestration_model,
@@ -260,13 +286,17 @@ necesidad bancaria real y debe clasificarse y derivarse con normalidad."""
                         "documenta: no la marques false solo porque el hecho todavia no ocurrio. "
                         "Tampoco la marques false porque la evidencia sea mas ESPECIFICA que la "
                         "pregunta. Si preguntan en general y la evidencia documenta casos "
-                        "concretos y nombrados, eso si responde: entrega lo documentado y di a "
-                        "que alcanza, en lugar de exigir que primero precisen cual. Por ejemplo, "
-                        'ante "cual es el horario de la sucursal" con evidencia que publica los '
-                        "horarios de agencias con nombre, supported es true: se responden esos "
-                        "horarios diciendo de que agencias son. Derivar a una persona una "
+                        "concretos y nombrados, eso si responde: entrega lo documentado en lugar "
+                        "de exigir que primero precisen cual. Derivar a una persona una "
                         "pregunta cuya respuesta publica esta en la evidencia es un fallo, no una "
                         "precaucion. "
+                        f"{location}"
+                        "Se breve: responde en dos o tres frases cortas. Te van a escuchar de "
+                        "pie frente a un kiosco, no leer, asi que cada frase de mas es tiempo "
+                        "que alguien pasa esperando. Da lo que se pregunto y para ahi. No "
+                        "enumeres todos los casos que documente la evidencia ni agregues "
+                        "condiciones, excepciones o canales que nadie pidio; si quieren el "
+                        "detalle, lo van a preguntar. "
                         "Quien lee tu respuesta esta frente a un kiosco y no sabe que existe "
                         'un corpus: no digas "la evidencia", "los documentos" ni "segun lo '
                         'publicado", y no describas de donde sacaste el dato. Da el dato '

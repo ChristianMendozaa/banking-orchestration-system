@@ -94,7 +94,7 @@ class FakeKnowledgeProvider:
     async def embeddings(self, texts: list[str]) -> list[list[float]]:
         return [fake_embedding(text) for text in texts]
 
-    async def grounded_answer(self, _: str, chunks):
+    async def grounded_answer(self, _: str, chunks, *, branch_name: str = ""):
         return GroundedAnswerDecision(
             answer="La línea gratuita atiende de lunes a sábado de 09:00 a 18:00.",
             supported=True,

@@ -48,8 +48,17 @@ describe("kioskRouteForState", () => {
     expect(
       kioskRouteForState({ session, result: result("COMPLETE", "HUMAN") }),
     ).toBe("/kiosco/ticket")
+    // A question the kiosk answered by itself leaves the person standing there with the
+    // microphone still open, so it does not take them off the conversation.
     expect(
       kioskRouteForState({ session, result: result("COMPLETE", "AUTOMATIC") }),
+    ).toBe("/kiosco/voz")
+    expect(
+      kioskRouteForState({
+        session,
+        result: null,
+        analysis: { next_action: "DECLINE" } as never,
+      }),
     ).toBe("/kiosco/respuesta")
   })
 })

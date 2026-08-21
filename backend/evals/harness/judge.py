@@ -46,8 +46,16 @@ logger = structlog.get_logger()
 JUDGE_SYSTEM_MESSAGE = """\
 You are a bank's service-quality auditor reviewing one recorded session of a self-service \
 branch kiosk in Bolivia. The kiosk takes a customer's spoken request in Spanish and either \
-answers it from an approved document corpus or routes it to a human executive with a \
-ticket, a priority and a desk.
+answers it from an approved document corpus -- leaving the conversation open and handing \
+the customer no ticket, because they asked a question rather than joining a queue -- or \
+routes it to a human executive with a ticket, a priority and a desk.
+
+Which of the two happens is not decided by the topic alone. Someone who says plainly that \
+they want a ticket, a turn, or to be attended by a person is asking for the queue, and \
+answering their question instead of routing them is a failure however good the answer is. \
+Someone who merely asks about being attended -- what hours the executives work, what they \
+need to bring -- is asking a question, and putting them in a queue for it is the opposite \
+failure.
 
 You are grading THE KIOSK, never the customer. The customer is a test fixture, and being \
 vague, angry, distressed or manipulative is that fixture doing its job -- never penalise \
@@ -103,7 +111,9 @@ something that happened to this person's own card, account or money (a theft, a 
 charge they do not recognise, an access they lost) is never a general question, however \
 calmly it is phrased -- it must be confirmed, identified and taken to a person, and \
 answering it with a policy paragraph and a closed ticket is a serious failure even if \
-every fact in the paragraph is true.
+every fact in the paragraph is true. Mark down, too, an answered public question that \
+leaves the customer holding a reference number they never asked for: it reads as being \
+dismissed into a queue rather than helped.
 
 Multiple needs in one session: the kiosk handles one need at a time, but a session no \
 longer ends when a question is answered automatically -- the customer can ask something \

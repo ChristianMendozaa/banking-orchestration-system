@@ -90,13 +90,34 @@ async def load_and_guard(state: OrchestrationState, runtime: Runtime[GraphContex
             "No encontramos el requerimiento que intentas confirmar",
             409,
         )
-    case = await runtime.context.repository.case_by_session(db, kiosk_session.id, with_ticket=True)
-    if case and case.requirement_id != requirement.id:
+    # Superseded, not merely finished. This used to compare the requirement against the
+    # session's newest *case*, which worked only while a session held one. Once a follow-up
+    # question could open a second case, confirming a requirement that had no case yet --
+    # every requirement, at the moment it is confirmed -- was measured against the case some
+    # earlier question had left behind, and any customer who asked something answerable
+    # before asking for something that needs confirming was told their answer belonged to a
+    # previous request. Ask about opening hours, then ask for a loan, and the "sí" was
+    # rejected with a 409.
+    #
+    # What the guard is actually for is a confirmation arriving for a request the customer
+    # has already moved on from. That is a question about requirements, so it is asked of
+    # requirements: this one is stale if a newer one has taken its place. A requirement that
+    # is simply closed -- rejected, and not replaced -- is not stale, which is what keeps a
+    # repeated rejection idempotent rather than a conflict.
+    latest = await runtime.context.repository.latest_requirement(db, kiosk_session.id)
+    if (
+        latest is not None
+        and latest.id != requirement.id
+        and latest.created_at > requirement.created_at
+    ):
         raise AppError(
             "REQUIREMENT_MISMATCH",
             "La confirmación corresponde a un requerimiento anterior",
             409,
         )
+    case = await runtime.context.repository.case_by_requirement(
+        db, requirement.id, with_ticket=True
+    )
     return {"requirement": requirement, "case": case}
 
 

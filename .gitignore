@@ -34,16 +34,11 @@ doc/rag/*
 # make check / make test report
 .make-report.tsv
 
-# Reportes del harness de evaluacion: se versionan (dashboard HTML, JSON, scorecard por
-# corrida en reports/runs/<id>/, mas reports/index.html y el ledger reports/history.jsonl)
-# para conservar el historial de mejoras entre corridas. No hay alias reports/latest.* --
-# cada corrida vive solo en su propio reports/runs/<id>/ -- pero se ignora por si acaso
-# queda uno de una version anterior del harness. El scorecard.md de la raiz de evals/ es
-# una copia redundante de reports/runs/<id>/scorecard.md y no aporta nada nuevo, asi que
-# se mantiene fuera del control de versiones.
-backend/evals/reports/latest.*
-# reports/dashboard.html: the default path for an ad hoc `--html` extra copy (opt-in,
-# no Make target passes it) -- redundant with reports/runs/<id>/report.html, same
-# reasoning as scorecard.md below.
-backend/evals/reports/dashboard.html
+# Reportes del harness de evaluacion. Se versionaban para conservar el historial de mejoras
+# entre corridas, pero son artefactos generados: cada corrida agrega un HTML, un JSON y un
+# scorecard nuevos bajo reports/runs/<id>/ y reescribe reports/index.html y el ledger
+# reports/history.jsonl, de modo que el repositorio acumulaba salida de una herramienta y
+# cada corrida local producia un diff que nadie iba a revisar. El historial que importa esta
+# en los commits. Quien necesite una corrida, la vuelve a ejecutar con `make evals-live`.
+backend/evals/reports/
 backend/evals/scorecard.md

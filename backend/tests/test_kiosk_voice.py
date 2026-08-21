@@ -17,6 +17,7 @@ import pytest
 from httpx import AsyncClient
 from starlette.websockets import WebSocketDisconnect
 
+import app.services.voice.session as voice_session
 from app.api.kiosk_voice import origin_allowed, voice_channel
 from app.core.errors import AppError
 from app.domain.enums import SessionStatus
@@ -24,6 +25,9 @@ from app.services.voice.session import KioskVoiceSession
 from tests.conftest import TestSession, settings_for_tests, test_orchestrator
 
 SPEECH_FRAME = b"\x00\x01" * 32
+
+
+_STOP = object()
 
 
 class FakeUpstream:
@@ -54,11 +58,18 @@ class FakeUpstream:
             )
         )
 
+    def drop(self) -> None:
+        """The upstream transcription session going away underneath a live conversation."""
+        self.events.put_nowait(_STOP)
+
     def __aiter__(self):
         return self
 
     async def __anext__(self):
-        return await self.events.get()
+        event = await self.events.get()
+        if event is _STOP:
+            raise StopAsyncIteration
+        return event
 
 
 def _event(kind: str, **fields):
@@ -139,6 +150,22 @@ class FakeWebSocket:
                 return found[-1]
             await asyncio.sleep(0.01)
         raise AssertionError(f"no {kind!r} frame arrived; got {[f['type'] for f in self.sent]}")
+
+
+IDENTIFY_LINE = "Para continuar, escribe tu CI"
+
+
+def _line_beginning(websocket: "FakeWebSocket", prefix: str) -> dict | None:
+    """The `speech.begin` frame for one specific line.
+
+    Counting frames instead is brittle: an interruption drops lines that are still queued,
+    so one can be cancelled before it ever announces a beginning and the ordinal of
+    everything after it shifts.
+    """
+    return next(
+        (frame for frame in websocket.frames("speech.begin") if frame["text"].startswith(prefix)),
+        None,
+    )
 
 
 async def wait_until(predicate, description: str, timeout: float = 5.0) -> None:
@@ -267,8 +294,11 @@ async def test_a_second_question_is_still_heard_after_an_automatic_answer(
     await _stop(task, websocket)
 
 
-async def test_barge_in_stops_the_kiosk_mid_sentence(client: AsyncClient) -> None:
+async def test_barge_in_stops_the_kiosk_mid_sentence(client: AsyncClient, monkeypatch) -> None:
     """Talking over the kiosk is taking the turn, so the line is abandoned, not finished."""
+    # Past the echo grace period below, which is not what this test is about.
+    monkeypatch.setattr(voice_session, "BARGE_IN_GRACE_SECONDS", 0.0)
+
     session_id, token = await _kiosk_session(client)
     websocket, provider = FakeWebSocket(), FakeProvider()
     provider.speech_delay = 0.2
@@ -281,6 +311,51 @@ async def test_barge_in_stops_the_kiosk_mid_sentence(client: AsyncClient) -> Non
     assert cancelled["speech_id"] == websocket.frames("speech.begin")[0]["speech_id"]
     assert not websocket.frames("speech.end"), "the interrupted line reported as completed"
     await _stop(task, websocket)
+
+
+async def test_the_kiosk_does_not_interrupt_itself_on_its_own_first_words(
+    client: AsyncClient,
+) -> None:
+    """The opening moments of a line are the kiosk's own voice coming back, not a customer.
+
+    The microphone stays open while the kiosk speaks, so the speakers leak into it, and the
+    browser's echo canceller needs some of the line before it converges. Acting on a speech
+    start that arrives in that window cancels the sentence the customer is waiting for --
+    repeatedly, which is what turned a spoken answer into a stutter.
+    """
+    session_id, token = await _kiosk_session(client)
+    websocket, provider = FakeWebSocket(), FakeProvider()
+    provider.speech_delay = 0.2
+    task = await _run(_voice(websocket, session_id, token, provider))
+
+    await websocket.wait_for("speech.begin")
+    await provider.upstream.events.put(_event("input_audio_buffer.speech_started"))
+
+    await websocket.wait_for("speech.end")
+    assert not websocket.frames("speech.cancel"), "the kiosk cut its own opening words"
+    await _stop(task, websocket)
+
+
+async def test_an_upstream_that_drops_is_a_failure_not_a_finished_visit(
+    client: AsyncClient,
+) -> None:
+    """The transcription session going away must not read as the customer leaving.
+
+    `_drive_turns` and `_speaker` loop forever and `_pump_client` exits only on a real
+    disconnect, so this iterator running dry was once the single way `run` could return with
+    no exception at all: nothing to re-raise, nothing logged, and a socket that closed 1000 --
+    which the browser renders as "Atención finalizada" in the middle of a conversation.
+    """
+    session_id, token = await _kiosk_session(client)
+    websocket, provider = FakeWebSocket(), FakeProvider()
+    task = await _run(_voice(websocket, session_id, token, provider))
+    await websocket.wait_for("speech.end")
+
+    provider.upstream.drop()
+
+    with pytest.raises(voice_session.UpstreamClosed):
+        await asyncio.wait_for(task, timeout=5)
+    assert not websocket.frames("session.finished"), "a dropped upstream reported a clean end"
 
 
 async def test_an_ambiguous_confirmation_is_re_asked_rather_than_guessed(
@@ -340,11 +415,138 @@ async def test_audio_is_ignored_once_the_flow_closed_the_microphone(
     await _stop(task, websocket)
 
 
-async def test_slow_turns_get_a_holding_line(client: AsyncClient, monkeypatch) -> None:
-    """A long silence reads as broken, so the kiosk says something while it works."""
-    import app.services.voice.session as voice_session
+async def test_a_ci_typed_mid_sentence_still_gets_its_ticket_spoken(
+    client: AsyncClient,
+) -> None:
+    """The reported bug, end to end.
 
-    monkeypatch.setattr(voice_session, "WAITING_SPEECH_DELAY_SECONDS", 0.05)
+    Someone who reads the CI card and types their number before the kiosk has finished
+    explaining it used to hear nothing at all afterwards: the identification line was still
+    streaming, the ticket line queued behind it, and the single mutable task slot the two
+    shared meant an interruption cancelled the wrong one -- announcing the id of the line
+    that was playing while killing the line that had not started.
+    """
+    session_id, token = await _kiosk_session(client)
+    headers = {"X-Session-Token": token}
+    websocket, provider = FakeWebSocket(), FakeProvider()
+    provider.speech_delay = 0.2
+    task = await _run(_voice(websocket, session_id, token, provider))
+    await websocket.wait_for("speech.end")
+
+    websocket.say("Quiero denunciar un fraude en mi cuenta")
+    await websocket.wait_for("turn.analysis")
+    websocket.say("si, asi es")
+    await websocket.wait_for("turn.result")
+
+    # The line still streaming while the customer reads the card and types. Named rather
+    # than taken from `wait_for`, which returns whichever line happens to be current.
+    await wait_until(
+        lambda: _line_beginning(websocket, IDENTIFY_LINE) is not None,
+        "the identification line to start",
+        timeout=10.0,
+    )
+    identify_line = _line_beginning(websocket, IDENTIFY_LINE)
+    assert identify_line is not None
+
+    identification = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/identification",
+        json={"identifier": "6735666"},
+        headers=headers,
+    )
+    assert identification.status_code == 200, identification.text
+
+    # A cancellation may already have happened for good reason -- saying "si, asi es" over
+    # the confirmation question is ordinary barge-in -- so only what follows the resync is
+    # what this test is about.
+    before = len(websocket.frames("speech.cancel"))
+
+    # Exactly what the browser sends the moment the CI is submitted.
+    websocket.send_event({"type": "client.resync"})
+
+    await wait_until(
+        lambda: any("Tu ticket es" in line for line in provider.spoken),
+        "the ticket to be spoken after identification",
+        # The longest serial chain in this file: a confirmation turn, an HTTP
+        # identification, a resync and two delayed speech lines.
+        timeout=15.0,
+    )
+    cancelled = websocket.frames("speech.cancel")[before:]
+    assert cancelled, "the explanation kept playing over someone who had already answered"
+    # One line was dropped, and it is the one that was named. Announcing the wrong id made
+    # the browser discard the ticket audio it had just been handed.
+    assert [frame["speech_id"] for frame in cancelled] == [identify_line["speech_id"]]
+    await _stop(task, websocket)
+
+
+async def test_a_stray_speech_start_never_cancels_a_line_the_mic_could_not_hear(
+    client: AsyncClient,
+) -> None:
+    """Audio appended before the flow closed the microphone can surface as a speech start
+    seconds later. Treating that as barge-in cancelled the line the customer was waiting
+    for -- and nobody had said anything."""
+    session_id, token = await _kiosk_session(client)
+    websocket, provider = FakeWebSocket(), FakeProvider()
+    provider.speech_delay = 0.2
+    session = _voice(websocket, session_id, token, provider)
+    task = await _run(session)
+    await websocket.wait_for("speech.begin")
+
+    session._status = SessionStatus.AWAITING_IDENTIFICATION
+    await provider.upstream.events.put(_event("input_audio_buffer.speech_started"))
+
+    await websocket.wait_for("speech.end")
+    assert not websocket.frames("speech.cancel"), "a closed microphone interrupted the kiosk"
+    await _stop(task, websocket)
+
+
+async def test_a_line_cut_short_is_not_remembered_as_said(client: AsyncClient) -> None:
+    """`_spoken_transitions` is how the kiosk avoids repeating itself across a resync.
+
+    Recording a transition before speaking it meant an interrupted line counted as
+    delivered, so the resync that follows identification returned at that check and the
+    ticket was never announced at all.
+    """
+    session_id, token = await _kiosk_session(client)
+    websocket, provider = FakeWebSocket(), FakeProvider()
+    provider.speech_delay = 0.2
+    session = _voice(websocket, session_id, token, provider)
+    task = await _run(session)
+    await websocket.wait_for("speech.end")
+
+    websocket.say("Quiero denunciar un fraude en mi cuenta")
+    await websocket.wait_for("turn.analysis")
+    websocket.say("si, asi es")
+    await websocket.wait_for("turn.result")
+    # The identification line, still streaming when the customer starts typing.
+    await wait_until(
+        lambda: _line_beginning(websocket, IDENTIFY_LINE) is not None,
+        "the identification line to start",
+        timeout=10.0,
+    )
+    identify_line = _line_beginning(websocket, IDENTIFY_LINE)
+    assert identify_line is not None
+
+    await session._cancel_speech()
+
+    await wait_until(
+        lambda: session._spoken_transitions == set(),
+        "the interrupted line to stay unrecorded",
+    )
+    assert websocket.frames("speech.cancel")[-1]["speech_id"] == identify_line["speech_id"]
+    await _stop(task, websocket)
+
+
+async def test_a_slow_turn_is_covered_by_the_screen_not_by_speech(
+    client: AsyncClient, monkeypatch
+) -> None:
+    """Nothing is spoken between the customer's sentence and the answer to it.
+
+    A holding line ("Un momento, estoy revisando eso.") used to cover turns longer than two
+    seconds. It was removed because it made the wait it covered longer: the answer could not
+    be spoken until the holding line had finished streaming, so a turn that was already
+    arriving paid for a second round trip to the speech model. The `thinking` state on screen
+    is the affordance now, and it costs no audio.
+    """
     original = test_orchestrator.analyze_turn
 
     async def slow(*args, **kwargs):
@@ -357,36 +559,15 @@ async def test_slow_turns_get_a_holding_line(client: AsyncClient, monkeypatch) -
     websocket, provider = FakeWebSocket(), FakeProvider()
     task = await _run(_voice(websocket, session_id, token, provider))
     await websocket.wait_for("speech.end")
+    spoken_before = len(provider.spoken)
 
     websocket.say("Quiero conocer el horario de atencion de la sucursal")
     result = await websocket.wait_for("turn.result")
     answer = result["payload"]["speech_text"]
     await wait_until(lambda: answer in provider.spoken, "the answer to be spoken")
 
-    # Order matters as much as presence. Both lines are serialised behind the same speech
-    # lock, so a holding line still queued when the orchestrator returns would be spoken
-    # *after* the answer -- the kiosk saying it is looking something up immediately after
-    # telling you the result. It has to come first or not at all.
-    assert voice_session.WAITING_SPEECH_TEXT in provider.spoken
-    assert provider.spoken.index(voice_session.WAITING_SPEECH_TEXT) < provider.spoken.index(answer)
-    await _stop(task, websocket)
-
-
-async def test_a_fast_turn_never_says_it_is_checking(client: AsyncClient, monkeypatch) -> None:
-    """The holding line covers a long wait. Announcing a wait that did not happen is noise."""
-    import app.services.voice.session as voice_session
-
-    monkeypatch.setattr(voice_session, "WAITING_SPEECH_DELAY_SECONDS", 5.0)
-
-    session_id, token = await _kiosk_session(client)
-    websocket, provider = FakeWebSocket(), FakeProvider()
-    task = await _run(_voice(websocket, session_id, token, provider))
-    await websocket.wait_for("speech.end")
-
-    websocket.say("Quiero conocer el horario de atencion de la sucursal")
-    await websocket.wait_for("turn.result")
-    await asyncio.sleep(0.2)
-    assert voice_session.WAITING_SPEECH_TEXT not in provider.spoken
+    # The answer, and nothing in front of it.
+    assert provider.spoken[spoken_before:] == [answer]
     await _stop(task, websocket)
 
 

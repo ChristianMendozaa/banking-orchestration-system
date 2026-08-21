@@ -7,10 +7,15 @@ export function kioskRouteForState(state: {
 }): string {
   if (!state.session) return "/kiosco"
   if (state.result?.next_action === "IDENTIFY") return "/kiosco/identificacion"
-  if (state.result?.next_action === "COMPLETE") {
-    return state.result.resolution_type === "AUTOMATIC"
-      ? "/kiosco/respuesta"
-      : "/kiosco/ticket"
+  // A human handoff is the end of the kiosk's part: an executive owns the case from here.
+  // An answer the kiosk found by itself is not the end of anything -- the person is still
+  // standing there and may well have a second question -- so it stays inside the
+  // conversation instead of taking over the screen, and the microphone stays where it was.
+  if (
+    state.result?.next_action === "COMPLETE" &&
+    state.result.resolution_type !== "AUTOMATIC"
+  ) {
+    return "/kiosco/ticket"
   }
   if (state.analysis?.next_action === "DECLINE") return "/kiosco/respuesta"
   return "/kiosco/voz"

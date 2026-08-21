@@ -17,7 +17,13 @@ identification and undo what the same eval measures on the other side.
 import pytest
 
 from app.domain.enums import Category, ConsultationLevel
-from app.services.agents import category_from_keywords, sensitivity_floor
+from app.services.agents import (
+    ClassificationAgent,
+    asks_for_a_person,
+    category_from_keywords,
+    sensitivity_floor,
+)
+from tests.conftest import settings_for_tests
 
 SENSIBLE = ConsultationLevel.SENSIBLE
 PERSONALIZADA = ConsultationLevel.PERSONALIZADA
@@ -243,3 +249,54 @@ def test_a_negation_that_is_not_negating_the_incident_still_raises_the_floor() -
         )
         is SENSIBLE
     )
+
+
+# (utterance, whether it asks to be attended rather than asking something answerable)
+HUMAN_REQUESTS: list[tuple[str, bool]] = [
+    ("Quiero un ticket", True),
+    ("Dame un turno por favor", True),
+    ("Quiero hablar con un ejecutivo", True),
+    ("Necesito que me atienda una persona", True),
+    ("Quiero ser atendido por un asesor de creditos", True),
+    ("Prefiero atencion personalizada", True),
+    ("Derivame con un ejecutivo, esto es urgente", True),
+    ("Cual es el horario de atencion?", False),
+    ("A que hora atienden los ejecutivos", False),
+    ("Quiero saber el horario de atencion de los ejecutivos", False),
+    ("Que necesito para que me atiendan en ventanilla", False),
+    ("Necesito saber que requisitos piden para abrir una cuenta", False),
+    ("Quiero informacion sobre creditos de vivienda", False),
+    ("Quiero saber donde hablar con un ejecutivo", False),
+    ("Me robaron mi tarjeta de debito anoche", False),
+]
+
+
+@pytest.mark.parametrize(("text", "expected"), HUMAN_REQUESTS, ids=lambda value: str(value)[:48])
+def test_asking_for_a_person_is_told_apart_from_asking_about_one(text: str, expected: bool) -> None:
+    """Whether to join a queue is the customer's call, not the topic's.
+
+    Both halves matter as much as they do for the sensitivity floor. Missing a real request
+    answers someone who asked to be attended with a policy paragraph; firing on a question
+    that merely mentions a ticket or an executive sends every public-information question
+    into a queue, which is the failure this is meant to remove rather than create. The
+    bounded gap between the ask and what is being asked for is what buys the distinction --
+    "que necesito para que me atiendan" is someone asking for the requirements.
+    """
+    assert asks_for_a_person(text) is expected, text
+
+
+def test_the_human_request_floor_only_ever_sets_the_flag() -> None:
+    """Same contract as `sensitivity_floor`: the model stays in charge of everything it is
+    better at, and the deterministic rule only ever adds a signal it is sure of."""
+    agent = ClassificationAgent(settings_for_tests, provider=None)
+    decision = agent._fallback("Quiero conocer el horario de atencion")
+    assert decision.human_requested is False
+
+    raised = agent._enforce_human_request(decision, "Quiero que me atienda un ejecutivo")
+    assert raised.human_requested is True
+    # Nothing else about the classification is touched.
+    assert raised.category is decision.category
+    assert raised.consultation_level is decision.consultation_level
+
+    already = decision.model_copy(update={"human_requested": True})
+    assert agent._enforce_human_request(already, "Cual es el horario").human_requested is True

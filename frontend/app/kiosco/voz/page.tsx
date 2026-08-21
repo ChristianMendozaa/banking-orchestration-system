@@ -1,6 +1,7 @@
 "use client"
 
 import { useKiosk, type VoiceState } from "@/components/providers/kiosk-provider"
+import { AutomaticAnswer } from "@/components/kiosk/automatic-answer"
 import { TextInteraction } from "@/components/kiosk/text-interaction"
 import { useSystemConfig } from "@/components/providers/system-config-provider"
 import { Button } from "@/components/ui/button"
@@ -33,6 +34,7 @@ export default function VoicePage() {
     session,
     hydrated,
     analysis,
+    result,
     voiceState,
     voiceError,
     captions,
@@ -61,6 +63,8 @@ export default function VoicePage() {
 
   const recentCaptions = captions.slice(-6)
   const animated = voiceState === "listening" || voiceState === "speaking"
+  const answered =
+    result?.next_action === "COMPLETE" && result.resolution_type === "AUTOMATIC"
 
   return (
     <div className="flex flex-1 flex-col items-center gap-7 px-5 py-8 sm:px-8">
@@ -74,10 +78,14 @@ export default function VoicePage() {
             ? "Necesito que me aclares un detalle"
             : analysis?.next_action === "CONFIRM"
               ? "Confírmame si entendí bien"
-              : "¿En qué puedo ayudarte?"}
+              : answered
+                ? "¿Te ayudo con algo más?"
+                : "¿En qué puedo ayudarte?"}
         </h1>
         <p className="mt-3 text-white/75">
-          Habla con naturalidad. Puedes interrumpirme cuando lo necesites.
+          {answered
+            ? "Puedes hacerme otra consulta cuando quieras, o simplemente retirarte."
+            : "Habla con naturalidad. Puedes interrumpirme cuando lo necesites."}
         </p>
         <Button
           className="mt-5"
@@ -139,6 +147,8 @@ export default function VoicePage() {
           </div>
         </section>
       )}
+
+      {answered && result && <AutomaticAnswer result={result} showAnswer={false} />}
 
       {recentCaptions.length > 0 && (
         <section

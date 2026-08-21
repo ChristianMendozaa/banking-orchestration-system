@@ -12,6 +12,7 @@ const context = vi.hoisted(() => ({
   result: null,
   submitTextTurn: vi.fn(),
   confirmText: vi.fn(),
+  interruptSpeech: vi.fn(),
   selectInteractionMode: vi.fn(),
 }))
 
@@ -26,6 +27,7 @@ describe("TextInteraction", () => {
     context.analysis = null
     context.submitTextTurn.mockReset()
     context.confirmText.mockReset()
+    context.interruptSpeech.mockReset()
     context.selectInteractionMode.mockReset()
   })
 
@@ -45,6 +47,22 @@ describe("TextInteraction", () => {
     )
     fireEvent.click(screen.getByRole("button", { name: "Prefiero hablar" }))
     expect(context.selectInteractionMode).toHaveBeenCalledWith("voice")
+  })
+
+  it("stops the kiosk mid-sentence once someone starts writing an answer", () => {
+    // Someone already typing has heard enough. A person would stop explaining rather than
+    // talk over them, and the line after this one is the one that matters.
+    render(<TextInteraction />)
+
+    fireEvent.change(screen.getByLabelText("Tu mensaje"), {
+      target: { value: "N" },
+    })
+    expect(context.interruptSpeech).toHaveBeenCalledTimes(1)
+
+    fireEvent.change(screen.getByLabelText("Tu mensaje"), {
+      target: { value: "Ne" },
+    })
+    expect(context.interruptSpeech).toHaveBeenCalledTimes(1)
   })
 
   it("presents explicit decisions when the summary requires confirmation", async () => {

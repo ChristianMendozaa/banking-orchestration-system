@@ -43,6 +43,12 @@ const FOLLOW_UP_WINDOW_MS = 45_000
 // most likely. The result is already on screen either way; this only decides when the kiosk
 // resets itself for the next person.
 const TERMINAL_TIMEOUT_MS = 30_000
+// A socket that closed without the backend ever saying the visit was over is something
+// breaking, not somebody leaving, so the kiosk gets the conversation back rather than
+// ending it. Bounded, because a backend that is genuinely down should surface as an error a
+// person can act on instead of an indefinite silent retry.
+const MAX_RECONNECT_ATTEMPTS = 3
+const RECONNECT_BACKOFF_MS = 500
 
 export type VoiceState =
   | "idle"
@@ -83,6 +89,7 @@ interface KioskContextValue extends KioskState {
   submitTextTurn: (transcript: string) => Promise<TurnAnalysis>
   confirmText: (confirmed: boolean) => Promise<FlowResult>
   submitIdentification: (identifier: string) => Promise<FlowResult>
+  interruptSpeech: () => void
   reset: () => void
 }
 
@@ -117,6 +124,11 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const terminalTimeoutRef = useRef<number | null>(null)
   const followUpTimeoutRef = useRef<number | null>(null)
   const followUpTransitionKeyRef = useRef<string | null>(null)
+  const pendingResyncRef = useRef(false)
+  const reconnectTimeoutRef = useRef<number | null>(null)
+  const reconnectAttemptsRef = useRef(0)
+  // `connectVoice` reconnects itself, and a callback cannot close over its own definition.
+  const connectVoiceRef = useRef<() => Promise<void>>(() => Promise.resolve())
 
   const updateState = useCallback((updater: (current: KioskState) => KioskState) => {
     const next = updater(stateRef.current)
@@ -126,7 +138,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const clearTimers = useCallback(() => {
-    for (const ref of [terminalTimeoutRef, followUpTimeoutRef]) {
+    for (const ref of [terminalTimeoutRef, followUpTimeoutRef, reconnectTimeoutRef]) {
       if (ref.current !== null) {
         window.clearTimeout(ref.current)
         ref.current = null
@@ -144,7 +156,25 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     const voice = voiceRef.current
     voiceRef.current = null
     connectPromiseRef.current = null
+    pendingResyncRef.current = false
     voice?.close()
+  }, [])
+
+  // Ends the session but lets the speaker finish what it was given.
+  //
+  // Speech is streamed far faster than it plays, so at the moment the backend closes the
+  // socket most of the last sentence is still sitting in the player. Tearing the audio
+  // context down on that signal -- which is what used to happen -- discards it unheard, and
+  // the faster the customer answered the more of it was lost.
+  const disposeVoiceAfterPlayback = useCallback(() => {
+    connectionAttemptRef.current += 1
+    const voice = voiceRef.current
+    voiceRef.current = null
+    connectPromiseRef.current = null
+    pendingResyncRef.current = false
+    if (!voice) return
+    voice.closeSocket()
+    void voice.drain().then(() => voice.closeAudio())
   }, [])
 
   const reset = useCallback(() => {
@@ -160,10 +190,41 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     updateState(() => emptyState)
   }, [clearTimers, disposeVoice, updateState])
 
+  /**
+   * Get the conversation back after a socket dropped underneath it.
+   *
+   * The backend ends a visit deliberately and says so first, so a close with no such
+   * announcement is a fault -- the transcription session upstream ending, a failed turn, a
+   * network that came and went. Every one of those used to be reported as a completed visit,
+   * which is how a customer three questions into a conversation was shown "Atención
+   * finalizada" with no error and no way back. The business state survives all of this: it
+   * lives on the server and is re-read by `reconcileSession` on the way back in.
+   */
+  const scheduleReconnect = useCallback((retryable: boolean) => {
+    if (reconnectTimeoutRef.current !== null) return
+    if (!retryable || reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+      setVoiceError("Se perdió la conexión de voz")
+      setVoiceState("error")
+      return
+    }
+    const attempt = reconnectAttemptsRef.current
+    reconnectAttemptsRef.current = attempt + 1
+    setVoiceState("connecting")
+    reconnectTimeoutRef.current = window.setTimeout(
+      () => {
+        reconnectTimeoutRef.current = null
+        void connectVoiceRef.current().catch(() => {
+          // `connectVoice` has already put the failure on screen.
+        })
+      },
+      RECONNECT_BACKOFF_MS * 2 ** attempt,
+    )
+  }, [])
+
   const startCompletionCountdown = useCallback(() => {
     if (completionIntervalRef.current !== null) return
     clearTimers()
-    disposeVoice()
+    disposeVoiceAfterPlayback()
     setVoiceState("closed")
     setCompletionSeconds(COMPLETION_SECONDS)
 
@@ -178,7 +239,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       }
       reset()
     }, 1_000)
-  }, [clearTimers, disposeVoice, reset])
+  }, [clearTimers, disposeVoiceAfterPlayback, reset])
 
   const cancelFollowUpWindow = useCallback(() => {
     if (followUpTimeoutRef.current !== null) {
@@ -194,14 +255,31 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       followUpTransitionKeyRef.current = key
       if (followUpTimeoutRef.current !== null) {
         window.clearTimeout(followUpTimeoutRef.current)
+        followUpTimeoutRef.current = null
       }
-      followUpTimeoutRef.current = window.setTimeout(
-        startCompletionCountdown,
-        FOLLOW_UP_WINDOW_MS,
-      )
+      // The window is a person deciding whether they have another question, so it starts
+      // when they have finished hearing the answer -- not when the last byte was sent.
+      void (voiceRef.current?.drain() ?? Promise.resolve()).then(() => {
+        if (followUpTransitionKeyRef.current !== key) return
+        followUpTimeoutRef.current = window.setTimeout(
+          startCompletionCountdown,
+          FOLLOW_UP_WINDOW_MS,
+        )
+      })
     },
     [startCompletionCountdown],
   )
+
+  // Someone mid-sentence is not someone who has decided to leave. Pushes the deadline back
+  // without clearing the transition key, so the window still closes on its own if they stop.
+  const deferFollowUpWindow = useCallback(() => {
+    if (followUpTimeoutRef.current === null) return
+    window.clearTimeout(followUpTimeoutRef.current)
+    followUpTimeoutRef.current = window.setTimeout(
+      startCompletionCountdown,
+      FOLLOW_UP_WINDOW_MS,
+    )
+  }, [startCompletionCountdown])
 
   // ---------------------------------------------------------------- reducers
   //
@@ -463,7 +541,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             if (isActiveAttempt()) setVoiceState(value)
           },
           onCaptions: (next) => {
-            if (isActiveAttempt()) setCaptions(next)
+            if (!isActiveAttempt()) return
+            setCaptions(next)
+            if (next.at(-1)?.role === "user") deferFollowUpWindow()
           },
           onAnalysis: (analysis) => {
             if (!isActiveAttempt()) return
@@ -491,6 +571,13 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           onFinished: () => {
             if (isActiveAttempt()) startCompletionCountdown()
           },
+          onDropped: (retryable) => {
+            if (!isActiveAttempt()) return
+            // Detach the dead connection first: `connectVoice` declines to run while one is
+            // still held, and the audio graph behind it has to go with it.
+            disposeVoice()
+            scheduleReconnect(retryable)
+          },
           onError: (message) => {
             if (!isActiveAttempt()) return
             setVoiceError(message)
@@ -504,6 +591,11 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           return
         }
         setVoiceState("listening")
+        reconnectAttemptsRef.current = 0
+        if (pendingResyncRef.current) {
+          pendingResyncRef.current = false
+          voice.resync()
+        }
       } catch (reason) {
         if (attemptId !== connectionAttemptRef.current) return
         disposeVoice()
@@ -527,15 +619,22 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     applyAnalysis,
     applyFlow,
     cancelFollowUpWindow,
+    deferFollowUpWindow,
     disposeVoice,
     handleExpiredSession,
     reconcileSession,
+    scheduleReconnect,
     startCompletionCountdown,
     voiceBaseUrl,
   ])
 
+  useEffect(() => {
+    connectVoiceRef.current = connectVoice
+  }, [connectVoice])
+
   const retryVoice = useCallback(async () => {
     disposeVoice()
+    reconnectAttemptsRef.current = 0
     setVoiceError(null)
     setVoiceState("idle")
     await connectVoice()
@@ -678,6 +777,13 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         // the flow moved on before it can speak the outcome.
         if (voiceRef.current) {
           voiceRef.current.resync()
+        } else if (stateRef.current.interactionMode === "voice") {
+          // The socket is still being set up -- `connectVoice` reconciles the session over
+          // HTTP before it opens one, and a CI typed inside that window used to land here
+          // and close the session down, killing the connection it was about to get. Hand
+          // the resync to the connection when it opens instead; if it never does, the
+          // terminal-result timer above still closes the session out.
+          pendingResyncRef.current = true
         } else {
           startCompletionCountdown()
         }
@@ -699,6 +805,12 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     [applyFlow, handleExpiredSession, startCompletionCountdown],
   )
 
+  // Typing the answer while the kiosk is still explaining it is the customer taking the
+  // turn, exactly as talking over it would be.
+  const interruptSpeech = useCallback(() => {
+    voiceRef.current?.bargeIn()
+  }, [])
+
   const value = useMemo<KioskContextValue>(
     () => ({
       ...state,
@@ -714,6 +826,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       submitTextTurn,
       confirmText,
       submitIdentification,
+      interruptSpeech,
       reset,
     }),
     [
@@ -723,6 +836,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       confirmText,
       connectVoice,
       hydrated,
+      interruptSpeech,
       reset,
       retryVoice,
       selectInteractionMode,

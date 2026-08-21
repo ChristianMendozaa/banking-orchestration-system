@@ -76,7 +76,9 @@ class KnowledgeService:
                 )
                 await self._log(db, case_id, masked_query, "NO_EVIDENCE", retrieved, None)
                 return None
-            decision = await self.provider.grounded_answer(masked_query, chunks)
+            decision = await self.provider.grounded_answer(
+                masked_query, chunks, branch_name=self.settings.branch_name
+            )
             allowed = {item.chunk.id: item for item in chunks}
             cited = list(dict.fromkeys(decision.cited_chunk_ids))
             if (

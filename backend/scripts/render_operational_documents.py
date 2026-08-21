@@ -27,8 +27,8 @@ OPERATIONS_DIR = ROOT / "doc" / "operacion"
 # Bumped on every content revision: `KnowledgeIngestionService._ingest_document` refuses
 # to re-ingest a slug whose bytes changed while its version stayed the same, so an
 # edit here without a bump is a failed corpus bootstrap rather than a silent swap.
-VERSION = "2026.08.1"
-VIGENTE_DESDE = "18/08/2026"
+VERSION = "2026.08.2"
+VIGENTE_DESDE = "20/08/2026"
 
 BLUE = colors.HexColor("#0B4F8A")
 LIGHT_BLUE = colors.HexColor("#EAF4FC")
@@ -208,17 +208,21 @@ def render_rag_documents() -> dict[str, list[str]]:
                 "retiros, depósitos, giros y solicitudes de crédito.",
             ),
             (
-                "Horarios de agencias",
+                "Horario de la Sucursal Centro",
                 "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados "
-                "de 09:00 a 13:00. En Santa Cruz de la Sierra, las agencias de la Av. "
-                "Cristo Redentor y del Segundo Anillo atienden de lunes a viernes de 08:30 "
-                "a 19:00 y sábados de 09:00 a 13:00; la agencia del Plan 3000 atiende de "
-                "lunes a viernes de 08:30 a 18:00, sin atención sabatina. En La Paz, la "
-                "agencia El Prado atiende de lunes a viernes de 08:30 a 18:30 y sábados de "
-                "09:30 a 13:00. En Cochabamba, la agencia Av. Ballivián atiende de lunes a "
-                "viernes de 08:30 a 18:30 y sábados de 09:00 a 13:00. Los horarios pueden "
-                "variar en feriados y fechas especiales; se recomienda confirmar el "
-                "horario de la agencia específica antes de una visita en esas fechas.",
+                "de 09:00 a 13:00. Los horarios pueden variar en feriados y fechas "
+                "especiales.",
+            ),
+            (
+                "Horarios de otras agencias",
+                "En Santa Cruz de la Sierra, las agencias de la Av. Cristo Redentor y del "
+                "Segundo Anillo atienden de lunes a viernes de 08:30 a 19:00 y sábados de "
+                "09:00 a 13:00; la agencia del Plan 3000 atiende de lunes a viernes de "
+                "08:30 a 18:00, sin atención sabatina. En La Paz, la agencia El Prado "
+                "atiende de lunes a viernes de 08:30 a 18:30 y sábados de 09:30 a 13:00. En "
+                "Cochabamba, la agencia Av. Ballivián atiende de lunes a viernes de 08:30 a "
+                "18:30 y sábados de 09:00 a 13:00. Se recomienda confirmar el horario de la "
+                "agencia específica antes de una visita en feriados o fechas especiales.",
             ),
             (
                 "Orientación del kiosco",
@@ -578,12 +582,16 @@ def render_rag_documents() -> dict[str, list[str]]:
                 "requisitos exactos dependen del producto elegido.",
             ),
             (
-                "¿En qué horarios atienden las agencias?",
+                "¿En qué horario atiende esta sucursal?",
                 "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados "
-                "de 09:00 a 13:00. Otras agencias en Santa Cruz, La Paz y Cochabamba "
-                "tienen horarios similares, con variaciones puntuales según el punto de "
-                "atención. La Línea Móvil 788-12000 está disponible las 24 horas para "
-                "consultas y gestiones que no requieren presencia física.",
+                "de 09:00 a 13:00. La Línea Móvil 788-12000 está disponible las 24 horas "
+                "para consultas y gestiones que no requieren presencia física.",
+            ),
+            (
+                "¿Atienden en otras agencias?",
+                "Sí. El banco tiene agencias en los nueve departamentos de Bolivia, con "
+                "horarios similares y variaciones puntuales según el punto de atención. "
+                "Conviene confirmar el horario de la agencia específica antes de visitarla.",
             ),
             (
                 "¿Dónde puedo bloquear una tarjeta?",

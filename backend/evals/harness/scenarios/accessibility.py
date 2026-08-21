@@ -24,7 +24,8 @@ def _priority_was_raised(session: ConversationSession, result: dict) -> list[Che
     """A general inquiry is BAJO by default; preferential attention must lift it to MEDIO.
 
     Only checked when the case actually reached a human -- an automatically resolved
-    inquiry closes its own ticket and the priority never affects anyone's queue.
+    inquiry is closed against a ticket the customer is never shown, so the priority never
+    affects anyone's queue.
     """
     if result.get("resolution_type") != "HUMAN":
         return [

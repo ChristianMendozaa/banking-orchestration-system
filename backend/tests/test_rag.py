@@ -106,7 +106,7 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
         async def embedding(self, text):
             return await fake_provider.embedding(text)
 
-        async def grounded_answer(self, _query, _chunks):
+        async def grounded_answer(self, _query, _chunks, *, branch_name=""):
             return GroundedAnswerDecision(
                 answer="Respuesta no verificable",
                 supported=True,
@@ -140,7 +140,7 @@ async def test_an_echoed_chunk_id_never_reaches_the_answer() -> None:
         async def embedding(self, text):
             return await fake_provider.embedding(text)
 
-        async def grounded_answer(self, _query, chunks):
+        async def grounded_answer(self, _query, chunks, *, branch_name=""):
             return GroundedAnswerDecision(
                 answer=(
                     "La línea gratuita atiende de lunes a sábado de 09:00 a 18:00.\n\n"

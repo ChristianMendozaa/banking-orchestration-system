@@ -68,6 +68,11 @@ _HANDOFF_REASONS = {
 }
 _URGENT_HANDOFF_REASSURANCE = " Este caso se está atendiendo como prioritario."
 
+# Said after an answer the kiosk found by itself. A question resolved on the spot leaves the
+# person still standing at the kiosk, and without this the conversation just stops -- which
+# reads as being dismissed rather than answered.
+_AUTOMATIC_FOLLOW_UP = "¿Te ayudo con algo más?"
+
 
 class OrchestratorService:
     def __init__(
@@ -325,8 +330,10 @@ class OrchestratorService:
                 title=ticket.executive.title,
                 window_number=ticket.executive.window_number,
             )
-        if case.session.resolution_type == ResolutionType.AUTOMATIC:
-            speech = case.session.final_response or "Tu consulta quedó resuelta."
+        automatic = case.session.resolution_type == ResolutionType.AUTOMATIC
+        if automatic:
+            answer = case.session.final_response or "Tu consulta quedó resuelta."
+            speech = f"{answer} {_AUTOMATIC_FOLLOW_UP}"
         elif assignment:
             reason = _HANDOFF_REASONS.get(case.category, "")
             urgent = (
@@ -363,9 +370,16 @@ class OrchestratorService:
             executive=assignment,
             response=case.session.final_response,
             speech_text=speech,
+            # A closed automatic ticket is a record of the case, not something the person
+            # asked for. Telling someone who wanted the branch hours to keep a reference
+            # number reads as the conversation being over and as a queue they never joined.
             tracking_information=(
-                f"Conserva el ticket {ticket.number}. "
-                f"{self.settings.support_tracking_information.strip()}"
+                None
+                if automatic
+                else (
+                    f"Conserva el ticket {ticket.number}. "
+                    f"{self.settings.support_tracking_information.strip()}"
+                )
             ),
             grounding_status=case.session.grounding_status,
             citations=[

@@ -36,6 +36,10 @@ def requires_confirmation(decision: ClassificationDecision) -> bool:
     and a REPORTE_FRAUDE category said the opposite. When the classifier contradicts
     itself, take the safe reading and confirm: two independent signals have to agree before
     a session resolves itself in one turn."""
+    # Someone who asked to be attended is going to a person, and going to a person is
+    # exactly the irreversible step confirmation exists in front of.
+    if decision.human_requested:
+        return True
     if decision.consultation_level != ConsultationLevel.GENERAL:
         return True
     if decision.security_incident or decision.distress_detected:
@@ -251,7 +255,11 @@ async def persist_requirement(state: OrchestrationState, runtime: Runtime[GraphC
         classification_source=state["classification_source"],
         ambiguous=kiosk_session.status == SessionStatus.NEEDS_CLARIFICATION,
         clarification_question=decision.clarification_question,
-        force_human=state.get("force_human", False),
+        # Either the kiosk gave up on understanding the request, or the customer said
+        # plainly that they would rather be attended. `create_case_for_requirement` copies
+        # this onto the case and `finalize_nodes.eligibility_gate` reads it to skip
+        # retrieval entirely -- answering someone who asked for a queue is not a service.
+        force_human=state.get("force_human", False) or decision.human_requested,
         urgency_detected=decision.urgency_detected,
         security_incident=decision.security_incident,
         distress_detected=decision.distress_detected,

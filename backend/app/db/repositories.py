@@ -27,6 +27,25 @@ class CaseRepository:
             .order_by(Requirement.created_at.desc())
         )
 
+    async def case_by_requirement(
+        self,
+        db: AsyncSession,
+        requirement_id: UUID,
+        *,
+        with_ticket: bool = False,
+    ) -> CaseRecord | None:
+        """The case opened for one requirement, if it has one yet.
+
+        Distinct from `case_by_session`, which answers "the case being worked on now". A
+        session holds several cases once a customer asks a follow-up, so the newest one
+        belongs to whichever question came last -- not necessarily to the requirement a
+        caller happens to be holding.
+        """
+        query = select(CaseRecord).where(CaseRecord.requirement_id == requirement_id)
+        if with_ticket:
+            query = query.options(selectinload(CaseRecord.ticket))
+        return await db.scalar(query)
+
     async def case_by_session(
         self,
         db: AsyncSession,

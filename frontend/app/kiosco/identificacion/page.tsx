@@ -23,6 +23,7 @@ export default function IdentificationPage() {
     retryVoice,
     reset,
     submitIdentification,
+    interruptSpeech,
     interactionMode,
   } = useKiosk()
   const [identifier, setIdentifier] = useState("")
@@ -43,8 +44,17 @@ export default function IdentificationPage() {
     }
   }, [connectVoice, hydrated, interactionMode, result, session, voiceState])
 
+  // Someone already typing their CI has heard enough. A person explaining the step would
+  // stop here rather than talk over them, and the sentence that follows -- the ticket and
+  // the window to go to -- is the one that matters.
+  function takeTheTurn(next: string) {
+    if (!identifier && next) interruptSpeech()
+    setIdentifier(next)
+  }
+
   async function identify(event: FormEvent) {
     event.preventDefault()
+    interruptSpeech()
     setSubmitting(true)
     setError(null)
     try {
@@ -113,7 +123,7 @@ export default function IdentificationPage() {
               disabled={submitting}
               maxLength={16}
               minLength={4}
-              onChange={(event) => setIdentifier(event.target.value.toUpperCase())}
+              onChange={(event) => takeTheTurn(event.target.value.toUpperCase())}
               pattern="[0-9]{4,12}(-[A-Za-z]{1,3})?"
               placeholder="Ej.: 6735666 o 6735666-SC"
               required

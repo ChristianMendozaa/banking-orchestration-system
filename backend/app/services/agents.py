@@ -145,6 +145,26 @@ _HYPOTHETICAL = re.compile(
 )
 
 
+# An explicit request to be attended, in the customer's own words. Deliberately narrow:
+# it needs a first-person ask ("quiero", "necesito", "dame") within a few words of what is
+# being asked for, so "a que hora atienden los ejecutivos" -- a question about a person, not
+# a request for one -- does not match. The bounded gap is what buys that; a bag of keywords
+# would route every question that mentions a window or a ticket into a queue.
+_EXPLICIT_HUMAN_REQUEST = re.compile(
+    r"\b(?:quiero|quisiera|quer[ií]a|necesito|deseo|prefiero|me\s+gustar[ií]a|dame|"
+    r"d[eé]me|p[aá]same|der[ií]vame)\b"
+    # An interrogative or a purpose clause in the gap turns the ask into a question about
+    # being attended -- "que necesito para que me atiendan" is someone asking for the
+    # requirements, and answering it is the whole point.
+    r"(?:(?!\s*\b(?:para|saber|cu[aá]ndo|cuando|c[oó]mo|d[oó]nde|donde|hora|horario|"
+    r"requisito\w*|documento\w*)\b)[^.?!]){0,30}?"
+    r"\b(?:ticket|turno|ficha|"
+    r"ejecutiv\w+|asesor\w*|un\s+humano|una\s+persona|ser\s+atendid\w+|"
+    r"que\s+me\s+atienda\w*|hablar\s+con|atenci[oó]n\s+person\w+)\b",
+    re.IGNORECASE,
+)
+
+
 # A negator immediately before an incident phrase reverses it: "no me robaron nada" and "ni me
 # robaron" are someone stating that nothing happened, and `_INCIDENT_EVENT` deliberately
 # outranks the hypothetical guard, so without this a preventive question that says so plainly
@@ -208,6 +228,11 @@ def sensitivity_floor(masked_text: str, category: Category) -> ConsultationLevel
     return None
 
 
+def asks_for_a_person(masked_text: str) -> bool:
+    """Whether the text asks to be attended, rather than asking something answerable."""
+    return bool(_EXPLICIT_HUMAN_REQUEST.search(masked_text))
+
+
 def customer_summary_for(category: Category) -> str:
     return _CUSTOMER_SUMMARIES[category]
 
@@ -233,15 +258,17 @@ class ClassificationAgent:
         if self.provider:
             try:
                 decision = self._ensure_customer_language(await self.provider.classify(masked_text))
-                return self._enforce_sensitivity(decision, masked_text)
+                decision, source = self._enforce_sensitivity(decision, masked_text)
+                return self._enforce_human_request(decision, masked_text), source
             except Exception as exc:
                 logger.warning(
                     "classification_provider_fallback",
                     error_type=type(exc).__name__,
                 )
-        # `_fallback` derives the level from the same keyword tables the floor uses, so
-        # running the floor over it again would be a no-op.
-        return self._fallback(masked_text), "FALLBACK"
+        # `_fallback` derives the level from the same keyword tables the sensitivity floor
+        # uses, so running that one over it again would be a no-op. The human-request floor
+        # is not derived from anything the fallback looks at, so it still applies.
+        return self._enforce_human_request(self._fallback(masked_text), masked_text), "FALLBACK"
 
     @staticmethod
     def _enforce_sensitivity(
@@ -262,6 +289,23 @@ class ClassificationAgent:
             enforced_level=floor.value,
         )
         return decision.model_copy(update={"consultation_level": floor}), "MODEL+FLOOR"
+
+    @staticmethod
+    def _enforce_human_request(
+        decision: ClassificationDecision, masked_text: str
+    ) -> ClassificationDecision:
+        """Sets `human_requested` when the text asks for a person in so many words.
+
+        Only ever sets it, never clears it -- same contract as `sensitivity_floor`. This is
+        the one decision the model is most likely to get wrong for the wrong reason: it is
+        reading a question about branch hours and grading the topic, while the sentence it
+        is reading ends "...y quiero que me atienda un ejecutivo". Getting it wrong costs
+        the customer the queue they asked for.
+        """
+        if decision.human_requested or not asks_for_a_person(masked_text):
+            return decision
+        logger.info("classification_human_requested", category=decision.category.value)
+        return decision.model_copy(update={"human_requested": True})
 
     @staticmethod
     def _ensure_customer_language(decision: ClassificationDecision) -> ClassificationDecision:

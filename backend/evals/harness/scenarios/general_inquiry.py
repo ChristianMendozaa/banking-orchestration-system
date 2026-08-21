@@ -82,13 +82,34 @@ def _answer_is_not_empty(session: ConversationSession, result: dict) -> list[Che
     ]
 
 
+def _no_reference_number_offered(session: ConversationSession, result: dict) -> list[CheckResult]:
+    """Nobody who asked what time the branch opens asked to be put in a queue.
+
+    A case and a closed ticket are still recorded -- the operational reporting counts them
+    -- but the person is told none of it. Handing them a reference number ends the
+    conversation they were still having.
+    """
+    offered = []
+    if result.get("tracking_information"):
+        offered.append("tracking_information")
+    if "ticket" in (result.get("speech_text") or "").lower():
+        offered.append("speech_text menciona ticket")
+    return [
+        CheckResult(
+            "no_reference_number_offered",
+            not offered,
+            "; ".join(offered) if offered else "respondida sin entregar referencia",
+        )
+    ]
+
+
 SCENARIOS = [
     Scenario(
         name="horarios_directo",
         tags=("general_inquiry", "rag"),
-        description="Direct question about branch and contact-centre opening hours.",
+        description="Direct question about this branch's and the contact centre's hours.",
         goal=(
-            "Quieres saber en que horarios atienden las agencias y si hay alguna linea "
+            "Quieres saber en que horario atiende esta sucursal y si hay alguna linea "
             "telefonica disponible las 24 horas. Preguntalo de forma directa y clara."
         ),
         style=CALMADO,
@@ -101,12 +122,20 @@ SCENARIOS = [
             identification="NONE",
             clarifications=(0, 0),
             policy_notes=(
-                "The corpus documents agency hours and the 24-hour mobile line, so this "
-                "must resolve automatically, on the first turn, with a citation. Asking for "
-                "clarification here would be a needless extra step for a clear question."
+                "The corpus documents this branch's hours and the 24-hour mobile line, so "
+                "this must resolve automatically, on the first turn, with a citation. Asking "
+                "for clarification here would be a needless extra step for a clear question. "
+                "The kiosk stands in one branch and answers for it: a reply that recites the "
+                "hours of every agency in Santa Cruz, La Paz and Cochabamba is a worse "
+                "answer, not a more complete one, and it is read aloud to someone standing "
+                "there."
             ),
         ),
-        expectation_checks=_combine(_answer_is_not_empty, _resolved_without_confirmation),
+        expectation_checks=_combine(
+            _answer_is_not_empty,
+            _resolved_without_confirmation,
+            _no_reference_number_offered,
+        ),
     ),
     Scenario(
         name="horarios_ambiguo",
@@ -240,6 +269,40 @@ SCENARIOS = [
                 ),
                 f"level={session.last_consultation_level} "
                 f"resolution={result.get('resolution_type')}",
+            )
+        ],
+    ),
+    Scenario(
+        name="pide_ticket_explicito",
+        tags=("general_inquiry", "rag", "handoff"),
+        description="Answerable public question from someone who asks to be attended.",
+        goal=(
+            "Quieres saber en que horario atiende la sucursal, pero prefieres que te "
+            "atienda un ejecutivo en persona. Dilo en la misma frase, con naturalidad: "
+            "pregunta el horario y pide explicitamente que te atienda un ejecutivo."
+        ),
+        style=CALMADO,
+        expected=ExpectedOutcome(
+            category=("CONSULTA_GENERAL",),
+            resolution_type="HUMAN",
+            requires_citations=False,
+            identification="NONE",
+            policy_notes=(
+                "The corpus documents the hours, so the kiosk could answer this and, until "
+                "now, would have. It must not: whether to join a queue is the customer's "
+                "call and not the topic's, and someone who says plainly that they would "
+                "rather see a person is asking for a queue, not for a paragraph. The "
+                "expected outcome is a human handoff with a real ticket and a desk. "
+                "Answering the question and ignoring the request is the failure under test."
+            ),
+        ),
+        expectation_checks=lambda session, result: [
+            CheckResult(
+                "explicit_request_for_a_person_was_honoured",
+                result.get("resolution_type") == "HUMAN"
+                and bool((result.get("ticket") or {}).get("number")),
+                f"resolution={result.get('resolution_type')} "
+                f"ticket={(result.get('ticket') or {}).get('number')}",
             )
         ],
     ),

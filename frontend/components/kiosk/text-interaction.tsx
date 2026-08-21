@@ -1,5 +1,6 @@
 "use client"
 
+import { AutomaticAnswer } from "@/components/kiosk/automatic-answer"
 import { useKiosk } from "@/components/providers/kiosk-provider"
 import { Button } from "@/components/ui/button"
 import { errorMessage } from "@/lib/api"
@@ -12,6 +13,7 @@ export function TextInteraction() {
     result,
     submitTextTurn,
     confirmText,
+    interruptSpeech,
     selectInteractionMode,
   } = useKiosk()
   const [message, setMessage] = useState("")
@@ -22,6 +24,7 @@ export function TextInteraction() {
     event.preventDefault()
     const text = message.trim()
     if (text.length < 2) return
+    interruptSpeech()
     setBusy(true)
     setError(null)
     try {
@@ -47,9 +50,11 @@ export function TextInteraction() {
   }
 
   const confirmation = analysis?.next_action === "CONFIRM"
+  const answered =
+    result?.next_action === "COMPLETE" && result.resolution_type === "AUTOMATIC"
   const assistantMessage =
     analysis?.speech_text ??
-    result?.speech_text ??
+    (answered ? "¿Te ayudo con algo más?" : result?.speech_text) ??
     "Hola, soy tu asistente virtual. Escribe brevemente qué necesitas resolver."
 
   return (
@@ -92,6 +97,12 @@ export function TextInteraction() {
           )}
         </section>
 
+        {answered && result && (
+          <div className="mt-6">
+            <AutomaticAnswer result={result} />
+          </div>
+        )}
+
         {confirmation ? (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
             <Button
@@ -124,7 +135,10 @@ export function TextInteraction() {
               id="text-request"
               maxLength={4000}
               minLength={2}
-              onChange={(event) => setMessage(event.target.value)}
+              onChange={(event) => {
+                if (!message && event.target.value) interruptSpeech()
+                setMessage(event.target.value)
+              }}
               placeholder="Escribe aquí sin incluir contraseñas, PIN, CVV ni números financieros completos."
               required
               value={message}

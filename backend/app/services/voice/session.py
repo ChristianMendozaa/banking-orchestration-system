@@ -16,6 +16,8 @@ import base64
 import contextlib
 import json
 import logging
+import time
+from dataclasses import dataclass, field
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -43,13 +45,12 @@ WELCOME_TEXT = "Hola, soy tu asistente virtual. ¿En qué puedo ayudarte hoy?"
 REASK_CONFIRMATION_TEXT = "Por favor, respóndeme claramente sí para confirmar o no para corregir."
 ERROR_TEXT = "No pude procesar tu solicitud en este momento. Inténtalo nuevamente."
 
-# How long a turn may run before the kiosk says something. Measured against the live
-# backend, and unchanged from the realtime implementation that preceded this one: a turn
-# that only classifies answers in about 2s, one that also retrieves and grounds takes 4-6s.
-# The threshold sits between them on purpose -- covering a two-second gap would delay an
-# answer that was already arriving, and it is the long silences that read as broken.
-WAITING_SPEECH_DELAY_SECONDS = 2.0
-WAITING_SPEECH_TEXT = "Un momento, estoy revisando eso."
+# How much of a spoken line is protected from barge-in. The microphone is open while the
+# kiosk talks, so the first fraction of every line reaches the recogniser through the
+# speakers before the browser's echo canceller has adapted to it. Long enough to cover that;
+# short enough that a customer who really does talk over the opening words is still heard on
+# their next breath.
+BARGE_IN_GRACE_SECONDS = 0.4
 
 # Statuses in which the microphone is closed. AWAITING_IDENTIFICATION is the important one:
 # the CI is typed into a protected field on screen and must never be dictated aloud. The
@@ -68,6 +69,10 @@ MUTED_STATUSES = {
 }
 
 
+class UpstreamClosed(RuntimeError):
+    """The transcription session ended while the customer was still being served."""
+
+
 def is_terminal(result: FlowResult) -> bool:
     """Whether this result ends the session.
 
@@ -75,6 +80,22 @@ def is_terminal(result: FlowResult) -> bool:
     have a second question, and the backend allows more than one case per session.
     """
     return result.next_action == "COMPLETE" and result.resolution_type != "AUTOMATIC"
+
+
+@dataclass
+class _Line:
+    """One sentence on its way to the speaker.
+
+    The id travels with the text. It used to live in a single `_active_speech_id` field
+    shared by every line, so an interruption arriving while one line was streaming and
+    another was queued behind it announced the cancellation of whichever id happened to be
+    in the field -- cancelling one sentence in the browser and silencing the other.
+    """
+
+    speech_id: str
+    text: str
+    cancelled: bool = False
+    spoken: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 class KioskVoiceSession:
@@ -97,15 +118,15 @@ class KioskVoiceSession:
         self.session_factory = session_factory
 
         self._transcripts: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
-        self._speech_lock = asyncio.Lock()
-        self._speech_task: asyncio.Task[None] | None = None
-        self._active_speech_id: str | None = None
+        self._speech: asyncio.Queue[_Line] = asyncio.Queue()
+        self._streaming: tuple[_Line, asyncio.Task[None]] | None = None
         self._spoken_transitions: set[str] = set()
         self._status = SessionStatus.CREATED
         self._requirement_id: UUID | None = None
         self._is_clarification = False
         self._closing = False
         self._upstream: Any = None
+        self._speaking_since: float | None = None
 
     # ---------------------------------------------------------------- lifecycle
 
@@ -114,12 +135,13 @@ class KioskVoiceSession:
             self._upstream = upstream
             await self._refresh_status()
             await self._set_state("listening")
-            self._speak_later(WELCOME_TEXT)
+            self._enqueue(WELCOME_TEXT)
 
             tasks = [
                 asyncio.create_task(self._pump_client(), name="voice-client"),
                 asyncio.create_task(self._pump_upstream(), name="voice-upstream"),
                 asyncio.create_task(self._drive_turns(), name="voice-turns"),
+                asyncio.create_task(self._speaker(), name="voice-speech"),
             ]
             try:
                 done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -170,14 +192,36 @@ class KioskVoiceSession:
     # ------------------------------------------------------------ upstream side
 
     async def _pump_upstream(self) -> None:
-        """Consume transcription events from OpenAI."""
+        """Consume transcription events from OpenAI.
+
+        Returning is not an ending. `_drive_turns` and `_speaker` loop forever and
+        `_pump_client` exits only when the customer disconnects, so this iterator running dry
+        -- the upstream transcription session dropping -- used to be the one way `run` could
+        return with no exception at all: `asyncio.wait` found nothing to re-raise, the
+        endpoint fell through, and the browser was told the visit was over by a socket that
+        closed 1000 with nothing in the log. It raises now, so the close carries 1011 and the
+        reason says which half failed.
+        """
         async for event in self._upstream:
             kind = getattr(event, "type", None)
             if kind == "input_audio_buffer.speech_started":
                 # Barge-in. The customer talking over the kiosk is the customer taking the
                 # turn, so the kiosk stops mid-sentence rather than finishing its line.
-                await self._cancel_speech()
-                await self._set_state("listening")
+                #
+                # Not while the microphone is closed, though. Audio appended upstream before
+                # the flow muted it can surface as a speech start seconds later, and acting
+                # on it there cancelled the line the customer was actually waiting for --
+                # the ticket, spoken just after they typed their CI.
+                #
+                # Nor in the first moments of a line. The microphone stays open while the
+                # kiosk speaks -- that is what makes barge-in possible -- so the speakers
+                # leak into it, and browser echo cancellation needs a little of the line
+                # before it converges. A speech start inside that window is the kiosk hearing
+                # itself far more often than it is a customer interrupting, and acting on it
+                # chops the sentence into the stutter this grace period exists to stop.
+                if self._status not in MUTED_STATUSES and not self._line_is_settling():
+                    await self._cancel_speech()
+                    await self._set_state("listening")
             elif kind == "conversation.item.input_audio_transcription.delta":
                 await self._send(
                     {
@@ -202,6 +246,7 @@ class KioskVoiceSession:
                 logger.warning("kiosk voice transcription failed: %s", event)
             elif kind == "error":
                 logger.error("kiosk voice upstream error: %s", event)
+        raise UpstreamClosed("the transcription session ended")
 
     # ----------------------------------------------------------------- the turn
 
@@ -214,56 +259,31 @@ class KioskVoiceSession:
             except Exception:
                 logger.exception("kiosk voice turn failed")
                 await self._send({"type": "error", "code": "TURN_FAILED", "message": ERROR_TEXT})
-                await self._say_now(ERROR_TEXT)
+                await self._say_now(ERROR_TEXT, supersede=True)
 
     async def _handle_transcript(self, item_id: str, transcript: str) -> None:
+        """Answer one customer turn.
+
+        Nothing is spoken between the transcript landing and the answer. A holding line used
+        to cover turns longer than two seconds, but the kiosk now classifies and grounds fast
+        enough that it mostly arrived as a second TTS round trip in front of an answer that
+        was already coming -- and because the answer could not be spoken until the holding
+        line had finished streaming, it made the wait it was covering for longer. The
+        `thinking` state on screen is the affordance now, and it costs no audio.
+        """
         if self._status in MUTED_STATUSES:
             return
         await self._record(item_id, "CUSTOMER", transcript)
         await self._set_state("thinking")
 
-        started = asyncio.Event()
-        waiting = asyncio.create_task(self._waiting_line(started))
-        try:
-            if (
-                self._status == SessionStatus.AWAITING_CONFIRMATION
-                and self._requirement_id is not None
-            ):
-                confirmed = explicit_confirmation(transcript)
-                if confirmed is None:
-                    await self._stop_waiting(waiting, started)
-                    await self._say_now(REASK_CONFIRMATION_TEXT)
-                    return
-                result = await self._confirm(confirmed)
-                await self._stop_waiting(waiting, started)
-                await self._apply_flow(result)
+        if self._status == SessionStatus.AWAITING_CONFIRMATION and self._requirement_id is not None:
+            confirmed = explicit_confirmation(transcript)
+            if confirmed is None:
+                await self._say_now(REASK_CONFIRMATION_TEXT)
                 return
-            analysis = await self._analyze(transcript)
-            await self._stop_waiting(waiting, started)
-            await self._apply_analysis(analysis)
-        finally:
-            await self._stop_waiting(waiting, started)
-
-    async def _waiting_line(self, started: asyncio.Event) -> None:
-        await asyncio.sleep(WAITING_SPEECH_DELAY_SECONDS)
-        started.set()
-        await self._say_now(WAITING_SPEECH_TEXT)
-
-    async def _stop_waiting(self, waiting: asyncio.Task[None], started: asyncio.Event) -> None:
-        """Retire the holding line before the answer is spoken, never after it.
-
-        Both go through `_speech_lock`, so a holding line still queued when the orchestrator
-        returns would play *after* the answer it was covering for -- the kiosk announcing it
-        is looking something up immediately after telling you the result. If it has not
-        started, it is cancelled and never heard. If it has, it is allowed to finish: it is
-        one short sentence, and cutting it off mid-word sounds worse than the second it
-        costs.
-        """
-        if waiting.done():
+            await self._apply_flow(await self._confirm(confirmed))
             return
-        if not started.is_set():
-            waiting.cancel()
-        await asyncio.gather(waiting, return_exceptions=True)
+        await self._apply_analysis(await self._analyze(transcript))
 
     async def _analyze(self, transcript: str) -> TurnAnalysisResponse:
         async with self.session_factory() as db:
@@ -310,7 +330,7 @@ class KioskVoiceSession:
         else:
             await self._set_state("listening")
 
-    async def _apply_flow(self, result: FlowResult) -> None:
+    async def _apply_flow(self, result: FlowResult, supersede: bool = False) -> None:
         key = _transition_key(result)
         self._requirement_id = result.requirement_id
         self._status = result.status
@@ -319,9 +339,12 @@ class KioskVoiceSession:
         await self._send({"type": "turn.result", "payload": _dump(result)})
         if key in self._spoken_transitions:
             return
-        self._spoken_transitions.add(key)
         await self._record(f"assistant-{uuid4().hex}", "ASSISTANT", result.speech_text)
-        await self._say_now(result.speech_text)
+        # Remembered only once it has actually been said. Marking it beforehand meant a line
+        # cut short by an interruption counted as spoken, so the resync that follows
+        # identification returned at the check above and the ticket was never announced.
+        if await self._say_now(result.speech_text, supersede=supersede):
+            self._spoken_transitions.add(key)
 
         if is_terminal(result):
             await self._finish()
@@ -338,45 +361,105 @@ class KioskVoiceSession:
 
     # ------------------------------------------------------------------ speech
 
-    def _speak_later(self, text: str) -> None:
-        self._speech_task = asyncio.create_task(self._say(text))
-
-    async def _say_now(self, text: str) -> None:
-        self._speech_task = asyncio.create_task(self._say(text))
-        with contextlib.suppress(asyncio.CancelledError):
-            await self._speech_task
-
-    async def _say(self, text: str) -> None:
-        """Stream one line as PCM16, framed so the browser knows where it starts and ends."""
+    def _enqueue(self, text: str) -> _Line | None:
+        """Put one line in line for the speaker. Nothing is spoken from the caller's task."""
         if self._closing or not text:
+            return None
+        line = _Line(speech_id=uuid4().hex, text=text)
+        self._speech.put_nowait(line)
+        return line
+
+    async def _say_now(self, text: str, supersede: bool = False) -> bool:
+        """Speak one line and wait for it. False if it was cut short and went unheard.
+
+        `supersede` is for a line that replaces what is being said rather than following it:
+        the customer typed their CI while the kiosk was still explaining the field, so the
+        explanation is now noise and the ticket is what they are waiting for. The ordinary
+        case is False -- a holding line already half-spoken is allowed to finish, because
+        cutting it mid-word sounds worse than the second it costs.
+        """
+        if supersede:
+            await self._cancel_speech()
+        line = self._enqueue(text)
+        if line is None:
+            return False
+        await line.spoken.wait()
+        return not line.cancelled
+
+    async def _speaker(self) -> None:
+        """One line at a time, in order.
+
+        Each line streams in its own task so that an interruption can cancel the sentence
+        without taking this loop down with it.
+        """
+        while True:
+            line = await self._speech.get()
+            if line.cancelled or self._closing:
+                line.spoken.set()
+                continue
+            task = asyncio.create_task(self._stream(line), name="voice-line")
+            self._streaming = (line, task)
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                # `_cancel_speech` leaves the task finished; anything else is this loop
+                # itself being torn down, and the line it was streaming goes with it.
+                if not task.done():
+                    task.cancel()
+                    raise
+            except Exception:
+                logger.exception("kiosk voice speech failed")
+            finally:
+                if self._streaming is not None and self._streaming[1] is task:
+                    self._streaming = None
+                line.spoken.set()
+
+    async def _stream(self, line: _Line) -> None:
+        """Stream one line as PCM16, framed so the browser knows where it starts and ends."""
+        if self._closing:
             return
-        speech_id = uuid4().hex
-        async with self._speech_lock:
-            if self._closing:
-                return
-            self._active_speech_id = speech_id
-            await self._send({"type": "speech.begin", "speech_id": speech_id, "text": text})
-            await self._set_state("speaking")
-            async for chunk in self.provider.stream_speech(text):
+        await self._send({"type": "speech.begin", "speech_id": line.speech_id, "text": line.text})
+        await self._set_state("speaking")
+        self._speaking_since = time.monotonic()
+        try:
+            async for chunk in self.provider.stream_speech(line.text):
                 await self.websocket.send_bytes(chunk)
-            # Cleared only on the way out of a line that actually finished. If this
-            # coroutine is cancelled mid-sentence -- which is what barge-in does -- the id
-            # has to survive for `_cancel_speech` to tell the browser which line to drop,
-            # and a cancelled coroutine cannot send that frame itself.
-            self._active_speech_id = None
-            await self._send({"type": "speech.end", "speech_id": speech_id})
+            await self._send({"type": "speech.end", "speech_id": line.speech_id})
+        finally:
+            self._speaking_since = None
+
+    def _line_is_settling(self) -> bool:
+        """Whether a line has only just started, and a speech start is probably its echo."""
+        started = self._speaking_since
+        return started is not None and time.monotonic() - started < BARGE_IN_GRACE_SECONDS
 
     async def _cancel_speech(self) -> None:
-        task, self._speech_task = self._speech_task, None
-        if task is not None and not task.done():
-            task.cancel()
-            # gather rather than await: a speech task that failed on its way out should not
-            # replace the interruption we are handling with its own exception.
-            await asyncio.gather(task, return_exceptions=True)
-        speech_id, self._active_speech_id = self._active_speech_id, None
-        if speech_id is not None and not self._closing:
-            # Sent from here rather than from the cancelled coroutine, which cannot do I/O.
-            await self._send({"type": "speech.cancel", "speech_id": speech_id})
+        """Stop what is being said and drop everything queued behind it.
+
+        Both halves matter. Cancelling only the streaming line leaves a queued one to start
+        playing over the customer who just interrupted; dropping only the queue leaves the
+        current sentence running. Each dropped line announces its own id, so the browser
+        discards that line's audio and nothing else.
+        """
+        dropped: list[_Line] = []
+        current, self._streaming = self._streaming, None
+        if current is not None:
+            line, task = current
+            if not task.done():
+                task.cancel()
+                # gather rather than await: a speech task that failed on its way out should
+                # not replace the interruption we are handling with its own exception.
+                await asyncio.gather(task, return_exceptions=True)
+            dropped.append(line)
+        while not self._speech.empty():
+            dropped.append(self._speech.get_nowait())
+        for line in dropped:
+            line.cancelled = True
+            line.spoken.set()
+            if not self._closing:
+                # Sent from here rather than from the cancelled coroutine, which cannot do
+                # I/O of its own.
+                await self._send({"type": "speech.cancel", "speech_id": line.speech_id})
 
     # ------------------------------------------------------------------ plumbing
 
@@ -399,7 +482,9 @@ class KioskVoiceSession:
             self._requirement_id = analysis.requirement_id
             self._is_clarification = analysis.next_action == "CLARIFY"
         if snapshot.result is not None and speak:
-            await self._apply_flow(snapshot.result)
+            # The step that just finished happened on screen, not out loud, so whatever the
+            # kiosk was still saying about it is stale the moment it lands here.
+            await self._apply_flow(snapshot.result, supersede=True)
         elif kiosk_session.status == SessionStatus.CREATED:
             await self._mark_listening()
 

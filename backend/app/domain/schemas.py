@@ -171,7 +171,11 @@ class KnowledgeCitation(BaseModel):
 
 
 class GroundedAnswerDecision(BaseModel):
-    answer: str = Field(min_length=1, max_length=1600)
+    # 1600 characters is roughly two minutes of synthesised speech. This answer is read
+    # aloud to someone standing at a kiosk, so the ceiling is a length a person will listen
+    # to rather than one a screen can hold: two or three sentences, which the prompt asks
+    # for and this makes binding.
+    answer: str = Field(min_length=1, max_length=400)
     supported: bool
     cited_chunk_ids: list[UUID] = Field(default_factory=list)
 
@@ -202,6 +206,11 @@ class ClassificationDecision(BaseModel):
     security_incident: bool = False
     distress_detected: bool = False
     out_of_scope: bool = False
+    # The customer asked for a person, not for an answer. Kept apart from every other
+    # signal here because it is the only one that is about what they want done rather than
+    # about what they need: a question the kiosk can answer is still answered, unless the
+    # person asking said they would rather be attended.
+    human_requested: bool = False
 
 
 class TraceEventOut(ORMModel):

@@ -62,6 +62,120 @@ async def test_general_query_is_masked_and_resolved_automatically(client: AsyncC
         assert "[EMAIL]" in requirement.masked_text
 
 
+async def test_an_answered_question_is_never_handed_a_reference_number(
+    client: AsyncClient,
+) -> None:
+    """The case and its closed ticket stay -- that is what the operational reporting counts
+    -- but nothing about them reaches the person who asked.
+
+    Someone who asked what time the branch opens did not ask to be put in a queue. Telling
+    them to keep a ticket number reads as the conversation being over and as a queue they
+    never joined, which is exactly what it looked like on screen.
+    """
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    turn = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={
+            "turn_id": str(uuid4()),
+            "transcript": "Quiero conocer el horario de atencion",
+        },
+    )
+    assert turn.status_code == 200, turn.text
+    result = turn.json()["result"]
+
+    assert result["resolution_type"] == "AUTOMATIC"
+    assert result["tracking_information"] is None
+    assert "ticket" not in result["speech_text"].lower()
+    # The record itself is untouched: the case is still closed against a ticket.
+    assert result["ticket"]["status"] == "CERRADO"
+    # And the conversation is left open rather than ended.
+    assert result["speech_text"].rstrip().endswith("¿Te ayudo con algo más?")
+
+
+async def test_asking_to_be_attended_is_honoured_over_answering_the_question(
+    client: AsyncClient,
+) -> None:
+    """A public question the kiosk could answer, from someone who said they would rather
+    see a person.
+
+    Before this, nothing in the system represented the difference. The classifier graded the
+    topic -- branch hours, CONSULTA_GENERAL, GENERAL -- retrieval succeeded, and the request
+    to be attended was answered with a policy paragraph. Whether to join a queue is the
+    customer's call, not the topic's.
+    """
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    turn = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={
+            "turn_id": str(uuid4()),
+            "transcript": (
+                "Quiero saber del horario de atencion, pero prefiero que me atienda un ejecutivo"
+            ),
+        },
+    )
+    assert turn.status_code == 200, turn.text
+    analysis = turn.json()
+    # Going to a person is the irreversible step confirmation exists in front of, so it is
+    # confirmed rather than done on the strength of one sentence.
+    assert analysis["next_action"] == "CONFIRM"
+
+    confirmation = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+        headers=headers,
+        json={"requirement_id": analysis["requirement_id"], "confirmed": True},
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    result = confirmation.json()
+    assert result["resolution_type"] == "HUMAN"
+    assert result["ticket"]["status"] == "PENDIENTE"
+    assert result["tracking_information"]
+
+    async with TestSession() as db:
+        requirement = await db.scalar(select(Requirement))
+        assert requirement is not None
+        # `create_case_for_requirement` copies this onto the case, and
+        # `finalize_nodes.eligibility_gate` reads it to skip retrieval entirely.
+        assert requirement.force_human is True
+
+
+async def test_asking_when_executives_attend_is_still_a_question(
+    client: AsyncClient,
+) -> None:
+    """The other half of the same rule.
+
+    Asking *about* being attended is public information and gets answered. A floor built out
+    of keywords would route every question that mentions an executive or a ticket into a
+    queue, which is the failure this is meant to remove, not create.
+    """
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    turn = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={
+            "turn_id": str(uuid4()),
+            "transcript": "Quiero saber a que hora atienden los ejecutivos en la sucursal",
+        },
+    )
+    assert turn.status_code == 200, turn.text
+    analysis = turn.json()
+    # Resolved on its own turn rather than confirmed: `human_requested` would have forced a
+    # confirmation step, because going to a person is not something to do on a guess.
+    assert analysis["next_action"] == "COMPLETE"
+
+    async with TestSession() as db:
+        requirement = await db.scalar(select(Requirement))
+        assert requirement is not None
+        assert requirement.force_human is False
+
+    # Whether the answer comes from the corpus or a person is the retrieval fixture's call
+    # and not this rule's, so it is deliberately not asserted here.
+
+
 async def test_replayed_turn_after_automatic_resolution_returns_the_same_result(
     client: AsyncClient,
 ) -> None:
@@ -125,6 +239,51 @@ async def test_follow_up_turn_after_automatic_resolution_opens_a_second_case(
         assert len({case.requirement_id for case in cases}) == 2
         tickets = list(await db.scalars(select(Ticket)))
         assert len(tickets) == 2
+
+
+async def test_a_request_needing_confirmation_after_earlier_answers_can_be_confirmed(
+    client: AsyncClient,
+) -> None:
+    """The third question in a session is still the customer's own question.
+
+    A requirement awaiting confirmation has no case yet -- the case is created when the "sí"
+    arrives -- but the guard that rejects a stale confirmation used to compare it against the
+    newest *case* in the session. Once a session could hold several, every automatic answer
+    left a case behind, so anyone who asked something answerable before asking for something
+    that needs confirming had their confirmation rejected as belonging to a previous request.
+    Ask about opening hours, ask about credit requirements, then ask for something a person
+    has to handle: the confirmation must be accepted.
+    """
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+
+    for transcript in (
+        "Quiero conocer el horario de atencion",
+        "Y cual es el horario los sabados",
+    ):
+        answered = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={"turn_id": str(uuid4()), "transcript": transcript},
+        )
+        assert answered.status_code == 200, answered.text
+        assert answered.json()["next_action"] == "COMPLETE"
+
+    asked = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Quiero denunciar un fraude en mi cuenta"},
+    )
+    assert asked.status_code == 200, asked.text
+    assert asked.json()["next_action"] == "CONFIRM"
+
+    confirmed = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+        headers=headers,
+        json={"requirement_id": asked.json()["requirement_id"], "confirmed": True},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["next_action"] != "COMPLETE" or confirmed.json()["resolution_type"]
 
 
 async def test_new_turn_after_human_handoff_is_rejected(client: AsyncClient) -> None:

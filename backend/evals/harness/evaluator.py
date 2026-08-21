@@ -109,6 +109,7 @@ class Evaluator:
                     self._sensitive_requires_identification(scenario, session, result),
                     self._sensitive_is_never_auto_resolved(scenario, session, result),
                     self._automatic_answers_are_cited(result),
+                    self._answers_do_not_hand_out_a_ticket(result),
                     self._citations_resolve(result),
                     self._no_evidence_routes_to_human(result),
                     self._human_result_is_actionable(result),
@@ -247,6 +248,29 @@ class Evaluator:
         citations = result.get("citations") or []
         return CheckResult(
             "automatic_answers_are_cited", len(citations) > 0, f"citations={len(citations)}"
+        )
+
+    def _answers_do_not_hand_out_a_ticket(self, result: dict) -> CheckResult:
+        """A question the kiosk answered is not a queue the customer joined.
+
+        The case and its closed ticket stay -- that is what the operational reporting counts
+        -- but nothing about them reaches the person who asked. Telling someone who wanted
+        the branch hours to keep a reference number reads as the conversation being over,
+        and it was the single loudest thing wrong with the answered path.
+        """
+        if result.get("resolution_type") != "AUTOMATIC":
+            return CheckResult.skip("answers_do_not_hand_out_a_ticket", "no fue automatico")
+        problems = []
+        if result.get("tracking_information"):
+            problems.append("la respuesta trae tracking_information")
+        speech = (result.get("speech_text") or "").lower()
+        for word in ("ticket", "turno", "ventanilla"):
+            if word in speech:
+                problems.append(f"lo hablado menciona '{word}'")
+        return CheckResult(
+            "answers_do_not_hand_out_a_ticket",
+            not problems,
+            "; ".join(problems) if problems else "respondida sin referencia ni turno",
         )
 
     def _citations_resolve(self, result: dict) -> CheckResult:

@@ -32,6 +32,12 @@ no deployment data or backup credentials live in code. Copy `.env.example` only 
 `.env` doesn't exist yet, and replace every marked value. Never publish
 `OPENAI_API_KEY`.
 
+`BRANCH_NAME` is where the kiosk thinks it is standing, and it is not only a heading on
+the screen: it is given to the model that writes grounded answers, which scopes a question
+about the branch, its schedule or its address to that one branch instead of reciting the
+whole network. Set it to the branch the machine is actually installed in. `get_settings()`
+is cached for the life of the process, so changing it takes a backend restart.
+
 - OpenAPI: `http://localhost:8000/docs`
 - Health: `http://localhost:8000/api/v1/health/ready`
 - Public configuration: `http://localhost:8000/api/v1/system/public-config`
