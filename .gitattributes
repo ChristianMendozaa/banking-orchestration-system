@@ -1,1 +1,4 @@
 *.pdf binary
+
+# Evaluation reports are generated artifacts and must not affect repository language statistics.
+backend/evals/reports/** linguist-generated=true
