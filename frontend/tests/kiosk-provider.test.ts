@@ -32,6 +32,13 @@ function result(
     executive: null,
     response: null,
     speech_text: "Mensaje",
+    speech_plan: {
+      intent: "HANDOFF",
+      facts: {},
+      verbatim: [],
+      guidance: "Cuéntale cómo sigue.",
+      fallback_text: "Mensaje",
+    },
     tracking_information: null,
     grounding_status: "NOT_APPLICABLE",
     citations: [],

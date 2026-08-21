@@ -250,9 +250,12 @@ Every run — live or `--rejudge` — is kept forever, not just the last one:
   straight to the run you actually want.
 - `reports/history.jsonl` gets one summary line appended — pass rate, average score, judge
   model, and each scenario's status and score.
-- All of `reports/` (the ledger, `runs/<run_id>/`, `index.html`) is git-tracked — a few KB
-  per run — specifically so the record of whether the kiosk is improving survives a fresh
-  clone.
+- None of `reports/` is git-tracked. It is generated output: every run adds dozens of files
+  and the dashboards are effectively binary, so committing them made the repo history a
+  record of how often the harness ran rather than of how the system changed. The trade is
+  real — the ledger no longer survives a fresh clone, so a machine that has never run the
+  harness starts with an empty trend — and it is worth making, because the trend is only
+  meaningful for whoever is actually iterating on that machine.
 - `reports/index.html` — a second dashboard, rebuilt from the ledger after every run —
   plots pass rate and average score over time (marking where the judge model changed, since
   scores from different judge models are not the same measurement), an average-score trend

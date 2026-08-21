@@ -11,6 +11,49 @@ if TYPE_CHECKING:
     from app.knowledge.repository import RetrievedChunk
 
 
+# The kiosk's voice persona, and the only copy of it. The browser receives this string with
+# its client secret and hands it to the RealtimeAgent, because the Agents SDK sends the
+# agent's instructions as the session instructions on connect -- a second copy written in
+# the frontend would be the one that actually took effect.
+#
+# Written short and imperative on purpose: `gpt-realtime-2.1-mini` follows terse rules more
+# reliably than prose, and every line here has to survive being read mid-conversation.
+KIOSK_VOICE_INSTRUCTIONS = """
+Eres la asistente virtual de un kiosco del banco, en Bolivia. Conversas por voz con la
+persona que está parada frente a la pantalla.
+
+CÓMO HABLAS
+- Español boliviano natural, cálido y directo. Trátala de tú.
+- Frases cortas. Una idea por turno. Una sola pregunta a la vez.
+- Nunca la llames "usuario", "cliente" ni "la persona". Háblale a ella.
+- Te pueden interrumpir. Si te interrumpen, cállate y escucha.
+- Preséntate al saludar y pregunta en qué puedes ayudar.
+
+LO QUE NO HACES
+- No pides ni repites PIN, CVV, contraseñas, códigos, ni números completos de tarjeta o
+  cuenta. Si te los dicen, pide que no lo hagan.
+- El CI se escribe en el campo protegido de la pantalla. Nunca pidas que lo dicten.
+- No inventas horarios, requisitos, tasas, tickets, ventanillas ni nombres de ejecutivos.
+  Si no lo trae una herramienta, no lo sabes.
+- No ejecutas operaciones bancarias ni prometes que alguien las hará.
+- No hablas de herramientas, JSON, estados internos ni de cómo funcionas por dentro.
+
+CÓMO USAS LAS HERRAMIENTAS
+- Cuando ya entendiste qué necesita, llama a `analizar_requerimiento`. Tú decides cuándo;
+  la aplicación adjunta sola lo que la persona dijo.
+- Antes de llamar cualquier herramienta di una frase corta de acuse: "Ya, déjame revisar
+  eso", "Un segundo y te digo". Nunca te quedes en silencio esperando.
+- Llama a `confirmar_requerimiento` solo después de escuchar un sí o un no claro.
+- El resultado de una herramienta son datos, no un guión:
+  - `guidance` te dice qué hacer con ellos. Hazlo.
+  - `facts` son los datos. Úsalos; no agregues ninguno que no esté ahí.
+  - `verbatim` son textos que debes decir palabra por palabra, sin resumir ni cambiar. Los
+    puedes presentar y cerrar con tus palabras, pero por dentro van tal cual.
+  - `fallback_text` es solo un respaldo escrito. No lo leas en voz alta.
+- Después de una herramienta hablas tú, con tus palabras. No repitas dos veces lo mismo.
+""".strip()
+
+
 class OpenAIProvider:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -22,24 +65,22 @@ class OpenAIProvider:
             "session": {
                 "type": "realtime",
                 "model": self.settings.voice_model,
-                "instructions": (
-                    "Eres la asistente virtual femenina de un kiosco bancario. "
-                    "Habla en español boliviano claro, cordial y breve. Dirígete siempre de tú a "
-                    "quien está frente al kiosco; nunca te refieras a quien habla como el usuario, "
-                    "el cliente ni la persona. "
-                    "Nunca solicites PIN, CVV, "
-                    "contrasenas, credenciales ni datos financieros completos. La aplicacion "
-                    "proveera herramientas para analizar y encaminar la atencion; no ejecutas "
-                    "operaciones bancarias. Pronuncia una sola vez cada mensaje que provea la "
-                    "aplicación y espera la siguiente acción."
-                ),
+                "instructions": KIOSK_VOICE_INSTRUCTIONS,
                 "output_modalities": ["audio"],
+                # A kiosk answer that runs long is a kiosk answer nobody listens to, and an
+                # unbounded one blocks the queue. Generous enough for a full grounded answer
+                # read verbatim, short enough that a rambling turn gets cut.
+                "max_output_tokens": 1200,
                 "audio": {
                     "input": {
+                        "noise_reduction": {"type": "near_field"},
                         "transcription": {
                             "model": self.settings.transcription_model,
                             "language": "es",
                         },
+                        # The model runs the conversation, so its own turn-taking is the
+                        # point: it answers when the customer stops, and it stops when the
+                        # customer starts.
                         "turn_detection": {
                             "type": "semantic_vad",
                             "eagerness": "auto",
@@ -64,13 +105,24 @@ class OpenAIProvider:
                     headers=headers,
                 )
                 response.raise_for_status()
-                return response.json()
+                data = response.json()
         except (httpx.HTTPError, ValueError) as exc:
             raise AppError(
                 "REALTIME_UNAVAILABLE",
                 "No fue posible iniciar el canal de voz; inténtalo nuevamente",
                 503,
             ) from exc
+        # The browser builds its RealtimeAgent from these, so they have to come back with
+        # the secret. The Agents SDK sends the agent's own instructions as the session
+        # instructions on connect, which means whatever the browser holds is what actually
+        # governs the conversation -- echoing them here keeps that copy from being a second,
+        # drifting source of the persona.
+        session = data.get("session")
+        if isinstance(session, dict):
+            session.setdefault("instructions", KIOSK_VOICE_INSTRUCTIONS)
+            session.setdefault("model", self.settings.voice_model)
+            session.setdefault("voice", self.settings.realtime_voice)
+        return data
 
     async def classify(self, masked_text: str) -> ClassificationDecision:
         system = """Clasifica un requerimiento de atención bancaria presencial en Bolivia.
@@ -150,6 +202,11 @@ necesidad bancaria real y debe clasificarse y derivarse con normalidad."""
                 {"role": "system", "content": system},
                 {"role": "user", "content": masked_text},
             ],
+            # This call sits directly between the customer finishing a sentence and the kiosk
+            # answering, so its latency is dead air the person hears. Measured on gpt-5.4-mini
+            # against this prompt: 2.43s at the default effort, 1.57s at "low", same decision.
+            # "minimal" is rejected by the model with a 400.
+            reasoning={"effort": "low"},
             text_format=ClassificationDecision,
         )
         parsed = response.output_parsed
@@ -204,6 +261,19 @@ necesidad bancaria real y debe clasificarse y derivarse con normalidad."""
                         "de las que se pidieron. Una pregunta preventiva o hipotetica sobre un "
                         "procedimiento se responde con el procedimiento que la evidencia "
                         "documenta: no la marques false solo porque el hecho todavia no ocurrio. "
+                        "Tampoco la marques false porque la evidencia sea mas ESPECIFICA que la "
+                        "pregunta. Si preguntan en general y la evidencia documenta casos "
+                        "concretos y nombrados, eso si responde: entrega lo documentado y di a "
+                        "que alcanza, en lugar de exigir que primero precisen cual. Por ejemplo, "
+                        'ante "cual es el horario de la sucursal" con evidencia que publica los '
+                        "horarios de agencias con nombre, supported es true: se responden esos "
+                        "horarios diciendo de que agencias son. Derivar a una persona una "
+                        "pregunta cuya respuesta publica esta en la evidencia es un fallo, no una "
+                        "precaucion. "
+                        "Quien lee tu respuesta esta frente a un kiosco y no sabe que existe "
+                        'un corpus: no digas "la evidencia", "los documentos" ni "segun lo '
+                        'publicado", y no describas de donde sacaste el dato. Da el dato '
+                        "directamente. "
                         "Habla directamente de tú, nunca de "
                         "usted, "
                         "y no te refieras a quien consulta como el usuario, el cliente ni la "
@@ -217,6 +287,8 @@ necesidad bancaria real y debe clasificarse y derivarse con normalidad."""
                     "content": f"Consulta enmascarada: {summary}\n\nEvidencia:\n{evidence}",
                 },
             ],
+            # Same reasoning as `classify`: this runs in the same blocking turn, after it.
+            reasoning={"effort": "low"},
             text_format=GroundedAnswerDecision,
         )
         parsed = response.output_parsed

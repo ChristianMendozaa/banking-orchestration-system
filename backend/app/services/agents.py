@@ -145,6 +145,25 @@ _HYPOTHETICAL = re.compile(
 )
 
 
+# A negator immediately before an incident phrase reverses it: "no me robaron nada" and "ni me
+# robaron" are someone stating that nothing happened, and `_INCIDENT_EVENT` deliberately
+# outranks the hypothetical guard, so without this a preventive question that says so plainly
+# was read as a theft report. The `\s+` matters: "No, me robaron la tarjeta" -- a comma, an
+# answer to a question rather than a negation -- must still count as an incident.
+_NEGATED_INCIDENT = re.compile(
+    r"\b(?:no|nunca|jam[aá]s|tampoco|ni)\s+(?:me\s+|se\s+me\s+)?$",
+    re.IGNORECASE,
+)
+
+
+def _reports_an_incident(masked_text: str) -> bool:
+    """True when the text describes an incident that is not being denied."""
+    return any(
+        not _NEGATED_INCIDENT.search(masked_text[max(0, match.start() - 40) : match.start()])
+        for match in _INCIDENT_EVENT.finditer(masked_text)
+    )
+
+
 def category_from_keywords(text: str) -> Category | None:
     """First matching rule wins, matching `_fallback`'s original `next(...)` order."""
     lowered = text.lower()
@@ -173,7 +192,7 @@ def sensitivity_floor(masked_text: str, category: Category) -> ConsultationLevel
         # A fraud report is, by definition, about this person's own money. A purely
         # informational question about fraud classifies as CONSULTA_GENERAL instead.
         return ConsultationLevel.SENSIBLE
-    if _INCIDENT_EVENT.search(masked_text):
+    if _reports_an_incident(masked_text):
         return ConsultationLevel.SENSIBLE
     preventive = bool(_HYPOTHETICAL.search(masked_text))
     if not preventive and _OWN_BANKING_OBJECT.search(masked_text):

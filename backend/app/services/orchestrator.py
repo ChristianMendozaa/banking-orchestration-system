@@ -24,6 +24,7 @@ from app.domain.schemas import (
     IdentificationRequest,
     KnowledgeCitation,
     SessionStatusResponse,
+    SpeechPlan,
     TicketResult,
     TurnAnalysisResponse,
     TurnRequest,
@@ -38,10 +39,9 @@ from app.services.graph.builder import confirmation_graph, identification_graph,
 from app.services.graph.state import GraphContext
 from app.services.pii import PIIMaskingService
 
-# Deterministic, not model-authored -- matches how every other customer-facing sentence the
-# kiosk speaks outside a grounded RAG answer is built (see _build_result below and
-# _CUSTOMER_SUMMARIES in agents.py). A declined turn never reaches a confirmation step, so
-# nothing here is generated per-request.
+# The written rendering of a declined turn, used by the text channel and as the voice
+# channel's `fallback_text`. The voice channel no longer reads it aloud: it gets
+# `_decline_plan()` below and words the refusal itself.
 DECLINE_SPEECH_TEXT = (
     "En este kiosco solo puedo ayudarte con bloqueo de tarjetas, reporte de fraude, "
     "solicitudes de crédito, banca digital y consultas generales del banco. Para eso no te "
@@ -67,6 +67,70 @@ _HANDOFF_REASONS = {
     ),
 }
 _URGENT_HANDOFF_REASSURANCE = " Este caso se está atendiendo como prioritario."
+
+
+# The services the kiosk can actually attend. Named as a fact rather than a fixed sentence
+# so the model can decline in its own words -- but it may not add to this list, which is why
+# it is passed as data and repeated in the guidance.
+_KIOSK_SCOPE = (
+    "bloqueo de tarjetas, reporte de fraude, solicitudes de crédito, banca digital y "
+    "consultas generales del banco"
+)
+
+# What belongs in `verbatim` and what belongs in `facts`.
+#
+# `verbatim` is checked by the client against what was actually spoken, so it can only hold
+# strings that survive that comparison as text: the grounded answer, the credential warning,
+# an executive's name, a window label. Numbers cannot go in it -- a model that says "tu
+# ticket es el cuarenta y dos" has done nothing wrong, and a substring check on "42" would
+# flag it and force a pointless re-read. The ticket number and the wait estimate therefore
+# travel in `facts` with guidance to state them exactly, and the ticket screen stays the
+# authoritative copy of both.
+
+
+# Split so the warning half can travel in `verbatim` on its own: the instruction to use the
+# protected field is a fact the model may reword, the prohibition is not.
+_IDENTIFICATION_WARNING = "No escribas contraseñas, PIN ni datos financieros."
+_IDENTIFICATION_SPEECH_TEXT = (
+    f"Para continuar, escribe tu CI en el campo protegido. {_IDENTIFICATION_WARNING}"
+)
+
+
+def _decline_plan() -> SpeechPlan:
+    return SpeechPlan(
+        intent="DECLINE",
+        facts={"alcance": _KIOSK_SCOPE},
+        guidance=(
+            "Dile con amabilidad que eso no lo puedes atender en este kiosco y nómbrale lo "
+            "que sí atiendes, tomándolo de `alcance`. No ofrezcas ningún servicio que no "
+            "esté en esa lista, no pidas confirmación y no sigas la conversación."
+        ),
+        fallback_text=DECLINE_SPEECH_TEXT,
+    )
+
+
+def _clarify_plan(question: str) -> SpeechPlan:
+    return SpeechPlan(
+        intent="CLARIFY",
+        facts={"pregunta": question},
+        guidance=(
+            "Haz esa pregunta con tus palabras, en una sola frase breve y cordial. No "
+            "preguntes nada más y no supongas la respuesta."
+        ),
+        fallback_text=question,
+    )
+
+
+def _confirm_plan(customer_summary: str, fallback_text: str) -> SpeechPlan:
+    return SpeechPlan(
+        intent="CONFIRM",
+        facts={"entendido": customer_summary},
+        guidance=(
+            "Confirma en una pregunta breve y natural que entendiste eso. No agregues "
+            "detalles que no estén en `entendido` y espera un sí o un no antes de seguir."
+        ),
+        fallback_text=fallback_text,
+    )
 
 
 class OrchestratorService:
@@ -135,6 +199,7 @@ class OrchestratorService:
             pii_types=requirement.pii_metadata.get("types", []),
             next_action="COMPLETE",
             speech_text=result.speech_text,
+            speech_plan=result.speech_plan,
             result=result,
         )
 
@@ -154,6 +219,7 @@ class OrchestratorService:
                 pii_types=requirement.pii_metadata.get("types", []),
                 next_action="DECLINE",
                 speech_text=DECLINE_SPEECH_TEXT,
+                speech_plan=_decline_plan(),
             )
         clarify = kiosk_session.status == SessionStatus.NEEDS_CLARIFICATION
         question = requirement.clarification_question if clarify else None
@@ -179,6 +245,11 @@ class OrchestratorService:
             pii_types=requirement.pii_metadata.get("types", []),
             next_action="CLARIFY" if clarify else "CONFIRM",
             speech_text=speech,
+            speech_plan=(
+                _clarify_plan(question)
+                if question
+                else _confirm_plan(requirement.customer_summary, speech)
+            ),
         )
 
     async def _lock_session(self, db: AsyncSession, session_id: UUID) -> KioskSession:
@@ -204,6 +275,15 @@ class OrchestratorService:
             customer_summary=requirement.customer_summary,
             priority=requirement.proposed_priority,
             speech_text="Cuéntame nuevamente qué necesitas.",
+            speech_plan=SpeechPlan(
+                intent="CAPTURE",
+                guidance=(
+                    "No entendiste bien lo que necesitaba. Pídele que te lo cuente otra "
+                    "vez, con calma y sin disculparte de más. No repitas el resumen que "
+                    "acaba de rechazar."
+                ),
+                fallback_text="Cuéntame nuevamente qué necesitas.",
+            ),
         )
 
     @staticmethod
@@ -220,9 +300,17 @@ class OrchestratorService:
             customer_summary=requirement.customer_summary,
             priority=requirement.proposed_priority,
             identification_status=case.identification_status,
-            speech_text=(
-                "Para continuar, escribe tu CI en el campo protegido. "
-                "No escribas contraseñas, PIN ni datos financieros."
+            speech_text=_IDENTIFICATION_SPEECH_TEXT,
+            speech_plan=SpeechPlan(
+                intent="IDENTIFY",
+                facts={"accion": "escribir su CI en el campo protegido de la pantalla"},
+                verbatim=[_IDENTIFICATION_WARNING],
+                guidance=(
+                    "Pídele que haga lo que dice `accion` y repite la advertencia de "
+                    "`verbatim` palabra por palabra. Nunca le pidas que dicte el CI en voz "
+                    "alta. Luego deja de hacer preguntas mientras escribe."
+                ),
+                fallback_text=_IDENTIFICATION_SPEECH_TEXT,
             ),
         )
 
@@ -325,15 +413,25 @@ class OrchestratorService:
                 title=ticket.executive.title,
                 window_number=ticket.executive.window_number,
             )
+        urgent_case = requirement.proposed_priority in {Priority.ALTO, Priority.CRITICO}
         if case.session.resolution_type == ResolutionType.AUTOMATIC:
             speech = case.session.final_response or "Tu consulta quedó resuelta."
+            plan = SpeechPlan(
+                intent="ANSWER",
+                # The answer is bound to the retrieved evidence and was already checked
+                # against it (`GroundedAnswerDecision.supported`). Rewording it would break
+                # that binding, so it is the one long string the model must reproduce.
+                verbatim=[speech],
+                guidance=(
+                    "Entrega la respuesta de `verbatim` tal cual, completa y sin resumirla "
+                    "ni agregarle datos. Puedes presentarla y cerrarla con tus palabras. "
+                    "Después pregúntale si necesita algo más y sigue escuchando."
+                ),
+                fallback_text=speech,
+            )
         elif assignment:
             reason = _HANDOFF_REASONS.get(case.category, "")
-            urgent = (
-                _URGENT_HANDOFF_REASSURANCE
-                if requirement.proposed_priority in {Priority.ALTO, Priority.CRITICO}
-                else ""
-            )
+            urgent = _URGENT_HANDOFF_REASSURANCE if urgent_case else ""
             wait_message = (
                 f" La espera estimada es de {ticket.estimated_wait_minutes} minutos."
                 if ticket.estimated_wait_minutes is not None
@@ -343,8 +441,41 @@ class OrchestratorService:
                 f"{reason}{urgent} Tu ticket es {ticket.number}. Dirígete a "
                 f"{assignment.window_number} con {assignment.name}.{wait_message}"
             )
+            facts = {
+                "motivo": reason,
+                "ticket": str(ticket.number),
+                "ventanilla": assignment.window_number,
+                "ejecutivo": assignment.name,
+            }
+            if ticket.estimated_wait_minutes is not None:
+                facts["espera_minutos"] = str(ticket.estimated_wait_minutes)
+            if urgent_case:
+                facts["prioritario"] = "sí"
+            plan = SpeechPlan(
+                intent="HANDOFF",
+                facts=facts,
+                verbatim=[assignment.window_number, assignment.name],
+                guidance=(
+                    "Explícale con tus palabras por qué lo derivas, usando `motivo`, y "
+                    "dale el número de ticket, la ventanilla y el nombre del ejecutivo "
+                    "exactamente como aparecen en `facts`. Si hay `espera_minutos`, "
+                    "menciónalo. Si hay `prioritario`, dile que su caso se atiende como "
+                    "prioritario. Despídete: a partir de aquí lo atiende una persona."
+                ),
+                fallback_text=speech,
+            )
         else:
             speech = f"Tu ticket es {ticket.number}. La asignación está pendiente."
+            plan = SpeechPlan(
+                intent="HANDOFF",
+                facts={"ticket": str(ticket.number), "asignacion": "pendiente"},
+                guidance=(
+                    "Dale el número de ticket exactamente como aparece y explícale que "
+                    "todavía no hay una ventanilla asignada, que espere a que lo llamen. "
+                    "No inventes un ejecutivo ni una ventanilla."
+                ),
+                fallback_text=speech,
+            )
         return FlowResult(
             session_id=session_id,
             requirement_id=case.requirement_id,
@@ -363,6 +494,7 @@ class OrchestratorService:
             executive=assignment,
             response=case.session.final_response,
             speech_text=speech,
+            speech_plan=plan,
             tracking_information=(
                 f"Conserva el ticket {ticket.number}. "
                 f"{self.settings.support_tracking_information.strip()}"

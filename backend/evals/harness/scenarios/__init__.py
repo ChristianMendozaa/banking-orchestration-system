@@ -1,6 +1,6 @@
 """The scenario catalog.
 
-41 scenarios across seven groups, assembled here so `--tag` and `--scenario` can select
+44 scenarios across eight groups, assembled here so `--tag` and `--scenario` can select
 across all of them and so a structural test can assert the catalog stays coherent.
 
 | Group | Tag | What it is for |
@@ -11,12 +11,14 @@ across all of them and so a structural test can assert the catalog stays coheren
 | Conversation flow | `flow` | Clarification limits, the correction loop, topic changes |
 | Accessibility | `accessibility` | Preferential attention, comprehension of difficult speech |
 | Adversarial | `adversarial` | Injection, out-of-scope transactions, credentials, hostility |
+| Transcription noise | `asr_noise` | Corrupted transcripts: no confident misroute |
 | Protocol | `protocol` | State-machine guards against the live PostgreSQL stack |
 """
 
 from harness.scenarios import (
     accessibility,
     adversarial,
+    asr_noise,
     card_and_fraud,
     conversation_flow,
     digital_and_credit,
@@ -37,6 +39,7 @@ SCENARIOS: list[Scenario] = [
     *conversation_flow.SCENARIOS,
     *accessibility.SCENARIOS,
     *adversarial.SCENARIOS,
+    *asr_noise.SCENARIOS,
     *protocol.SCENARIOS,
 ]
 
@@ -50,6 +53,7 @@ GROUP_ORDER = (
     "flow",
     "accessibility",
     "adversarial",
+    "asr_noise",
     "protocol",
 )
 
@@ -60,6 +64,7 @@ GROUP_LABELS = {
     "flow": "Conversation flow",
     "accessibility": "Accessibility",
     "adversarial": "Adversarial",
+    "asr_noise": "Transcription noise",
     "protocol": "Protocol",
 }
 
