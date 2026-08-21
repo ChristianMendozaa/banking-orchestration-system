@@ -77,6 +77,30 @@ class TurnRequest(BaseModel):
         return " ".join(value.split())
 
 
+class SpeechPlan(BaseModel):
+    """What the kiosk must convey on this step, and which parts of it are not the
+    realtime model's to reword.
+
+    The voice channel used to receive `speech_text` and be ordered to pronounce it
+    literally, which made a conversational model an expensive text-to-speech engine. It
+    now receives this instead: the facts the backend decided, one line of guidance, and
+    the exact strings that carry operational or legal weight. Everything else -- greeting,
+    acknowledgement, phrasing, register -- belongs to the model.
+
+    `fallback_text` is the sentence `speech_text` carries, kept so the text channel and
+    any client that cannot compose speech still have something correct to show.
+    """
+
+    intent: Literal["CLARIFY", "CONFIRM", "DECLINE", "CAPTURE", "IDENTIFY", "ANSWER", "HANDOFF"]
+    facts: dict[str, str] = Field(default_factory=dict)
+    # Strings the model must reproduce word for word: a ticket number, a window, an
+    # executive's name, the grounded answer, the credential-entry warning. The client
+    # verifies these against what was actually spoken.
+    verbatim: list[str] = Field(default_factory=list)
+    guidance: str
+    fallback_text: str
+
+
 class TurnAnalysisResponse(BaseModel):
     requirement_id: UUID
     status: SessionStatus
@@ -90,6 +114,7 @@ class TurnAnalysisResponse(BaseModel):
     pii_types: list[str] = Field(default_factory=list)
     next_action: Literal["CLARIFY", "CONFIRM", "DECLINE", "COMPLETE"]
     speech_text: str
+    speech_plan: SpeechPlan
     result: "FlowResult | None" = None
 
 
@@ -161,6 +186,7 @@ class FlowResult(BaseModel):
     executive: ExecutiveAssignment | None = None
     response: str | None = None
     speech_text: str
+    speech_plan: SpeechPlan
     tracking_information: str | None = None
     grounding_status: GroundingStatus = GroundingStatus.NOT_APPLICABLE
     citations: list["KnowledgeCitation"] = Field(default_factory=list)

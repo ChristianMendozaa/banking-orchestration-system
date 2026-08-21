@@ -40,7 +40,7 @@ The kiosk and staff applications are built from the same Next.js image but run a
 
 ## Key capabilities
 
-- **Voice-first accessible interaction** through OpenAI Realtime, with Spanish transcription, interruptions, short-lived browser credentials, live captions, and an always-available text alternative. What the backend classifies is the session's own audio transcription, never the realtime model's retelling of it.
+- **Voice-first accessible interaction** through OpenAI Realtime, with Spanish transcription, barge-in at any point including while a lookup runs, short-lived browser credentials, live captions, and an always-available text alternative. The model holds the conversation and words it itself; the backend decides the outcome. What gets classified is the session's own audio transcription, never the realtime model's retelling of it.
 - **Privacy-first processing** that masks card numbers, account numbers, phone numbers, customer identifiers, monetary values, and names before classification or retrieval.
 - **Structured request understanding** across card blocking, fraud reporting, general inquiries, credit requests, and digital banking.
 - **Confirmation where confirmation is worth its cost**: a general question the kiosk is about to answer itself resolves in one turn, while anything personalized, sensitive, or flagged as a risk still has its summary read back before a case exists. Clarification and correction loops are bounded and idempotent per `turn_id`.
@@ -120,9 +120,13 @@ flowchart LR
 
 ## Customer journey
 
-The backend owns the business state machine. The realtime agent provides the conversational channel, while controlled tools delegate analysis, confirmation, identification, retrieval, and ticket creation to the API.
+The backend owns the business state machine. The realtime agent holds the conversation, and its tools delegate analysis, confirmation, identification, retrieval, and ticket creation to the API.
 
-The realtime agent decides *when* a request has been stated; it never decides *what* was said. The transcript submitted with each turn is taken from the voice session's own Spanish transcription, which is also what the live captions show, so the text that gets masked, classified, prioritized and routed is the same text the customer sees on screen. Everything the kiosk speaks is likewise a controlled response over text the backend produced — the model is never asked to compose customer-facing wording.
+The division is between deciding and speaking. Every decision is the backend's: PII masking, classification, priority, the clarification budget, whether identification is required, what the evidence supports, which executive gets the case. Every sentence is the model's — it greets, acknowledges, asks, confirms, and covers its own pauses while a lookup runs, all in its own words. A tool result is not a line to read out; it is a `SpeechPlan` carrying the facts the backend decided, one line of guidance, and the strings that must survive word for word. Those strings are the ones that carry operational weight: an executive's name, a window, the credential-entry warning, and the grounded answer, which is bound to its citations and is never re-composed. The client checks that they were actually spoken and spends at most one correction on it.
+
+The agent decides *when* a request has been stated; it never decides *what* was said. `analizar_requerimiento` takes no arguments at all — the transcript comes from the voice session's own Spanish transcription, which is also what the live captions show, so the text that gets masked, classified, prioritized and routed is the same text the customer sees on screen, and there is no field for the model to retype it into.
+
+The microphone is closed in exactly two places: while the customer types their identity-card number into the protected field, and after a case has passed to a person. Everywhere else — including the several seconds a classification or a retrieval takes — it stays live, so the customer can interrupt, correct, or add something mid-turn.
 
 ```mermaid
 sequenceDiagram
@@ -920,17 +924,19 @@ the clarification and correction loops, preferential attention, adversarial inpu
 noise, and the state-machine guards.
 
 **What this harness does not measure.** It drives the kiosk's REST contract with written text.
-It never opens a Realtime session, never produces or consumes audio, and never plays a
-`speech_text` line, so it grades the orchestrator rather than the kiosk a customer speaks to. A
-high score here is not evidence that the voice layer works. Three things narrow that gap: the
+It never opens a Realtime session, never produces or consumes audio, and never hears a spoken
+turn, so it grades the orchestrator rather than the kiosk a customer speaks to — in particular
+it never exercises the `SpeechPlan` the voice channel actually receives, only the `speech_text`
+the written channel does. A high score here is not evidence that the voice layer works. Three things narrow that gap: the
 `asr_noise` group feeds transcripts corrupted the way a Spanish speech recogniser corrupts them,
 so a mangled sentence has to be questioned rather than confidently routed; every scorecard
 carries per-operation latency percentiles, so a fast score cannot hide a slow kiosk; and
 `make transcript-fidelity` audits real voice sessions after the fact, comparing what the
 transcription recorded against what the classifier was actually given. Each run produces a markdown scorecard, a JSON dump and a self-contained
-HTML dashboard, all kept forever under `backend/evals/reports/runs/<run_id>/` -- there is no
-`reports/latest.*` alias; each run's directory is the only copy of it. Every run also appends a
-summary line to the git-tracked `reports/history.jsonl` ledger and rebuilds `reports/index.html`,
+HTML dashboard, all kept under `backend/evals/reports/runs/<run_id>/` -- there is no
+`reports/latest.*` alias; each run's directory is the only copy of it. None of it is
+git-tracked: the reports are generated output and live only on the machine that ran them. Every run also appends a
+summary line to the `reports/history.jsonl` ledger and rebuilds `reports/index.html`,
 a second dashboard showing pass rate and score trends across every run ever made, including a
 scenario-by-run matrix that tells "fixed and stayed fixed" apart from "flaky" -- see
 [Keeping this affordable](backend/evals/README.md#keeping-this-affordable) and

@@ -8,7 +8,7 @@ from app.api.deps import get_openai_provider
 from app.db.models import KioskSession
 from app.domain.enums import SessionStatus
 from app.main import app
-from app.services.openai_provider import OpenAIProvider
+from app.services.openai_provider import KIOSK_VOICE_INSTRUCTIONS, OpenAIProvider
 from tests.conftest import TestSession
 
 
@@ -104,12 +104,15 @@ async def test_realtime_session_enables_conversation_and_interruptions(
     await OpenAIProvider(configured).create_realtime_client_secret("session-test")
     session = captured["json"]["session"]
     turn_detection = session["audio"]["input"]["turn_detection"]
-    assert session["model"] == "gpt-realtime-2.1"
+    assert session["model"] == "gpt-realtime-2.1-mini"
     assert session["output_modalities"] == ["audio"]
     assert session["audio"]["input"]["transcription"]["model"] == "gpt-realtime-whisper"
     assert session["audio"]["output"]["voice"] == "marin"
-    assert "Dirígete siempre de tú" in session["instructions"]
-    assert "pronúncialo una sola vez" in session["instructions"]
+    assert "Trátala de tú" in session["instructions"]
+    # The model composes what it says; it is never handed a sentence to read out. These two
+    # lines are what makes the tool results facts rather than a script.
+    assert "no un guión" in session["instructions"]
+    assert "No lo leas en voz alta" in session["instructions"]
     assert turn_detection == {
         "type": "semantic_vad",
         "eagerness": "auto",
@@ -117,3 +120,41 @@ async def test_realtime_session_enables_conversation_and_interruptions(
         "interrupt_response": True,
     }
     assert captured["url"].endswith("/v1/realtime/client_secrets")
+
+
+async def test_realtime_secret_returns_the_persona_the_browser_must_apply(
+    monkeypatch, settings
+) -> None:
+    """The Agents SDK sends the RealtimeAgent's own instructions as the session
+    instructions on connect, so whatever the browser holds is what actually governs the
+    conversation. The browser therefore builds its agent from this field rather than from
+    a second copy of the persona written in the frontend -- if it stops coming back, the
+    kiosk silently reverts to whatever the SDK defaults to."""
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"value": "ephemeral", "session": {}}
+
+    class FakeHTTPClient:
+        def __init__(self, **_):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def post(self, *_, **__):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.services.openai_provider.httpx.AsyncClient", FakeHTTPClient)
+    configured = settings.model_copy(update={"openai_api_key": SecretStr("test-key")})
+    data = await OpenAIProvider(configured).create_realtime_client_secret("session-test")
+
+    assert data["session"]["instructions"] == KIOSK_VOICE_INSTRUCTIONS
+    assert data["session"]["model"] == "gpt-realtime-2.1-mini"
+    assert data["session"]["voice"] == "marin"

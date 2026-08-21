@@ -3,8 +3,13 @@ import type { KioskSession } from "@/lib/types"
 
 export interface RealtimeSecret {
   value: string
+  // The backend echoes the persona, model and voice it minted the secret with. The browser
+  // builds its RealtimeAgent from these rather than holding a second copy -- see
+  // KIOSK_VOICE_INSTRUCTIONS in backend/app/services/openai_provider.py.
   session?: {
     model?: string
+    instructions?: string
+    voice?: string
   } | null
 }
 

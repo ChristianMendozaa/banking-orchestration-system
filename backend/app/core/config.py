@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     metrics_token: SecretStr = SecretStr("")
 
     openai_api_key: SecretStr = SecretStr("")
-    voice_model: str = "gpt-realtime-2.1"
+    voice_model: str = "gpt-realtime-2.1-mini"
     transcription_model: str = "gpt-realtime-whisper"
     orchestration_model: str = "gpt-5.4-mini"
     embedding_model: str = "text-embedding-3-small"

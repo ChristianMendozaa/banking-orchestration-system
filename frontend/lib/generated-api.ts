@@ -711,6 +711,7 @@ export interface components {
              * Format: uuid
              */
             session_id: string;
+            speech_plan: components["schemas"]["SpeechPlan"];
             /** Speech Text */
             speech_text: string;
             status: components["schemas"]["SessionStatus"];
@@ -1133,6 +1134,37 @@ export interface components {
             session_id: string;
             status: components["schemas"]["SessionStatus"];
         };
+        /**
+         * SpeechPlan
+         * @description What the kiosk must convey on this step, and which parts of it are not the
+         *     realtime model's to reword.
+         *
+         *     The voice channel used to receive `speech_text` and be ordered to pronounce it
+         *     literally, which made a conversational model an expensive text-to-speech engine. It
+         *     now receives this instead: the facts the backend decided, one line of guidance, and
+         *     the exact strings that carry operational or legal weight. Everything else -- greeting,
+         *     acknowledgement, phrasing, register -- belongs to the model.
+         *
+         *     `fallback_text` is the sentence `speech_text` carries, kept so the text channel and
+         *     any client that cannot compose speech still have something correct to show.
+         */
+        SpeechPlan: {
+            /** Facts */
+            facts?: {
+                [key: string]: string;
+            };
+            /** Fallback Text */
+            fallback_text: string;
+            /** Guidance */
+            guidance: string;
+            /**
+             * Intent
+             * @enum {string}
+             */
+            intent: "CLARIFY" | "CONFIRM" | "DECLINE" | "CAPTURE" | "IDENTIFY" | "ANSWER" | "HANDOFF";
+            /** Verbatim */
+            verbatim?: string[];
+        };
         /** TicketAssignmentUpdate */
         TicketAssignmentUpdate: {
             /** Executive Id */
@@ -1349,6 +1381,7 @@ export interface components {
              */
             requirement_id: string;
             result?: components["schemas"]["FlowResult"] | null;
+            speech_plan: components["schemas"]["SpeechPlan"];
             /** Speech Text */
             speech_text: string;
             status: components["schemas"]["SessionStatus"];

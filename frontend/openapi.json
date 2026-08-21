@@ -466,6 +466,9 @@
             "title": "Session Id",
             "type": "string"
           },
+          "speech_plan": {
+            "$ref": "#/components/schemas/SpeechPlan"
+          },
           "speech_text": {
             "title": "Speech Text",
             "type": "string"
@@ -500,7 +503,8 @@
           "requirement_id",
           "status",
           "next_action",
-          "speech_text"
+          "speech_text",
+          "speech_plan"
         ],
         "title": "FlowResult",
         "type": "object"
@@ -1653,6 +1657,53 @@
         "title": "SessionStatusResponse",
         "type": "object"
       },
+      "SpeechPlan": {
+        "description": "What the kiosk must convey on this step, and which parts of it are not the\nrealtime model's to reword.\n\nThe voice channel used to receive `speech_text` and be ordered to pronounce it\nliterally, which made a conversational model an expensive text-to-speech engine. It\nnow receives this instead: the facts the backend decided, one line of guidance, and\nthe exact strings that carry operational or legal weight. Everything else -- greeting,\nacknowledgement, phrasing, register -- belongs to the model.\n\n`fallback_text` is the sentence `speech_text` carries, kept so the text channel and\nany client that cannot compose speech still have something correct to show.",
+        "properties": {
+          "facts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Facts",
+            "type": "object"
+          },
+          "fallback_text": {
+            "title": "Fallback Text",
+            "type": "string"
+          },
+          "guidance": {
+            "title": "Guidance",
+            "type": "string"
+          },
+          "intent": {
+            "enum": [
+              "CLARIFY",
+              "CONFIRM",
+              "DECLINE",
+              "CAPTURE",
+              "IDENTIFY",
+              "ANSWER",
+              "HANDOFF"
+            ],
+            "title": "Intent",
+            "type": "string"
+          },
+          "verbatim": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Verbatim",
+            "type": "array"
+          }
+        },
+        "required": [
+          "intent",
+          "guidance",
+          "fallback_text"
+        ],
+        "title": "SpeechPlan",
+        "type": "object"
+      },
       "TicketAssignmentUpdate": {
         "properties": {
           "executive_id": {
@@ -2362,6 +2413,9 @@
               }
             ]
           },
+          "speech_plan": {
+            "$ref": "#/components/schemas/SpeechPlan"
+          },
           "speech_text": {
             "title": "Speech Text",
             "type": "string"
@@ -2384,7 +2438,8 @@
           "consultation_level",
           "confidence",
           "next_action",
-          "speech_text"
+          "speech_text",
+          "speech_plan"
         ],
         "title": "TurnAnalysisResponse",
         "type": "object"

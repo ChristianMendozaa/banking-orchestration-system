@@ -11,10 +11,11 @@ debito", the transcription recorded exactly that, and the requirement was classi
 sentence into its tool call instead of the application passing the transcription through.
 The orchestrator then behaved correctly on a sentence nobody had said.
 
-That is now fixed at the source (`frontend/components/providers/kiosk-provider.tsx` resolves
-the transcript from the session's captions), and this script is the standing check that it
-stays fixed. It reads live sessions -- no audio harness, no synthetic scenarios -- so it
-works against real branch traffic as well as a local run.
+That is now impossible at the source: `analizar_requerimiento` takes no arguments, so the
+only transcript that exists is the session's own transcription (see
+`frontend/lib/kiosk-realtime-agent.ts`). This script is the standing check that it stays that
+way. It reads live sessions -- no audio harness, no synthetic scenarios -- so it works against
+real branch traffic as well as a local run.
 
 Usage: `uv run python scripts/check_transcript_fidelity.py [--since-hours 24]`
 Exits non-zero when any turn diverges.
