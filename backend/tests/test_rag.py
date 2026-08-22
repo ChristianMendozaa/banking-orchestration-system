@@ -103,8 +103,8 @@ async def test_no_semantic_evidence_is_logged_and_routes_to_human() -> None:
 
 async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
     class InvalidCitationProvider:
-        async def embedding(self, text):
-            return await fake_provider.embedding(text)
+        async def embeddings(self, texts):
+            return await fake_provider.embeddings(texts)
 
         async def grounded_answer(self, _query, _chunks):
             return GroundedAnswerDecision(
@@ -128,6 +128,94 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
     assert answer is None
     assert interaction is not None
     assert interaction.outcome == "INVALID_GROUNDING"
+
+
+async def test_alternative_phrasings_are_searched_in_one_embedding_call() -> None:
+    """The retry ladder this replaced paid a full embedding + retrieval + grounded-answer
+    cycle per phrasing, inside the request a customer is waiting on. The phrasings were only
+    ever alternative *search keys* for one question, so they now go out together: one batched
+    embeddings call, one merged result set, one grounding call.
+
+    Pinned on the case that used to need the ladder -- a question whose own wording retrieves
+    nothing, rescued by a sharper variant -- because that is the path where collapsing the
+    ladder could have silently lost an answer."""
+
+    class CountingProvider:
+        def __init__(self) -> None:
+            self.embedding_calls: list[list[str]] = []
+            self.grounding_calls: list[str] = []
+
+        async def embeddings(self, texts: list[str]) -> list[list[float]]:
+            self.embedding_calls.append(list(texts))
+            return await fake_provider.embeddings(texts)
+
+        async def grounded_answer(self, query: str, chunks):
+            self.grounding_calls.append(query)
+            return await fake_provider.grounded_answer(query, chunks)
+
+    provider = CountingProvider()
+    service = KnowledgeService(settings_for_tests, provider)
+    vague = "Necesita ayuda con algo que todavia no describe"
+    sharp = "Necesita el horario de atencion de la sucursal"
+
+    async with TestSession() as db:
+        # The vague phrasing on its own retrieves nothing: it is the NO_EVIDENCE the first
+        # rung of the old ladder produced before any retry ran.
+        assert (
+            await service.answer(
+                db, case_id=None, category=Category.CONSULTA_GENERAL, masked_query=vague
+            )
+            is None
+        )
+        provider.embedding_calls.clear()
+        provider.grounding_calls.clear()
+
+        answer = await service.answer(
+            db,
+            case_id=None,
+            category=Category.CONSULTA_GENERAL,
+            masked_query=vague,
+            retrieval_queries=[vague, sharp],
+        )
+
+    assert answer is not None
+    assert provider.embedding_calls == [[vague, sharp]]
+    # The variants widen the *search*; the question asked stays the one that was asked.
+    assert provider.grounding_calls == [vague]
+
+
+async def test_retrieval_queries_are_deduplicated_and_default_to_the_question() -> None:
+    """`attempt_grounding` builds the variants unconditionally, so the common single-need
+    turn hands over the same string two or three times. Embedding a duplicate would be paid
+    tokens for a vector we already have."""
+
+    class CountingProvider:
+        def __init__(self) -> None:
+            self.embedding_calls: list[list[str]] = []
+
+        async def embeddings(self, texts: list[str]) -> list[list[float]]:
+            self.embedding_calls.append(list(texts))
+            return await fake_provider.embeddings(texts)
+
+        async def grounded_answer(self, query: str, chunks):
+            return await fake_provider.grounded_answer(query, chunks)
+
+    question = "Necesita el horario de atencion"
+    provider = CountingProvider()
+    service = KnowledgeService(settings_for_tests, provider)
+    async with TestSession() as db:
+        await service.answer(
+            db,
+            case_id=None,
+            category=Category.CONSULTA_GENERAL,
+            masked_query=question,
+            retrieval_queries=[question, question, "  "],
+        )
+        await service.answer(
+            db, case_id=None, category=Category.CONSULTA_GENERAL, masked_query=question
+        )
+
+    assert provider.embedding_calls == [[question], [question]]
 
 
 def test_principal_need_splits_a_multi_need_summary() -> None:

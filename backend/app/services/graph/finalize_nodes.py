@@ -85,66 +85,67 @@ def eligibility_gate(state: OrchestrationState) -> str:
 
 
 async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
+    """One retrieval round, searched with every phrasing of the question worth searching.
+
+    This used to be a ladder: try the summary, and if that failed try the clarification
+    alone, and if that failed try the principal need alone -- each rung a full embedding +
+    retrieval + grounded-answer cycle, up to three of them inside the HTTP request the
+    customer is waiting on. The eval run of 2026-08-19 measured general questions at
+    4.0-5.8s of backend time for exactly this reason, and the questions that paid all three
+    rungs were public-information ones that should be the fastest thing the kiosk does.
+
+    The rungs were never really disagreeing about *what was asked*, though -- they were
+    disagreeing about what to search with. `masked_text` across a clarification round is
+    "<vague opener>\nAclaracion: <real question>", and the summary written from it carries
+    the opener; a multi-need summary carries a trailing clause about the need being
+    deferred. Both pull the retrieval vector off the question. So they are now what they
+    always were: alternative search keys for one question, embedded in a single batched
+    request and merged by score (see `KnowledgeService.answer`).
+    """
     case = state["case"]
     requirement = state["requirement"]
     # The classifier's own single-need restatement is a sharper retrieval query than the raw
-    # masked transcript -- across a clarification round masked_text is
-    # "<vague opener>\nAclaracion: <real question>", which dilutes the embedding toward the
-    # opener. summary is already masked (the classification prompt forbids it reconstructing
-    # masked data), so it is safe to embed directly; fall back to masked_text if it is empty.
-    grounding_query = requirement.summary.strip() or requirement.masked_text
+    # masked transcript. summary is already masked (the classification prompt forbids it
+    # reconstructing masked data), so it is safe to embed directly; fall back to masked_text
+    # if it is empty.
+    primary = requirement.summary.strip() or requirement.masked_text
+    retrieval_queries = [primary]
+    if CLARIFICATION_JOINER in requirement.masked_text:
+        # `horarios_ambiguo` asked a clean question about branch hours on turn 2 and came
+        # back NO_EVIDENCE while `horarios_directo`, the same question in one turn, grounded
+        # with five citations. The clarification alone is the sharper key there.
+        clarification = requirement.masked_text.rsplit(CLARIFICATION_JOINER, 1)[1].strip()
+        if clarification:
+            retrieval_queries.append(clarification)
+    # The classification prompt asks for a summary that names the principal need and then
+    # says which one is deferred. That trailing clause is what the executive needs and noise
+    # for pgvector -- and, unlike the clarification, it also misstates the question: asking
+    # the grounder to answer "el horario, y queda pendiente un problema no descrito" invites
+    # the unsupported verdict that sent a branch-hours question to a person on 2026-08-19.
+    # So the principal need, when there is one, becomes the question and not just a key.
+    principal = principal_need(primary)
+    if principal:
+        retrieval_queries.append(principal)
+    question = principal or primary
+
+    if len(retrieval_queries) > 1:
+        runtime.context.db.add(
+            TraceEvent(
+                case_id=case.id,
+                event_type="RAG_MULTI_QUERY_RETRIEVAL",
+                description="Recuperacion ampliada con frases alternativas de la consulta",
+                metadata_json={"queries": retrieval_queries},
+            )
+        )
+
     grounded_response = await runtime.context.initial_attention.run(
         runtime.context.db,
         case.id,
         case.category,
         case.consultation_level,
-        grounding_query,
+        question,
+        retrieval_queries,
     )
-    if grounded_response is None and CLARIFICATION_JOINER in requirement.masked_text:
-        # The summary is written from `mask_pii`'s "<vague opener>\nAclaracion: <real
-        # question>" context, so across a clarification round it can still carry enough of
-        # the opener to pull the embedding away from what was actually asked --
-        # `horarios_ambiguo` asked a clean question about branch hours on turn 2 and came
-        # back NO_EVIDENCE while `horarios_directo`, the same question in one turn, grounds
-        # with five citations. Retry once on the clarification alone before giving up and
-        # sending a public-information question to a person.
-        clarification = requirement.masked_text.rsplit(CLARIFICATION_JOINER, 1)[1].strip()
-        if clarification and clarification != grounding_query:
-            runtime.context.db.add(
-                TraceEvent(
-                    case_id=case.id,
-                    event_type="RAG_RETRY_ON_CLARIFICATION",
-                    description="Reintento de recuperacion usando solo la aclaracion",
-                )
-            )
-            grounded_response = await runtime.context.initial_attention.run(
-                runtime.context.db,
-                case.id,
-                case.category,
-                case.consultation_level,
-                clarification,
-            )
-    if grounded_response is None:
-        # Still nothing. If the summary names a second, deferred need, the first clause is the
-        # question actually being asked; retry on that alone before sending a public-information
-        # question to a person. Safe by construction: this only ever runs after a failure, so a
-        # bad split costs nothing that was not already lost.
-        principal = principal_need(grounding_query)
-        if principal and principal != grounding_query:
-            runtime.context.db.add(
-                TraceEvent(
-                    case_id=case.id,
-                    event_type="RAG_RETRY_ON_PRINCIPAL_NEED",
-                    description="Reintento de recuperacion usando solo la necesidad principal",
-                )
-            )
-            grounded_response = await runtime.context.initial_attention.run(
-                runtime.context.db,
-                case.id,
-                case.category,
-                case.consultation_level,
-                principal,
-            )
     # InitialAttentionAgent.run bails out immediately (no knowledge lookup at all) for any
     # consultation level other than GENERAL, so grounding was only genuinely attempted -- as
     # opposed to simply not applicable to this case -- when the level is GENERAL.
