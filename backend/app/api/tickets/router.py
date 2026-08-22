@@ -1,23 +1,33 @@
-from datetime import UTC, datetime, timedelta
+"""Executive ticket endpoints: the queue, one ticket, the identifier reveal, and
+the status transitions that move a ticket through attention.
+"""
+
+from datetime import UTC, datetime
 from typing import Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Response
-from sqlalchemy import String, case, cast, func, or_, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.api.deps import require_roles
+from app.api.tickets.queries import (
+    authorized_ticket,
+    search_filter,
+    ticket_list_options,
+)
+from app.api.tickets.serializers import (
+    case_identification,
+    ticket_detail_response,
+    ticket_item,
+)
 from app.core.config import Settings, get_settings
-from app.core.datetime import ensure_aware
 from app.core.errors import AppError
 from app.core.security import decrypt_identifier
 from app.db.models import (
     CaseRecord,
-    ClientReference,
     Identification,
-    KioskSession,
     Ticket,
     TraceEvent,
     User,
@@ -32,92 +42,14 @@ from app.domain.enums import (
     UserRole,
 )
 from app.domain.schemas import (
-    ConversationMessageOut,
     IdentifierRevealResponse,
-    ProtectedIdentity,
     TicketDetail,
-    TicketListItem,
     TicketPage,
     TicketStatusUpdate,
-    TraceEventOut,
 )
 from app.services.pii import PIIMaskingService
 
 router = APIRouter(tags=["Operacion ejecutiva"])
-
-
-def _identity(ticket: Ticket) -> Identification | None:
-    return ticket.case.identification
-
-
-def ticket_item(ticket: Ticket, *, include_client_name: bool) -> TicketListItem:
-    now = datetime.now(UTC)
-    assigned = ensure_aware(ticket.assigned_at) if ticket.assigned_at else None
-    elapsed = max(
-        0, int((now - (assigned or ensure_aware(ticket.created_at))).total_seconds() // 60)
-    )
-    started = ensure_aware(ticket.started_at) if ticket.started_at else None
-    wait = max(0, int(((started or now) - ensure_aware(ticket.created_at)).total_seconds() // 60))
-    executive = ticket.executive
-    case_record = ticket.case
-    identification = _identity(ticket)
-    reference = identification.client_reference if identification else None
-    return TicketListItem(
-        id=ticket.public_id,
-        number=str(ticket.number),
-        category=case_record.category,
-        priority=case_record.priority,
-        summary=case_record.summary,
-        time_assigned=assigned,
-        minutes_elapsed=elapsed,
-        executive_name=executive.display_name if executive else None,
-        executive_title=executive.title if executive else None,
-        window_number=executive.window_number if executive else None,
-        status=ticket.status,
-        client_session_id=f"SES-****-{str(case_record.session_id)[-4:].upper()}",
-        wait_time_min=wait,
-        estimated_wait_minutes=ticket.estimated_wait_minutes,
-        identification_status=case_record.identification_status,
-        preferential_attention=case_record.preferential_attention,
-        client_display_name=(reference.display_name if include_client_name and reference else None),
-        masked_identifier=identification.masked_identifier if identification else None,
-        started_at=ticket.started_at,
-        closed_at=ticket.closed_at,
-        resolution_outcome=ticket.resolution_outcome,
-        version=ticket.version,
-    )
-
-
-def _identity_option():
-    return (
-        selectinload(Ticket.case)
-        .selectinload(CaseRecord.identification)
-        .selectinload(Identification.client_reference)
-    )
-
-
-def _ticket_list_options():
-    return (selectinload(Ticket.case), _identity_option(), selectinload(Ticket.executive))
-
-
-def _ticket_detail_options():
-    return (
-        *_ticket_list_options(),
-        selectinload(Ticket.case).selectinload(CaseRecord.events),
-        selectinload(Ticket.case)
-        .selectinload(CaseRecord.session)
-        .selectinload(KioskSession.conversation_messages),
-    )
-
-
-def _search_filter(value: str):
-    pattern = f"%{value.strip()}%"
-    return or_(
-        cast(Ticket.number, String).ilike(pattern),
-        CaseRecord.summary.ilike(pattern),
-        ClientReference.display_name.ilike(pattern),
-        Identification.masked_identifier.ilike(pattern),
-    )
 
 
 @router.get("/executive/tickets", response_model=TicketPage)
@@ -140,7 +72,7 @@ async def executive_tickets(
     if priority:
         filters.append(CaseRecord.priority == priority)
     if q and q.strip():
-        filters.append(_search_filter(q))
+        filters.append(search_filter(q))
 
     joined = (
         select(Ticket)
@@ -179,7 +111,7 @@ async def executive_tickets(
         (
             await db.scalars(
                 joined.where(*page_filters)
-                .options(*_ticket_list_options())
+                .options(*ticket_list_options())
                 .order_by(*order)
                 .offset((page - 1) * page_size)
                 .limit(page_size)
@@ -197,58 +129,6 @@ async def executive_tickets(
     )
 
 
-async def _authorized_ticket(
-    db: AsyncSession,
-    public_id: UUID,
-    user: User,
-    *,
-    for_update: bool = False,
-) -> Ticket:
-    statement = (
-        select(Ticket).where(Ticket.public_id == public_id).options(*_ticket_detail_options())
-    )
-    if for_update and db.get_bind().dialect.name == "postgresql":
-        statement = statement.with_for_update()
-    ticket = await db.scalar(statement)
-    if not ticket:
-        raise AppError("TICKET_NOT_FOUND", "Ticket inexistente", 404)
-    if user.role == UserRole.EXECUTIVE and ticket.executive_id != user.executive_id:
-        raise AppError("FORBIDDEN", "El ticket pertenece a otro ejecutivo", 403)
-    return ticket
-
-
-def _ticket_detail(ticket: Ticket, user: User, settings: Settings) -> TicketDetail:
-    identification = _identity(ticket)
-    reference = identification.client_reference if identification else None
-    cutoff = datetime.now(UTC) - timedelta(days=settings.conversation_retention_days)
-    messages = [
-        ConversationMessageOut.model_validate(message)
-        for message in ticket.case.session.conversation_messages
-        if ensure_aware(message.created_at) >= cutoff
-    ]
-    is_executive = user.role == UserRole.EXECUTIVE
-    item = ticket_item(ticket, include_client_name=is_executive)
-    return TicketDetail(
-        **item.model_dump(),
-        consultation_level=ticket.case.consultation_level,
-        identity=ProtectedIdentity(
-            status=ticket.case.identification_status,
-            display_name=reference.display_name if is_executive and reference else None,
-            masked_identifier=identification.masked_identifier if identification else None,
-            reveal_available=bool(
-                is_executive
-                and identification
-                and identification.identifier_ciphertext
-                and identification.identifier_nonce
-                and identification.identifier_key_id
-            ),
-        ),
-        conversation=messages,
-        events=[TraceEventOut.model_validate(event) for event in ticket.case.events],
-        resolution_note=ticket.resolution_note,
-    )
-
-
 @router.get("/tickets/{ticket_id}", response_model=TicketDetail)
 async def ticket_detail(
     ticket_id: UUID,
@@ -256,8 +136,8 @@ async def ticket_detail(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TicketDetail:
-    ticket = await _authorized_ticket(db, ticket_id, user)
-    return _ticket_detail(ticket, user, settings)
+    ticket = await authorized_ticket(db, ticket_id, user)
+    return ticket_detail_response(ticket, user, settings)
 
 
 @router.post("/tickets/{ticket_id}/identifier/reveal", response_model=IdentifierRevealResponse)
@@ -268,14 +148,14 @@ async def reveal_identifier(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> IdentifierRevealResponse:
-    ticket = await _authorized_ticket(db, ticket_id, user, for_update=True)
+    ticket = await authorized_ticket(db, ticket_id, user, for_update=True)
     if ticket.status != TicketStatus.EN_ATENCION:
         raise AppError(
             "IDENTIFIER_REVEAL_NOT_ALLOWED",
             "El CI completo solo puede revelarse durante la atención activa",
             409,
         )
-    identification = _identity(ticket)
+    identification = case_identification(ticket)
     if not identification or not all(
         (
             identification.identifier_ciphertext,
@@ -317,13 +197,13 @@ async def update_ticket_status(
     db: AsyncSession = Depends(get_db),
     settings: Settings = Depends(get_settings),
 ) -> TicketDetail:
-    ticket = await _authorized_ticket(db, ticket_id, user, for_update=True)
+    ticket = await authorized_ticket(db, ticket_id, user, for_update=True)
     if ticket.automatic:
         raise AppError("AUTOMATIC_TICKET", "Un ticket automatico no admite cambios", 409)
     if ticket.version != payload.expected_version:
         raise AppError("VERSION_CONFLICT", "El ticket fue actualizado por otro proceso", 409)
     if payload.status == ticket.status:
-        return _ticket_detail(ticket, user, settings)
+        return ticket_detail_response(ticket, user, settings)
     allowed = {
         TicketStatus.PENDIENTE: {TicketStatus.EN_ATENCION},
         TicketStatus.EN_ATENCION: {TicketStatus.CERRADO},
@@ -364,7 +244,7 @@ async def update_ticket_status(
         ticket.resolution_outcome = payload.resolution_outcome
         ticket.resolution_note = masked_note
         ticket.case.status = CaseStatus.CLOSED
-        identification = _identity(ticket)
+        identification = case_identification(ticket)
         if identification and any(
             (
                 identification.identifier_ciphertext,
@@ -397,6 +277,7 @@ async def update_ticket_status(
             metadata_json=metadata,
         )
     )
+
     try:
         await db.commit()
     except IntegrityError as exc:
@@ -406,5 +287,5 @@ async def update_ticket_status(
             "Ya existe otro caso en atención",
             409,
         ) from exc
-    refreshed = await _authorized_ticket(db, ticket_id, user)
-    return _ticket_detail(refreshed, user, settings)
+    refreshed = await authorized_ticket(db, ticket_id, user)
+    return ticket_detail_response(refreshed, user, settings)
