@@ -92,11 +92,24 @@ async def load_and_guard(state: OrchestrationState, runtime: Runtime[GraphContex
         )
     case = await runtime.context.repository.case_by_session(db, kiosk_session.id, with_ticket=True)
     if case and case.requirement_id != requirement.id:
-        raise AppError(
-            "REQUIREMENT_MISMATCH",
-            "La confirmación corresponde a un requerimiento anterior",
-            409,
-        )
+        # A *finished* case for an earlier need is not this confirmation's case. `guard_turn`
+        # deliberately lets a session carry a second, unrelated need once the first one has
+        # been answered ("cases.session_id is no longer unique"), but a case is only created
+        # at confirmation time -- so for that second need `case_by_session` hands back the
+        # previous need's case and this guard used to reject the confirmation outright.
+        #
+        # The 2026-08-21 eval run caught it on `cambio_de_tema`: the branch-hours question
+        # resolved automatically, the customer then reported a stolen card, and confirming it
+        # returned REQUIREMENT_MISMATCH and stranded the session at AWAITING_CONFIRMATION with
+        # nothing said back. An *unfinished* case for a different requirement is still a real
+        # mismatch and still raises; a ticketed one just means the session moved on.
+        if case.ticket is None:
+            raise AppError(
+                "REQUIREMENT_MISMATCH",
+                "La confirmación corresponde a un requerimiento anterior",
+                409,
+            )
+        case = None
     return {"requirement": requirement, "case": case}
 
 

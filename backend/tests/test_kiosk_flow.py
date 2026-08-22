@@ -127,6 +127,94 @@ async def test_follow_up_turn_after_automatic_resolution_opens_a_second_case(
         assert len(tickets) == 2
 
 
+async def test_follow_up_needing_confirmation_is_not_rejected_as_a_mismatch(
+    client: AsyncClient,
+) -> None:
+    """The sibling of the test above, for a follow-up that needs confirming.
+
+    Both needs there were GENERAL, so both auto-resolved and neither ever reached
+    `confirmation_graph` -- which is why this stayed latent. When the second need is
+    SENSIBLE the kiosk asks to confirm it, and `load_and_guard` then compares the new
+    requirement against the case created for the *first* need, because a case is only ever
+    created at confirmation time. That returned REQUIREMENT_MISMATCH and stranded the
+    session at AWAITING_CONFIRMATION with nothing said back -- `cambio_de_tema` in the
+    2026-08-21 eval run, scored 3/10.
+    """
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    first = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Quiero conocer el horario de atencion"},
+    )
+    assert first.status_code == 200, first.text
+    assert first.json()["next_action"] == "COMPLETE"
+
+    second = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Ahora necesito bloquear mi tarjeta"},
+    )
+    assert second.status_code == 200, second.text
+    analysis = second.json()
+    assert analysis["next_action"] == "CONFIRM"
+
+    confirmation = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+        headers=headers,
+        json={"requirement_id": analysis["requirement_id"], "confirmed": True},
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    result = confirmation.json()
+    assert result["next_action"] == "IDENTIFY"
+    assert result["requirement_id"] == analysis["requirement_id"]
+
+    async with TestSession() as db:
+        cases = list(
+            await db.scalars(select(CaseRecord).where(CaseRecord.session_id == UUID(session_id)))
+        )
+        assert len(cases) == 2
+        assert len({case.requirement_id for case in cases}) == 2
+
+
+async def test_unfinished_case_for_another_requirement_is_still_a_mismatch(
+    client: AsyncClient,
+) -> None:
+    """The half of the guard that must survive the fix above: only a *ticketed* case for an
+    earlier need is waved through. A case still being worked means the confirmation really
+    does belong to a superseded requirement, and it must still be refused."""
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    first = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Quiero bloquear mi tarjeta"},
+    )
+    assert first.status_code == 200, first.text
+    stale_requirement_id = first.json()["requirement_id"]
+    confirmed = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+        headers=headers,
+        json={"requirement_id": stale_requirement_id, "confirmed": True},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["next_action"] == "IDENTIFY"
+
+    # The case now exists with no ticket yet (identification still pending). A confirmation
+    # naming a different requirement in that window is the mismatch the guard is for.
+    async with TestSession() as db:
+        case = await db.scalar(select(CaseRecord).where(CaseRecord.session_id == UUID(session_id)))
+        assert case is not None
+        assert list(await db.scalars(select(Ticket).where(Ticket.case_id == case.id))) == []
+
+    mismatched = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+        headers=headers,
+        json={"requirement_id": str(uuid4()), "confirmed": True},
+    )
+    assert mismatched.status_code == 409, mismatched.text
+
+
 async def test_new_turn_after_human_handoff_is_rejected(client: AsyncClient) -> None:
     """The other half of the rule: once a case is ASSIGNED, an executive owns it. The kiosk
     must not open a parallel case behind a person who is already working the queue."""
