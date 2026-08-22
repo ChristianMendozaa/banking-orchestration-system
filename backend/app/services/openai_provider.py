@@ -61,6 +61,28 @@ class OpenAIProvider:
         self.client = AsyncOpenAI(api_key=api_key, timeout=settings.openai_timeout_seconds)
 
     async def create_realtime_client_secret(self, safety_identifier: str) -> dict[str, Any]:
+        # Built once and both sent and echoed back, so the browser cannot end up applying a
+        # different audio configuration than the one this secret was minted with. The Agents
+        # SDK substitutes its own defaults for every field of `audio.input` the caller leaves
+        # out -- `gpt-4o-mini-transcribe` instead of our transcription model, plain
+        # `semantic_vad` without the interruption settings, no noise reduction -- and its
+        # session.update lands after ours, so whatever the browser holds is what governs.
+        audio_input = {
+            "noise_reduction": {"type": "near_field"},
+            "transcription": {
+                "model": self.settings.transcription_model,
+                "language": "es",
+            },
+            # The model runs the conversation, so its own turn-taking is the
+            # point: it answers when the customer stops, and it stops when the
+            # customer starts.
+            "turn_detection": {
+                "type": "semantic_vad",
+                "eagerness": "auto",
+                "create_response": True,
+                "interrupt_response": True,
+            },
+        }
         payload = {
             "session": {
                 "type": "realtime",
@@ -72,22 +94,7 @@ class OpenAIProvider:
                 # read verbatim, short enough that a rambling turn gets cut.
                 "max_output_tokens": 1200,
                 "audio": {
-                    "input": {
-                        "noise_reduction": {"type": "near_field"},
-                        "transcription": {
-                            "model": self.settings.transcription_model,
-                            "language": "es",
-                        },
-                        # The model runs the conversation, so its own turn-taking is the
-                        # point: it answers when the customer stops, and it stops when the
-                        # customer starts.
-                        "turn_detection": {
-                            "type": "semantic_vad",
-                            "eagerness": "auto",
-                            "create_response": True,
-                            "interrupt_response": True,
-                        },
-                    },
+                    "input": audio_input,
                     "output": {"voice": self.settings.realtime_voice},
                 },
             }
@@ -117,11 +124,17 @@ class OpenAIProvider:
         # instructions on connect, which means whatever the browser holds is what actually
         # governs the conversation -- echoing them here keeps that copy from being a second,
         # drifting source of the persona.
+        #
+        # `audio_input` rides along for the same reason and is the same object that was just
+        # minted, not a re-derivation of it: the browser has to re-send the whole audio input
+        # block or lose it to SDK defaults, and a hand-written copy over there would make
+        # `transcription_model` a setting only half the system obeys.
         session = data.get("session")
         if isinstance(session, dict):
             session.setdefault("instructions", KIOSK_VOICE_INSTRUCTIONS)
             session.setdefault("model", self.settings.voice_model)
             session.setdefault("voice", self.settings.realtime_voice)
+            session.setdefault("audio_input", audio_input)
         return data
 
     async def classify(self, masked_text: str) -> ClassificationDecision:
@@ -203,10 +216,13 @@ necesidad bancaria real y debe clasificarse y derivarse con normalidad."""
                 {"role": "user", "content": masked_text},
             ],
             # This call sits directly between the customer finishing a sentence and the kiosk
-            # answering, so its latency is dead air the person hears. Measured on gpt-5.4-mini
-            # against this prompt: 2.43s at the default effort, 1.57s at "low", same decision.
-            # "minimal" is rejected by the model with a 400.
-            reasoning={"effort": "low"},
+            # answering, so its latency is dead air the person hears -- on every turn, not just
+            # the ones that reach the corpus. Measured on gpt-5.4-mini against this prompt:
+            # 2.43s at the default effort, 1.57s at "low". The floor is "none", not "minimal":
+            # the model rejects "minimal" with a 400 that lists none/low/medium/high/xhigh as
+            # the valid set. See `classification_reasoning_effort` in core/config.py for why
+            # the default sits at the floor and what to re-run before changing it.
+            reasoning={"effort": self.settings.classification_reasoning_effort},
             text_format=ClassificationDecision,
         )
         parsed = response.output_parsed
@@ -287,8 +303,11 @@ necesidad bancaria real y debe clasificarse y derivarse con normalidad."""
                     "content": f"Consulta enmascarada: {summary}\n\nEvidencia:\n{evidence}",
                 },
             ],
-            # Same reasoning as `classify`: this runs in the same blocking turn, after it.
-            reasoning={"effort": "low"},
+            # Same blocking turn as `classify`, immediately after it -- but held one step
+            # higher on purpose. This is the call that decides whether the evidence really
+            # answers the question, and a wrong "supported" reads invented banking information
+            # to a customer. See `grounding_reasoning_effort` in core/config.py.
+            reasoning={"effort": self.settings.grounding_reasoning_effort},
             text_format=GroundedAnswerDecision,
         )
         parsed = response.output_parsed

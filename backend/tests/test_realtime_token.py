@@ -158,3 +158,52 @@ async def test_realtime_secret_returns_the_persona_the_browser_must_apply(
     assert data["session"]["instructions"] == KIOSK_VOICE_INSTRUCTIONS
     assert data["session"]["model"] == "gpt-realtime-2.1-mini"
     assert data["session"]["voice"] == "marin"
+
+
+async def test_realtime_secret_echoes_the_audio_input_the_browser_must_re_send(
+    monkeypatch, settings
+) -> None:
+    """The Agents SDK fills every `audio.input` field the browser leaves out with its own
+    default -- `gpt-4o-mini-transcribe` instead of the transcription model, a bare
+    `semantic_vad` without the interruption settings -- and its session.update lands after
+    the one that minted this secret. So the browser has to re-send the whole block, and it
+    has to be *this* block: a copy written by hand in the frontend is how
+    `transcription_model` becomes a setting only the backend obeys."""
+    captured = {}
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {"value": "ephemeral", "session": {}}
+
+    class FakeHTTPClient:
+        def __init__(self, **_):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+        async def post(self, url, json, headers):
+            captured.update(json=json)
+            return FakeResponse()
+
+    monkeypatch.setattr("app.services.openai_provider.httpx.AsyncClient", FakeHTTPClient)
+    configured = settings.model_copy(
+        update={
+            "openai_api_key": SecretStr("test-key"),
+            "transcription_model": "whisper-1",
+        }
+    )
+    data = await OpenAIProvider(configured).create_realtime_client_secret("session-test")
+
+    echoed = data["session"]["audio_input"]
+    assert echoed == captured["json"]["session"]["audio"]["input"]
+    # The setting reaches the browser, not just the minted session.
+    assert echoed["transcription"] == {"model": "whisper-1", "language": "es"}
+    assert echoed["noise_reduction"] == {"type": "near_field"}
+    assert echoed["turn_detection"]["interrupt_response"] is True

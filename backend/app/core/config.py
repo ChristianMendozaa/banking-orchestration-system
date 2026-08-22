@@ -42,6 +42,30 @@ class Settings(BaseSettings):
     embedding_dimensions: int = 1536
     realtime_voice: str = "marin"
 
+    # Reasoning effort for the two orchestration-model calls, split because they are not the
+    # same kind of work and do not deserve the same latency budget. Both sit inside the HTTP
+    # request a customer is waiting on, so every step of effort is dead air a person hears.
+    # The model family accepts none/low/medium/high/xhigh -- "minimal" is rejected with a
+    # 400, confirmed live (see also evals/harness/runner.py, which runs its customer agent at
+    # "none").
+    #
+    # Both sit at "low". "none" was tried for classification and reverted on 2026-08-21:
+    # measured in isolation it saved only ~170ms at p50 (1611 -> 1438ms, sequential, no
+    # concurrency), and it cost `transcripcion_pierde_el_riesgo` outright. At "low" the model
+    # marks "Me robaron la carpeta ayer" out_of_scope and the turn ends DECLINED; at "none" it
+    # marks it ambiguous instead, so the turn ends NEEDS_CLARIFICATION while `sensitivity_floor`
+    # pins SENSIBLE on "me robaron" -- failing both session_reached_terminal_state and
+    # sensitive_requires_identification. Over-classification is not a safety risk, which is why
+    # a probe that only looks for under-classification misses it; it is a terminal-state risk.
+    #
+    # Grounding was never lowered: deciding whether retrieved evidence actually answers the
+    # question is the judgement that keeps invented banking information out of a customer's ear.
+    #
+    # These stay settings rather than constants because the eval suite is what settles them:
+    # run `make evals-live-codex` after changing either and compare the scorecard.
+    classification_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "low"
+    grounding_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "low"
+
     rag_top_k: int = 5
     rag_min_score: float = 0.45
     rag_max_context_tokens: int = 3000
