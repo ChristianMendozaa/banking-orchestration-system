@@ -14,12 +14,24 @@ export interface ConversationCaption {
   completed: boolean
 }
 
+// What a tool gets when it reads the turn. Reading is deliberately not the same as spending:
+// a turn is only `commit`ted once a tool has actually acted on those words, so a tool that
+// reads them and then declines to use them leaves them for the tool that should have.
+export interface SpokenTurn {
+  text: string
+  commit: () => void
+}
+
 export interface KioskRealtimeCallbacks {
   // Supplies the voice session's own transcription of the turn the model is calling about.
   // The model never types the transcript itself: it was observed corrupting it outright
   // ("reportar el robo" -> "portar el juego") and the backend classified the corruption.
   // Returns null when transcription has not landed, which is a retry, not a fallback.
-  resolveSpokenText: () => Promise<string | null>
+  resolveSpokenText: () => Promise<SpokenTurn | null>
+  // Whether there is a requirement waiting to be confirmed. `confirmar_requerimiento` checks
+  // this before it reads the turn, so a confirmation the model calls for out of order cannot
+  // spend a transcript that was never an answer to a confirmation question.
+  hasPendingRequirement: () => boolean
   analyzeRequirement: (transcript: string, callId?: string) => Promise<TurnAnalysis>
   confirmRequirement: (confirmed: boolean, callId?: string) => Promise<FlowResult>
 }

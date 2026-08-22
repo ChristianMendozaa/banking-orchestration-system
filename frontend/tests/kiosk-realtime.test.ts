@@ -257,6 +257,7 @@ describe("createKioskRealtimeAgent", () => {
     const agent = createKioskRealtimeAgent(
       {
         resolveSpokenText: async () => null,
+        hasPendingRequirement: () => true,
         analyzeRequirement: vi.fn(),
         confirmRequirement: vi.fn(),
       },
@@ -277,7 +278,8 @@ describe("createKioskRealtimeAgent", () => {
     const analyzeRequirement = vi.fn().mockResolvedValue(analysis)
     const agent = createKioskRealtimeAgent(
       {
-        resolveSpokenText: async () => "Me robaron la tarjeta.",
+        resolveSpokenText: async () => ({ text: "Me robaron la tarjeta.", commit: vi.fn() }),
+        hasPendingRequirement: () => true,
         analyzeRequirement,
         confirmRequirement: vi.fn(),
       },
@@ -309,7 +311,8 @@ describe("createKioskRealtimeAgent", () => {
     // classified that. The tool now takes no arguments at all.
     const agent = createKioskRealtimeAgent(
       {
-        resolveSpokenText: async () => "Quiero reportar el robo de mi tarjeta de débito.",
+        resolveSpokenText: async () => ({ text: "Quiero reportar el robo de mi tarjeta de débito.", commit: vi.fn() }),
+        hasPendingRequirement: () => true,
         analyzeRequirement: vi.fn().mockResolvedValue(analysis),
         confirmRequirement: vi.fn(),
       },
@@ -330,6 +333,7 @@ describe("createKioskRealtimeAgent", () => {
     const agent = createKioskRealtimeAgent(
       {
         resolveSpokenText: async () => null,
+        hasPendingRequirement: () => true,
         analyzeRequirement,
         confirmRequirement: vi.fn(),
       },
@@ -350,7 +354,8 @@ describe("createKioskRealtimeAgent", () => {
     const confirmRequirement = vi.fn().mockResolvedValue(completed)
     const agent = createKioskRealtimeAgent(
       {
-        resolveSpokenText: async () => "Sí, es correcto",
+        resolveSpokenText: async () => ({ text: "Sí, es correcto", commit: vi.fn() }),
+        hasPendingRequirement: () => true,
         analyzeRequirement: vi.fn(),
         confirmRequirement,
       },
@@ -377,7 +382,8 @@ describe("createKioskRealtimeAgent", () => {
     const confirmRequirement = vi.fn()
     const agent = createKioskRealtimeAgent(
       {
-        resolveSpokenText: async () => "No, eso no es lo que necesito",
+        resolveSpokenText: async () => ({ text: "No, eso no es lo que necesito", commit: vi.fn() }),
+        hasPendingRequirement: () => true,
         analyzeRequirement: vi.fn(),
         confirmRequirement,
       },
@@ -398,7 +404,8 @@ describe("createKioskRealtimeAgent", () => {
     const confirmRequirement = vi.fn()
     const agent = createKioskRealtimeAgent(
       {
-        resolveSpokenText: async () => "Puede ser",
+        resolveSpokenText: async () => ({ text: "Puede ser", commit: vi.fn() }),
+        hasPendingRequirement: () => true,
         analyzeRequirement: vi.fn(),
         confirmRequirement,
       },
@@ -413,6 +420,89 @@ describe("createKioskRealtimeAgent", () => {
 
     expect(confirmRequirement).not.toHaveBeenCalled()
     expect(output).toMatchObject({ ok: false, intent: "RETRY" })
+  })
+
+  it("spends the turn only once the backend has answered", async () => {
+    // Reading the transcript is not spending it. A backend that never answered has consumed
+    // nothing, so the words stay available and a retry classifies what the person actually
+    // said instead of asking them to repeat it.
+    const commit = vi.fn()
+    const analyzeRequirement = vi.fn().mockRejectedValue(new Error("sin red"))
+    const agent = createKioskRealtimeAgent(
+      {
+        resolveSpokenText: async () => ({ text: "Me robaron la tarjeta.", commit }),
+        hasPendingRequirement: () => true,
+        analyzeRequirement,
+        confirmRequirement: vi.fn(),
+      },
+      agentOptions,
+    )
+
+    const output = await toolNamed(agent, "analizar_requerimiento").invoke(
+      {} as never,
+      JSON.stringify({}),
+      { toolCall: { callId: "call-6" } } as never,
+    )
+
+    expect(output).toMatchObject({ ok: false, intent: "RETRY" })
+    expect(commit).not.toHaveBeenCalled()
+  })
+
+  it("does not read the turn at all when there is nothing to confirm", async () => {
+    // Called out of order, this tool would otherwise spend the person's opening request as
+    // if it were a yes or a no, and `analizar_requerimiento` would find nothing left to
+    // classify -- the theft report would be gone.
+    const commit = vi.fn()
+    const resolveSpokenText = vi.fn()
+    const confirmRequirement = vi.fn()
+    const agent = createKioskRealtimeAgent(
+      {
+        resolveSpokenText: resolveSpokenText.mockResolvedValue({
+          text: "Quiero reportar el robo de mi tarjeta de débito.",
+          commit,
+        }),
+        hasPendingRequirement: () => false,
+        analyzeRequirement: vi.fn(),
+        confirmRequirement,
+      },
+      agentOptions,
+    )
+
+    const output = await toolNamed(agent, "confirmar_requerimiento").invoke(
+      {} as never,
+      JSON.stringify({ confirmed: true }),
+      { toolCall: { callId: "call-7" } } as never,
+    )
+
+    expect(output).toMatchObject({ ok: false, intent: "RETRY" })
+    expect(resolveSpokenText).not.toHaveBeenCalled()
+    expect(commit).not.toHaveBeenCalled()
+    expect(confirmRequirement).not.toHaveBeenCalled()
+  })
+
+  it("spends an answer it could not read, so it cannot bleed into the next one", async () => {
+    // This was the answer to a question the kiosk did ask; it just was not a clear one.
+    // Left unspent it would be glued onto whatever comes next, and "no sé" followed by "sí"
+    // reads as a no.
+    const commit = vi.fn()
+    const agent = createKioskRealtimeAgent(
+      {
+        resolveSpokenText: async () => ({ text: "No sé", commit }),
+        hasPendingRequirement: () => true,
+        analyzeRequirement: vi.fn(),
+        confirmRequirement: vi.fn(),
+      },
+      agentOptions,
+    )
+
+    const output = await toolNamed(agent, "confirmar_requerimiento").invoke(
+      {} as never,
+      JSON.stringify({ confirmed: true }),
+      { toolCall: { callId: "call-8" } } as never,
+    )
+
+    expect(output).toMatchObject({ ok: false, intent: "RETRY" })
+    expect(commit).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -29,6 +29,7 @@ import {
   shouldApplyAnalysisResponse,
   shouldApplyFlowResponse,
   type ConversationCaption,
+  type SpokenTurn,
 } from "@/lib/kiosk-realtime"
 import type {
   FlowResult,
@@ -497,7 +498,12 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   // The only record of what the customer said is the voice session's own transcription. It
   // normally lands within a few hundred milliseconds of the tool call, so wait a bounded
   // moment; if it never arrives, say so rather than inventing a transcript.
-  const resolveTurnTranscript = useCallback(async (): Promise<string | null> => {
+  //
+  // Reading the turn does not spend it. The caller commits once it has actually acted on
+  // those words, so a tool that reads them and then rejects the turn -- a confirmation that
+  // does not parse, a backend that never answered -- does not silently destroy the only copy
+  // of what the person said.
+  const resolveTurnTranscript = useCallback(async (): Promise<SpokenTurn | null> => {
     const deadline = Date.now() + TRANSCRIPT_SETTLE_TIMEOUT_MS
     for (;;) {
       const selection = selectAuthoritativeTranscript(
@@ -505,10 +511,13 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         consumedTranscriptItemsRef.current,
       )
       if (selection) {
-        selection.itemIds.forEach((itemId) =>
-          consumedTranscriptItemsRef.current.add(itemId),
-        )
-        return selection.text
+        return {
+          text: selection.text,
+          commit: () =>
+            selection.itemIds.forEach((itemId) =>
+              consumedTranscriptItemsRef.current.add(itemId),
+            ),
+        }
       }
       if (Date.now() >= deadline) return null
       await new Promise((resolve) =>
@@ -568,12 +577,23 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         )
         if (attemptId !== connectionAttemptRef.current) return
 
-        // The persona, model and voice all come from the secret the backend minted. There is
-        // no fallback on purpose: a missing field means the backend changed shape, and
-        // silently connecting with SDK defaults would swap the kiosk's persona and model for
-        // something nobody chose.
-        const { model, instructions, voice } = secret.session ?? {}
-        if (!model || !instructions || !voice) {
+        // The persona, model, voice and audio input configuration all come from the secret
+        // the backend minted. There is no fallback on purpose: a missing field means the
+        // backend changed shape, and silently connecting with SDK defaults would swap the
+        // kiosk's persona, model and transcription model for something nobody chose.
+        const {
+          model,
+          instructions,
+          voice,
+          audio_input: audioInput,
+        } = secret.session ?? {}
+        if (
+          !model ||
+          !instructions ||
+          !voice ||
+          !audioInput?.transcription?.model ||
+          !audioInput.turn_detection
+        ) {
           throw new Error("El canal de voz no llegó configurado; inténtalo nuevamente")
         }
 
@@ -588,9 +608,17 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           stateRef.current.analysis?.requirement_id ??
           stateRef.current.result?.requirement_id ??
           null
+        // The requirement a confirmation would land on. Business state first, because it is
+        // the reconciled one; the agent's own last answer only covers the window before the
+        // state has caught up.
+        const pendingRequirementId = (): string | null =>
+          stateRef.current.analysis?.requirement_id ??
+          stateRef.current.result?.requirement_id ??
+          agentRequirementId
         const agent = createKioskRealtimeAgent(
           {
             resolveSpokenText: resolveTurnTranscript,
+            hasPendingRequirement: () => pendingRequirementId() !== null,
             analyzeRequirement: async (transcript, callId) => {
               const key = callId ?? crypto.randomUUID()
               const requestRevision = businessRevisionRef.current
@@ -698,10 +726,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
               }
             },
             confirmRequirement: async (confirmed) => {
-              const requirementId =
-                stateRef.current.analysis?.requirement_id ??
-                stateRef.current.result?.requirement_id ??
-                agentRequirementId
+              const requirementId = pendingRequirementId()
               if (!requirementId) {
                 throw new Error("No existe un requerimiento pendiente de confirmación")
               }
@@ -793,23 +818,19 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             // letting them run concurrently would race a confirmation against the analysis
             // it confirms.
             parallelToolCalls: false,
+            // Re-sent, not re-chosen. The SDK's session.update lands after the one that
+            // minted the secret and fills every omitted `audio.input` field with its own
+            // default -- `gpt-4o-mini-transcribe` in place of the transcription model, a bare
+            // `semantic_vad` without the interruption settings -- so these have to be here.
+            // They are the values the backend echoed rather than a second copy written by
+            // hand, because a hand-written copy is how `transcription_model` becomes a
+            // setting only the backend obeys. The SDK reads turn detection in either casing,
+            // so the API's own snake_case passes straight through.
             audio: {
               input: {
-                noiseReduction: { type: "near_field" },
-                // Mirrors the minted session (openai_provider.create_realtime_client_secret).
-                // The SDK sends its own session.update on connect, so leaving these out here
-                // would replace the backend's choices with SDK defaults rather than preserve
-                // them.
-                transcription: { model: "gpt-realtime-whisper", language: "es" },
-                // The model runs its own turn-taking: it answers when the customer stops and
-                // stops when the customer starts. Nothing suppresses the responses it decides
-                // to make.
-                turnDetection: {
-                  type: "semantic_vad",
-                  eagerness: "auto",
-                  createResponse: true,
-                  interruptResponse: true,
-                },
+                noiseReduction: audioInput.noise_reduction,
+                transcription: audioInput.transcription,
+                turnDetection: audioInput.turn_detection,
               },
               output: { voice },
             },

@@ -1,15 +1,33 @@
 import { apiRequest } from "@/lib/api"
 import type { KioskSession } from "@/lib/types"
 
+// The audio input configuration the secret was minted with, echoed back in the API's own
+// snake_case. Declared as type aliases rather than interfaces so they stay assignable to the
+// SDK's `RealtimeTurnDetectionConfig`, which is intersected with `Record<string, any>`.
+type RealtimeTurnDetection = {
+  type?: string
+  eagerness?: "auto" | "low" | "medium" | "high"
+  create_response?: boolean
+  interrupt_response?: boolean
+}
+
+export type RealtimeAudioInput = {
+  noise_reduction?: { type: string } | null
+  transcription?: { model?: string; language?: string } | null
+  turn_detection?: RealtimeTurnDetection | null
+}
+
 export interface RealtimeSecret {
   value: string
-  // The backend echoes the persona, model and voice it minted the secret with. The browser
-  // builds its RealtimeAgent from these rather than holding a second copy -- see
-  // KIOSK_VOICE_INSTRUCTIONS in backend/app/services/openai_provider.py.
+  // The backend echoes the persona, model, voice and audio input configuration it minted the
+  // secret with. The browser builds its RealtimeAgent from these rather than holding a second
+  // copy -- see KIOSK_VOICE_INSTRUCTIONS and create_realtime_client_secret in
+  // backend/app/services/openai_provider.py.
   session?: {
     model?: string
     instructions?: string
     voice?: string
+    audio_input?: RealtimeAudioInput
   } | null
 }
 
