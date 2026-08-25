@@ -3,6 +3,7 @@
 | Module | Job |
 | --- | --- |
 | `service` | lock the session, invoke the graph, dispatch the result |
+| `outcome_coordinator` | finalize every independent case in an intake plan |
 | `responses` | shape graph state into `TurnAnalysisResponse` / `FlowResult` |
 | `speech` | every sentence the kiosk says, and the plans that carry them |
 

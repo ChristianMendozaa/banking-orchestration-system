@@ -12,7 +12,7 @@ import structlog
 
 from app.core.config import Settings
 from app.domain.enums import Category, ConsultationLevel
-from app.domain.schemas import ClassificationDecision
+from app.domain.schemas import ClassificationDecision, ClassifiedNeed
 from app.services.agents.rules.categories import category_from_keywords
 from app.services.agents.rules.language import (
     _NATURAL_SUMMARY_OPENING,
@@ -20,16 +20,27 @@ from app.services.agents.rules.language import (
     customer_facing_text_is_natural,
     customer_summary_for,
 )
-from app.services.agents.rules.sensitivity import _LEVEL_ORDER, sensitivity_floor
+from app.services.agents.rules.sensitivity import (
+    _LEVEL_ORDER,
+    security_incident_category,
+    sensitivity_floor,
+)
+from app.services.intake import IntakePlanner
 from app.services.openai_provider import OpenAIProvider
 
 logger = structlog.get_logger()
 
 
 class ClassificationAgent:
-    def __init__(self, settings: Settings, provider: OpenAIProvider | None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        provider: OpenAIProvider | None,
+        intake_planner: IntakePlanner | None = None,
+    ) -> None:
         self.settings = settings
         self.provider = provider
+        self.intake_planner = intake_planner or IntakePlanner()
 
     async def run(self, masked_text: str) -> ClassificationDecision:
         decision, _ = await self.run_with_source(masked_text)
@@ -43,7 +54,9 @@ class ClassificationAgent:
                 decision = self._ensure_customer_language(
                     await self.provider.classify(classification_input or masked_text)
                 )
-                return self._enforce_sensitivity(decision, masked_text)
+                decision, source = self._enforce_sensitivity(decision, masked_text)
+                decision = self._recover_omitted_security_need(decision, masked_text)
+                return self.intake_planner.plan(decision), source
             except Exception as exc:
                 logger.warning(
                     "classification_provider_fallback",
@@ -102,6 +115,44 @@ class ClassificationAgent:
                 "customer_summary": customer_summary,
                 "clarification_question": clarification_question,
                 "ambiguous": ambiguous,
+            }
+        )
+
+    @staticmethod
+    def _recover_omitted_security_need(
+        decision: ClassificationDecision, masked_text: str
+    ) -> ClassificationDecision:
+        category = security_incident_category(masked_text)
+        existing_categories = {
+            decision.category,
+            *(need.category for need in decision.additional_needs),
+        }
+        if category is None or category in existing_categories:
+            return decision
+        if category is Category.REPORTE_FRAUDE:
+            summary = "Reporta un posible cobro o movimiento no reconocido"
+            customer = "Necesitas reportar un posible cobro o movimiento no reconocido."
+        else:
+            summary = "Reporta la pérdida o robo de una tarjeta"
+            customer = "Necesitas reportar la pérdida o robo de una tarjeta."
+        combined = decision.customer_summary.rstrip(". ")
+        if combined.lower().startswith("necesitas "):
+            combined = combined[len("Necesitas ") :]
+        return decision.model_copy(
+            update={
+                "customer_summary": f"{customer.rstrip('.')} y también {combined}.",
+                "additional_needs": [
+                    *decision.additional_needs,
+                    ClassifiedNeed(
+                        summary=summary,
+                        customer_summary=customer,
+                        category=category,
+                        consultation_level=ConsultationLevel.SENSIBLE,
+                        confidence=1.0,
+                        urgency_detected=True,
+                        security_incident=True,
+                    ),
+                ],
             }
         )
 

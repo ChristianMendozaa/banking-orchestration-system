@@ -16,6 +16,7 @@ import from here are unchanged.
 
 from app.domain.schemas.ai import (
     ClassificationDecision,
+    ClassifiedNeed,
     GroundedAnswerDecision,
     GroundedResponse,
     GroundingAttempt,
@@ -29,6 +30,7 @@ from app.domain.schemas.kiosk import (
     ConversationSyncRequest,
     ConversationSyncResponse,
     ExecutiveAssignment,
+    FlowOutcome,
     FlowResult,
     IdentificationRequest,
     RealtimeTokenResponse,
@@ -74,6 +76,7 @@ from app.domain.schemas.staff import (
 
 __all__ = [
     "ClassificationDecision",
+    "ClassifiedNeed",
     "ConfirmationRequest",
     "ConversationMessageInput",
     "ConversationMessageOut",
@@ -83,6 +86,7 @@ __all__ = [
     "ExecutiveStatusResult",
     "ExecutiveStatusUpdate",
     "ExecutiveWorkload",
+    "FlowOutcome",
     "FlowResult",
     "GroundedAnswerDecision",
     "GroundingAttempt",

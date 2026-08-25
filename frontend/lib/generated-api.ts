@@ -692,6 +692,34 @@ export interface components {
             /** Version */
             version: number;
         };
+        /** FlowOutcome */
+        FlowOutcome: {
+            category: components["schemas"]["Category"];
+            /** Citations */
+            citations?: components["schemas"]["KnowledgeCitation"][];
+            /** Customer Summary */
+            customer_summary: string;
+            executive?: components["schemas"]["ExecutiveAssignment"] | null;
+            /** Grounding Detail */
+            grounding_detail?: {
+                [key: string]: unknown;
+            };
+            /** @default NOT_APPLICABLE */
+            grounding_status: components["schemas"]["GroundingStatus"];
+            identification_status?: components["schemas"]["IdentificationStatus"] | null;
+            /** Need Index */
+            need_index: number;
+            priority?: components["schemas"]["Priority"] | null;
+            /**
+             * Requirement Id
+             * Format: uuid
+             */
+            requirement_id: string;
+            resolution_type: components["schemas"]["ResolutionType"];
+            /** Response */
+            response?: string | null;
+            ticket: components["schemas"]["TicketResult"];
+        };
         /** FlowResult */
         FlowResult: {
             /** Citations */
@@ -713,6 +741,8 @@ export interface components {
              * @enum {string}
              */
             next_action: "CAPTURE" | "IDENTIFY" | "COMPLETE";
+            /** Outcomes */
+            outcomes?: components["schemas"]["FlowOutcome"][];
             priority?: components["schemas"]["Priority"] | null;
             /**
              * Requirement Id

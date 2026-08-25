@@ -281,46 +281,72 @@ class Evaluator:
         )
 
     def _human_result_is_actionable(self, result: dict) -> CheckResult:
-        if result.get("resolution_type") != "HUMAN":
+        outcomes = result.get("outcomes") or []
+        human_outcomes = [
+            outcome for outcome in outcomes if outcome.get("resolution_type") == "HUMAN"
+        ]
+        if not human_outcomes and result.get("resolution_type") == "HUMAN":
+            human_outcomes = [result]
+        if not human_outcomes:
             return CheckResult.skip("human_result_is_actionable", "no fue derivacion humana")
-        ticket = result.get("ticket") or {}
-        executive = result.get("executive") or {}
-        if not ticket.get("number"):
-            return CheckResult("human_result_is_actionable", False, "el resultado no trae ticket")
-        if executive and not executive.get("window_number"):
-            return CheckResult(
-                "human_result_is_actionable", False, "ejecutivo asignado sin ventanilla"
-            )
-        detail = f"ticket={ticket.get('number')}"
-        if executive:
-            detail += (
-                f" ejecutivo={executive.get('name')} ventanilla={executive.get('window_number')}"
-            )
-        else:
-            detail += " sin ejecutivo (asignacion pendiente)"
-        return CheckResult("human_result_is_actionable", True, detail)
+        details = []
+        for outcome in human_outcomes:
+            ticket = outcome.get("ticket") or {}
+            executive = outcome.get("executive") or {}
+            need_index = outcome.get("need_index", 0)
+            if not ticket.get("number"):
+                return CheckResult(
+                    "human_result_is_actionable",
+                    False,
+                    f"outcome={need_index} no trae ticket",
+                )
+            if executive and not executive.get("window_number"):
+                return CheckResult(
+                    "human_result_is_actionable",
+                    False,
+                    f"outcome={need_index} tiene ejecutivo sin ventanilla",
+                )
+            detail = f"ticket={ticket.get('number')}"
+            if executive:
+                detail += (
+                    f" ejecutivo={executive.get('name')} "
+                    f"ventanilla={executive.get('window_number')}"
+                )
+            else:
+                detail += " sin ejecutivo (asignacion pendiente)"
+            details.append(detail)
+        return CheckResult("human_result_is_actionable", True, "; ".join(details))
 
     def _routed_to_skilled_executive(
         self, session: ConversationSession, result: dict
     ) -> CheckResult:
-        executive = result.get("executive") or {}
-        name = executive.get("name")
-        category = session.last_category
-        if not name or not category:
+        outcomes = result.get("outcomes") or []
+        routed = [
+            (outcome.get("category"), outcome.get("executive") or {})
+            for outcome in outcomes
+            if outcome.get("resolution_type") == "HUMAN" and outcome.get("executive")
+        ]
+        if not routed and result.get("executive"):
+            routed = [(session.last_category, result.get("executive") or {})]
+        if not routed:
             return CheckResult.skip(
                 "routed_to_skilled_executive", "sin ejecutivo asignado", severity="SOFT"
             )
-        categories = skill_categories_for_executive(name)
-        if categories is None:
-            return CheckResult.skip(
-                "routed_to_skilled_executive",
-                f"ejecutivo {name} no esta en el seed operativo",
-                severity="SOFT",
-            )
+        details = []
+        problems = []
+        for category, executive in routed:
+            name = executive.get("name")
+            categories = skill_categories_for_executive(name)
+            if categories is None:
+                problems.append(f"ejecutivo {name} no esta en el seed operativo")
+                continue
+            details.append(f"{name} tiene skills {sorted(categories)}; caso={category}")
+            if category not in categories:
+                problems.append(details[-1])
         return CheckResult(
             "routed_to_skilled_executive",
-            category in categories,
-            f"{name} tiene skills {sorted(categories)}; caso={category}",
+            not problems,
+            "; ".join(problems or details),
             severity="SOFT",
         )
 

@@ -108,12 +108,17 @@ class ConversationMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class Requirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "requirements"
-    __table_args__ = (UniqueConstraint("session_id", "turn_id"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "session_id", "turn_id", "need_index", name="uq_requirements_session_turn_need"
+        ),
+    )
 
     session_id: Mapped[UUID] = mapped_column(
         ForeignKey("kiosk_sessions.id", ondelete="CASCADE"), index=True
     )
     turn_id: Mapped[UUID] = mapped_column(index=True)
+    need_index: Mapped[int] = mapped_column(Integer, default=0)
     masked_text: Mapped[str] = mapped_column(Text)
     pii_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     summary: Mapped[str] = mapped_column(Text)

@@ -44,6 +44,9 @@ export default function AutomaticResponsePage() {
   }
 
   if (!result?.ticket || !result.response) return null
+  const additionalOutcomes = (result.outcomes ?? []).filter(
+    (outcome) => outcome.need_index > 0,
+  )
 
   return (
     <div className="flex flex-1 items-center justify-center px-5 py-10">
@@ -111,6 +114,20 @@ export default function AutomaticResponsePage() {
             <p className="font-bold">Ticket #{result.ticket.number}</p>
           </div>
         </div>
+        {additionalOutcomes.map((outcome) => (
+          <section
+            className="w-full rounded-2xl border border-white/10 bg-white/[.04] p-5"
+            key={outcome.requirement_id}
+          >
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#23A2D9]">
+              {outcome.customer_summary}
+            </p>
+            {outcome.response && (
+              <p className="mt-3 whitespace-pre-line text-white/90">{outcome.response}</p>
+            )}
+            <p className="mt-3 text-sm font-bold">Ticket #{outcome.ticket.number}</p>
+          </section>
+        ))}
         {result.tracking_information && (
           <p className="max-w-2xl text-center text-sm text-white/70">
             {result.tracking_information}

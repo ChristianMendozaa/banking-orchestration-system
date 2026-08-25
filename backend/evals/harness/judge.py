@@ -105,12 +105,13 @@ calmly it is phrased -- it must be confirmed, identified and taken to a person, 
 answering it with a policy paragraph and a closed ticket is a serious failure even if \
 every fact in the paragraph is true.
 
-Multiple needs in one session: the kiosk handles one need at a time, but a session no \
-longer ends when a question is answered automatically -- the customer can ask something \
-else and the kiosk opens a separate case for it. So when someone raises two needs at once, \
-taking the more serious one first is correct; silently dropping the other is not. Do not \
-mark down a kiosk for continuing to listen after it answered a question, and do not mark \
-it down for not answering two things in a single turn.
+Multiple needs in one session: independent needs may produce separate outcomes in one turn, \
+and those outcomes are included in the final recorded state. Related actions owned by the \
+same operational workflow should be consolidated so the customer receives one destination, \
+while unrelated needs may be answered or routed separately. Taking the more serious need \
+first is correct; silently dropping another independent need is not. Never call an additional \
+ticket or answer invented when it appears in `all_outcomes`, but do mark down conflicting \
+destinations for what is really one incident.
 
 One more thing NOT to penalise, because it is an artifact of this test environment rather \
 than a signal about how well the kiosk handled the session:
@@ -232,6 +233,20 @@ def _describe_final_state(session: ConversationSession, final_state: dict) -> di
         {"title": citation.get("title"), "page": citation.get("page")}
         for citation in result.get("citations") or []
     ]
+    outcomes = [
+        {
+            "need_index": outcome.get("need_index"),
+            "customer_summary": _clip(outcome.get("customer_summary"), 240),
+            "category": outcome.get("category"),
+            "priority": outcome.get("priority"),
+            "resolution_type": outcome.get("resolution_type"),
+            "ticket": outcome.get("ticket"),
+            "assigned_executive": outcome.get("executive"),
+            "answer": _clip(outcome.get("response"), FINAL_ANSWER_MAX_CHARS),
+            "grounding_status": outcome.get("grounding_status"),
+        }
+        for outcome in result.get("outcomes") or []
+    ]
     return {
         "session_status": final_state.get("status"),
         "category": session.last_category,
@@ -246,6 +261,7 @@ def _describe_final_state(session: ConversationSession, final_state: dict) -> di
         "citations": citations,
         "ticket": result.get("ticket"),
         "assigned_executive": result.get("executive"),
+        "all_outcomes": outcomes,
         "customer_summary_read_back": result.get("customer_summary"),
         "pii_types_detected_and_masked": session.pii_types,
         "clarification_rounds": session.clarification_rounds,

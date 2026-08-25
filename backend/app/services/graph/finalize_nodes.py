@@ -152,7 +152,7 @@ async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphCon
     # opposed to simply not applicable to this case -- when the level is GENERAL.
     grounding_attempted = case.consultation_level == ConsultationLevel.GENERAL
     if grounding_attempted:
-        state["kiosk_session"].grounding_detail_json = {
+        case.grounding_detail_json = {
             "outcome": grounding_attempt.outcome.value,
             **grounding_attempt.diagnostics,
         }
@@ -161,7 +161,7 @@ async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphCon
                 case_id=case.id,
                 event_type="GROUNDING_ATTEMPTED",
                 description=f"Resultado de fundamentacion: {grounding_attempt.outcome.value}",
-                metadata_json=state["kiosk_session"].grounding_detail_json,
+                metadata_json=case.grounding_detail_json,
             )
         )
     return {"grounding_attempt": grounding_attempt, "grounding_attempted": grounding_attempted}
@@ -196,6 +196,9 @@ async def automatic_ticket(state: OrchestrationState, runtime: Runtime[GraphCont
     kiosk_session.resolution_type = ResolutionType.AUTOMATIC
     kiosk_session.final_response = grounded_response.answer
     kiosk_session.grounding_status = GroundingStatus.GROUNDED
+    case.resolution_type = ResolutionType.AUTOMATIC
+    case.final_response = grounded_response.answer
+    case.grounding_status = GroundingStatus.GROUNDED
     kiosk_session.grounding_detail_json = {
         "outcome": GroundingAttemptOutcome.GROUNDED.value,
         **state["grounding_attempt"].diagnostics,
@@ -203,6 +206,8 @@ async def automatic_ticket(state: OrchestrationState, runtime: Runtime[GraphCont
     kiosk_session.citations_json = [
         citation.model_dump(mode="json") for citation in grounded_response.citations
     ]
+    case.citations_json = list(kiosk_session.citations_json)
+    case.grounding_detail_json = dict(kiosk_session.grounding_detail_json)
     runtime.context.db.add(
         TraceEvent(
             case_id=case.id,
@@ -226,6 +231,10 @@ async def route_human(state: OrchestrationState, runtime: Runtime[GraphContext])
         GroundingStatus.NO_EVIDENCE if grounding_attempted else GroundingStatus.NOT_APPLICABLE
     )
     kiosk_session.citations_json = []
+    case.grounding_status = kiosk_session.grounding_status
+    case.citations_json = []
+    case.resolution_type = ResolutionType.HUMAN
+    case.final_response = None
     if grounding_attempted:
         db.add(
             TraceEvent(

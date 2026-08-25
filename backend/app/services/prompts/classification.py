@@ -63,9 +63,19 @@ lo que la persona ya reemplazo al aclarar, y no reconstruyas datos enmascarados.
 como el pedido concreto, no como una etiqueta de tema: "Necesita el horario de atencion de
 la sucursal", no "Consulta publica sobre horarios de atencion". Ese texto es lo que se usa
 para buscar la respuesta en la documentacion, y una etiqueta de tema no se puede responder.
-Si el turno
-trae mas de una necesidad, summary y customer_summary nombran la principal -- la que implica
-riesgo, dinero o acceso -- y dejan dicho explicitamente cual queda pendiente para despues.
+Si el turno trae mas de una necesidad accionable, no conviertas la secundaria en prosa
+"pendiente": devuelve cada necesidad distinta en additional_needs. Pon como principal la
+que implica mayor riesgo, dinero o acceso; cada summary de additional_needs debe describir
+solo esa necesidad y tener su propia categoria, nivel, confianza y señales. No conviertas
+detalles narrativos (viaje, fila, quién recomendó venir) en necesidades. customer_summary
+de la decisión principal debe enumerar brevemente todas las necesidades, en el orden en
+que se atenderán, para que una sola confirmación cubra el conjunto. El customer_summary de
+cada additional_need describe únicamente esa necesidad.
+No inventes una segunda necesidad a partir de una medida condicional o posible: "si hace
+falta bloquearla" dentro de un reporte de fraude sigue siendo parte del mismo incidente,
+no una solicitud independiente. Reportar un fraude y proteger la tarjeta afectada pertenecen
+al mismo flujo de seguridad; horarios, extractos, créditos u otros trámites sí son necesidades
+independientes cuando la persona realmente los pidió.
 customer_summary debe ser una frase natural dirigida directamente de tú, comenzar con una
 forma como "Necesitas" o "Quieres", describir la necesidad y no devolver la pregunta de
 aclaracion (nunca "Necesitas decirme si...", "Necesitas contarme si..."), y nunca referirse a

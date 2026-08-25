@@ -217,13 +217,17 @@ class ConversationSession:
         )
 
     def _check_finished(self, response: dict) -> None:
+        result = response.get("result") or response
+        for outcome in result.get("outcomes") or []:
+            requirement_id = outcome.get("requirement_id")
+            if requirement_id and requirement_id not in self.requirement_ids:
+                self.requirement_ids.append(requirement_id)
         if response.get("next_action") != "COMPLETE":
             return
         # An automatic answer no longer ends the session: `cases.session_id` is not unique
         # any more, so the customer can ask a second, unrelated question and the kiosk opens
         # a second case for it. A human handoff does still end it -- from that point an
         # executive owns the case and the kiosk must not open a parallel one behind them.
-        result = response.get("result") or response
         self.finished = result.get("resolution_type") != "AUTOMATIC"
 
     def _describe(self, response: dict) -> str:

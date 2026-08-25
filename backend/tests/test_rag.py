@@ -2,7 +2,6 @@ import hashlib
 import json
 import shutil
 from pathlib import Path
-from uuid import uuid4
 
 from sqlalchemy import select
 
@@ -112,7 +111,7 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
             return GroundedAnswerDecision(
                 answer="Respuesta no verificable",
                 supported=True,
-                cited_chunk_ids=[uuid4()],
+                cited_evidence_refs=[999],
             )
 
     service = KnowledgeService(settings_for_tests, InvalidCitationProvider())
@@ -130,6 +129,36 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
     assert attempt.outcome is GroundingAttemptOutcome.INVALID_CITATIONS
     assert interaction is not None
     assert interaction.outcome == "INVALID_CITATIONS"
+
+
+async def test_model_evidence_references_are_resolved_to_real_chunk_ids() -> None:
+    class AliasProvider:
+        async def embeddings(self, texts):
+            return await fake_provider.embeddings(texts)
+
+        async def grounded_answer(self, _query, _chunks):
+            return GroundedAnswerDecision(
+                answer="Respuesta respaldada por dos fragmentos.",
+                supported=True,
+                cited_evidence_refs=[1, 1],
+            )
+
+    service = KnowledgeService(settings_for_tests, AliasProvider())
+    async with TestSession() as db:
+        attempt = await service.answer(
+            db,
+            case_id=None,
+            category=Category.CONSULTA_GENERAL,
+            masked_query="¿Cuál es el horario?",
+        )
+
+    assert attempt.outcome is GroundingAttemptOutcome.GROUNDED
+    assert attempt.response is not None
+    assert len(attempt.response.citations) == 1
+    assert attempt.diagnostics["cited_evidence_refs"] == [1]
+    assert attempt.diagnostics["cited_chunk_ids"] == [
+        str(citation.chunk_id) for citation in attempt.response.citations
+    ]
 
 
 async def test_alternative_phrasings_are_searched_in_one_embedding_call() -> None:

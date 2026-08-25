@@ -390,6 +390,99 @@
         "title": "ExecutiveWorkload",
         "type": "object"
       },
+      "FlowOutcome": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/Category"
+          },
+          "citations": {
+            "items": {
+              "$ref": "#/components/schemas/KnowledgeCitation"
+            },
+            "title": "Citations",
+            "type": "array"
+          },
+          "customer_summary": {
+            "title": "Customer Summary",
+            "type": "string"
+          },
+          "executive": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutiveAssignment"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "grounding_detail": {
+            "additionalProperties": true,
+            "title": "Grounding Detail",
+            "type": "object"
+          },
+          "grounding_status": {
+            "$ref": "#/components/schemas/GroundingStatus",
+            "default": "NOT_APPLICABLE"
+          },
+          "identification_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentificationStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "need_index": {
+            "title": "Need Index",
+            "type": "integer"
+          },
+          "priority": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Priority"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "requirement_id": {
+            "format": "uuid",
+            "title": "Requirement Id",
+            "type": "string"
+          },
+          "resolution_type": {
+            "$ref": "#/components/schemas/ResolutionType"
+          },
+          "response": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response"
+          },
+          "ticket": {
+            "$ref": "#/components/schemas/TicketResult"
+          }
+        },
+        "required": [
+          "requirement_id",
+          "need_index",
+          "customer_summary",
+          "category",
+          "resolution_type",
+          "ticket"
+        ],
+        "title": "FlowOutcome",
+        "type": "object"
+      },
       "FlowResult": {
         "properties": {
           "citations": {
@@ -451,6 +544,13 @@
             ],
             "title": "Next Action",
             "type": "string"
+          },
+          "outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/FlowOutcome"
+            },
+            "title": "Outcomes",
+            "type": "array"
           },
           "priority": {
             "anyOf": [

@@ -92,7 +92,7 @@ class FakeKnowledgeProvider:
         return GroundedAnswerDecision(
             answer="La línea gratuita atiende de lunes a sábado de 09:00 a 18:00.",
             supported=True,
-            cited_chunk_ids=[chunks[0].chunk.id],
+            cited_evidence_refs=[1],
         )
 
 

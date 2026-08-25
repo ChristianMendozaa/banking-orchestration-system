@@ -4,11 +4,14 @@ from langgraph.graph import END
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import Settings
 from app.core.errors import AppError
 from app.core.security import encrypt_identifier, hash_identifier, mask_identifier
-from app.db.models import ClientReference, Identification, TraceEvent
+from app.db.models import CaseRecord, ClientReference, Identification, TraceEvent
 from app.domain.enums import IdentificationStatus, SessionStatus
+from app.domain.schemas import IdentificationRequest
 from app.services.graph.state import GraphContext, OrchestrationState
 
 
@@ -40,9 +43,20 @@ async def guard_identification(
 async def resolve_client_reference(
     state: OrchestrationState, runtime: Runtime[GraphContext]
 ) -> dict:
-    db = runtime.context.db
-    payload = state["identification_payload"]
-    identifier_hash = hash_identifier(payload.identifier, runtime.context.settings)
+    return await resolve_identifier(
+        runtime.context.db,
+        state["identification_payload"],
+        runtime.context.settings,
+    )
+
+
+async def resolve_identifier(
+    db: AsyncSession,
+    payload: IdentificationRequest,
+    settings: Settings,
+) -> dict:
+    """Resolve an identifier for either the graph entry point or a planned sibling case."""
+    identifier_hash = hash_identifier(payload.identifier, settings)
     client_reference = await db.scalar(
         select(ClientReference).where(
             ClientReference.identifier_hash == identifier_hash,
@@ -58,28 +72,42 @@ async def resolve_client_reference(
 
 
 async def persist_identification(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
-    db = runtime.context.db
-    payload = state["identification_payload"]
-    case = state["case"]
-    status = state["identification_result_status"]
-    client_reference_id = state["client_reference_id"]
-    ciphertext, nonce, key_id = encrypt_identifier(
-        payload.identifier, str(case.id), runtime.context.settings
+    await record_identification(
+        runtime.context.db,
+        state["case"],
+        state["identification_payload"],
+        state,
+        runtime.context.settings,
     )
-    if case.identification:
-        case.identification.client_reference_id = client_reference_id
-        case.identification.identifier_hash = state["identifier_hash"]
-        case.identification.masked_identifier = mask_identifier(payload.identifier)
-        case.identification.identifier_ciphertext = ciphertext
-        case.identification.identifier_nonce = nonce
-        case.identification.identifier_key_id = key_id
-        case.identification.status = status
+    return {}
+
+
+async def record_identification(
+    db: AsyncSession,
+    case: CaseRecord,
+    payload: IdentificationRequest,
+    resolved: dict,
+    settings: Settings,
+) -> None:
+    """Persist protected identification through one implementation for every case path."""
+    status = resolved["identification_result_status"]
+    client_reference_id = resolved["client_reference_id"]
+    ciphertext, nonce, key_id = encrypt_identifier(payload.identifier, str(case.id), settings)
+    existing = await db.scalar(select(Identification).where(Identification.case_id == case.id))
+    if existing:
+        existing.client_reference_id = client_reference_id
+        existing.identifier_hash = resolved["identifier_hash"]
+        existing.masked_identifier = mask_identifier(payload.identifier)
+        existing.identifier_ciphertext = ciphertext
+        existing.identifier_nonce = nonce
+        existing.identifier_key_id = key_id
+        existing.status = status
     else:
         db.add(
             Identification(
                 case_id=case.id,
                 client_reference_id=client_reference_id,
-                identifier_hash=state["identifier_hash"],
+                identifier_hash=resolved["identifier_hash"],
                 masked_identifier=mask_identifier(payload.identifier),
                 identifier_ciphertext=ciphertext,
                 identifier_nonce=nonce,
@@ -95,4 +123,3 @@ async def persist_identification(state: OrchestrationState, runtime: Runtime[Gra
             description=f"Identificacion de cliente: {status.value}",
         )
     )
-    return {}

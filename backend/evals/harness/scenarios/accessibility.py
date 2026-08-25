@@ -42,6 +42,31 @@ def _priority_was_raised(session: ConversationSession, result: dict) -> list[Che
     ]
 
 
+def _all_expressed_needs_have_outcomes(
+    session: ConversationSession, result: dict
+) -> list[CheckResult]:
+    outcomes = result.get("outcomes") or []
+    summaries = " ".join(str(outcome.get("customer_summary", "")) for outcome in outcomes).lower()
+    tickets = {
+        outcome.get("ticket", {}).get("number")
+        for outcome in outcomes
+        if outcome.get("ticket")
+    }
+    return [
+        CheckResult(
+            "disorganised_account_created_distinct_need_outcomes",
+            len(outcomes) >= 2 and len(tickets) >= 2,
+            f"outcomes={len(outcomes)} tickets={len(tickets)}",
+        ),
+        CheckResult(
+            "charge_and_statement_needs_were_both_retained",
+            any(word in summaries for word in ("cobro", "cargo", "movimiento"))
+            and "extracto" in summaries,
+            f"summaries={summaries}",
+        ),
+    ]
+
+
 SCENARIOS = [
     Scenario(
         name="atencion_preferencial_adulto_mayor",
@@ -108,6 +133,7 @@ SCENARIOS = [
                 "request. Comprehension is the whole test."
             ),
         ),
+        expectation_checks=_all_expressed_needs_have_outcomes,
     ),
     Scenario(
         name="cliente_no_entiende_la_pregunta",

@@ -78,10 +78,13 @@ class KnowledgeService:
                 )
 
             decision = await self.provider.grounded_answer(masked_query, chunks)
-            allowed = {item.chunk.id: item for item in chunks}
-            cited = list(dict.fromkeys(decision.cited_chunk_ids))
+            allowed = {index: item for index, item in enumerate(chunks, start=1)}
+            cited = list(dict.fromkeys(decision.cited_evidence_refs))
             diagnostics["supported"] = decision.supported
-            diagnostics["cited_chunk_ids"] = [str(chunk_id) for chunk_id in cited]
+            diagnostics["cited_evidence_refs"] = cited
+            diagnostics["cited_chunk_ids"] = [
+                str(allowed[ref].chunk.id) for ref in cited if ref in allowed
+            ]
             if not decision.supported:
                 return await self._finish(
                     db,
@@ -91,7 +94,7 @@ class KnowledgeService:
                     retrieved,
                     diagnostics,
                 )
-            if not cited or any(chunk_id not in allowed for chunk_id in cited):
+            if not cited or any(ref not in allowed for ref in cited):
                 return await self._finish(
                     db,
                     case_id,
@@ -103,7 +106,7 @@ class KnowledgeService:
 
             response = GroundedResponse(
                 answer=decision.answer.strip(),
-                citations=[allowed[chunk_id].citation() for chunk_id in cited],
+                citations=[allowed[ref].citation() for ref in cited],
             )
             if answer_validator and not answer_validator(response.answer):
                 diagnostics["answer_language_rejected"] = True

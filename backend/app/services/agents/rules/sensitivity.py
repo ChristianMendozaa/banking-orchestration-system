@@ -31,7 +31,19 @@ _INCIDENT_EVENT = re.compile(
     r"me\s+(?:aparec|sali)\w*\s+(?:un|dos|tres|varios)?\s*"
     r"(?:cargo|cobro|consumo|movimiento|consumos|cargos)|"
     r"se\s+trag[oó]\s+mi\s+tarjeta|me\s+(?:la|lo)\s+(?:usaron|vaciaron)|"
-    r"perd[ií]\s+mi\b|se\s+me\s+perdi[oó]|extravi[eé]",
+    r"perd[ií]\s+mi\b|se\s+me\s+perdi[oó]|extravi[eé]|"
+    r"me\s+(?:han\s+)?cobrar?\w*\s+(?:algo|un\s+(?:cargo|cobro))\s+(?:raro|extra[nñ]o)",
+    re.IGNORECASE,
+)
+_FRAUD_INCIDENT = re.compile(
+    r"no\s+reconozco|no\s+reconoc[ií]|no\s+autoric[eé]|"
+    r"(?:cargo|cobro|consumo|movimiento).{0,35}(?:raro|extra[nñ]o|no\s+reconoc)|"
+    r"me\s+(?:han\s+)?cobrar?\w*\s+(?:algo|un\s+(?:cargo|cobro))\s+(?:raro|extra[nñ]o)",
+    re.IGNORECASE,
+)
+_CARD_LOSS_INCIDENT = re.compile(
+    r"(?:robaron|perd[ií]|extravi[eé]|se\s+me\s+perdi[oó]).{0,30}tarjeta|"
+    r"tarjeta.{0,30}(?:robada|perdida|extraviada)",
     re.IGNORECASE,
 )
 # Weaker than _INCIDENT_EVENT: naming one's own banking object is enough to make a request
@@ -85,6 +97,17 @@ def _reports_an_incident(masked_text: str) -> bool:
         not _NEGATED_INCIDENT.search(masked_text[max(0, match.start() - 40) : match.start()])
         for match in _INCIDENT_EVENT.finditer(masked_text)
     )
+
+
+def security_incident_category(masked_text: str) -> Category | None:
+    """Recover an omitted high-risk need without trying to classify ordinary requests."""
+    if not _reports_an_incident(masked_text) or _HYPOTHETICAL.search(masked_text):
+        return None
+    if _FRAUD_INCIDENT.search(masked_text):
+        return Category.REPORTE_FRAUDE
+    if _CARD_LOSS_INCIDENT.search(masked_text):
+        return Category.BLOQUEO_TARJETA
+    return None
 
 
 def sensitivity_floor(masked_text: str, category: Category) -> ConsultationLevel | None:

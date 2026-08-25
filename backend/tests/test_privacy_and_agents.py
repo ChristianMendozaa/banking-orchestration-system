@@ -7,7 +7,7 @@ from app.domain.enums import (
     ExecutiveStatus,
     Priority,
 )
-from app.domain.schemas import ClassificationDecision
+from app.domain.schemas import ClassificationDecision, ClassifiedNeed, SpeechPlan
 from app.services.agents import (
     ClassificationAgent,
     DerivationAgent,
@@ -18,7 +18,10 @@ from app.services.agents import (
 from app.services.agents.rules.language import (
     clarification_is_materially_simpler,
     clarification_is_simple,
+    comprehension_repair_question,
 )
+from app.services.intake import IntakePlanner
+from app.services.orchestrator.speech import VOICE_PRIVACY_NOTICE, with_privacy_notice
 from app.services.pii import PIIMaskingService
 
 
@@ -131,6 +134,29 @@ async def test_classifier_replaces_a_formal_clarification_question(settings) -> 
     )
 
 
+async def test_classifier_recovers_a_security_need_the_model_omitted(settings) -> None:
+    class Provider:
+        async def classify(self, _: str) -> ClassificationDecision:
+            return ClassificationDecision(
+                summary="Revisa por qué no llega el extracto de su cuenta",
+                customer_summary="Necesitas revisar por qué no te llega el extracto.",
+                category=Category.CONSULTA_GENERAL,
+                consultation_level=ConsultationLevel.PERSONALIZADA,
+                confidence=0.96,
+                ambiguous=False,
+            )
+
+    result = await ClassificationAgent(settings, Provider()).run(
+        "El mes pasado me han cobrado algo raro. Lo que necesito es revisar mi extracto."
+    )
+    assert result.category is Category.REPORTE_FRAUDE
+    assert result.consultation_level is ConsultationLevel.SENSIBLE
+    assert result.security_incident is True
+    assert [need.category for need in result.additional_needs] == [Category.CONSULTA_GENERAL]
+    assert "extracto" in result.customer_summary.lower()
+    assert "cobro" in result.customer_summary.lower()
+
+
 async def test_product_information_is_general_even_for_credit_category(settings) -> None:
     agent = ClassificationAgent(settings, provider=None)
     result = await agent.run("¿Qué requisitos necesito para solicitar un crédito de consumo?")
@@ -238,3 +264,89 @@ def test_comprehension_retry_requires_one_short_concept() -> None:
     assert not clarification_is_materially_simpler(
         "¿Qué pasó con tu tarjeta?", "¿Qué pasó con tu tarjeta?"
     )
+    assert clarification_is_materially_simpler(
+        "¿Quieres que tu tarjeta deje de funcionar para que nadie la use?",
+        "¿Quieres bloquearla?",
+    )
+
+
+def test_comprehension_repair_replaces_a_repeated_opaque_question() -> None:
+    repaired = comprehension_repair_question(
+        Category.BLOQUEO_TARJETA,
+        "¿Quieres bloquearla?",
+        "¿Quieres bloquearla?",
+    )
+    assert repaired == "¿Quieres que tu tarjeta deje de funcionar para que nadie la use?"
+
+
+def test_intake_planner_consolidates_related_security_actions() -> None:
+    decision = ClassificationDecision(
+        summary="Reporta un consumo que no reconoce",
+        customer_summary=(
+            "Necesitas reportar el consumo que no reconoces y, si hace falta, bloquear tu tarjeta."
+        ),
+        category=Category.REPORTE_FRAUDE,
+        consultation_level=ConsultationLevel.SENSIBLE,
+        confidence=0.98,
+        ambiguous=False,
+        security_incident=True,
+        additional_needs=[
+            ClassifiedNeed(
+                summary="Bloquea la tarjeta por posible uso no reconocido",
+                customer_summary="Necesitas bloquear tu tarjeta por posible uso no reconocido.",
+                category=Category.BLOQUEO_TARJETA,
+                consultation_level=ConsultationLevel.SENSIBLE,
+                confidence=0.91,
+                security_incident=True,
+            )
+        ],
+    )
+
+    planned = IntakePlanner().plan(decision)
+
+    assert planned.category is Category.REPORTE_FRAUDE
+    assert planned.additional_needs == []
+    assert "bloquear" in planned.customer_summary
+
+
+def test_intake_planner_keeps_unrelated_needs_independent() -> None:
+    decision = ClassificationDecision(
+        summary="Reporta un cargo que no reconoce",
+        customer_summary="Necesitas reportar un cargo y saber el horario.",
+        category=Category.REPORTE_FRAUDE,
+        consultation_level=ConsultationLevel.SENSIBLE,
+        confidence=0.98,
+        ambiguous=False,
+        security_incident=True,
+        additional_needs=[
+            ClassifiedNeed(
+                summary="Consulta el horario de la sucursal",
+                customer_summary="Quieres saber el horario de la sucursal.",
+                category=Category.CONSULTA_GENERAL,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.95,
+            )
+        ],
+    )
+
+    planned = IntakePlanner().plan(decision)
+
+    assert [planned.category, planned.additional_needs[0].category] == [
+        Category.REPORTE_FRAUDE,
+        Category.CONSULTA_GENERAL,
+    ]
+
+
+def test_financial_pii_adds_an_immediate_voice_privacy_notice() -> None:
+    plan = SpeechPlan(
+        intent="CONFIRM",
+        facts={"entendido": "Necesitas reportar un cargo."},
+        guidance="Confirma la necesidad.",
+        fallback_text="¿Confirmas que necesitas reportar un cargo?",
+    )
+
+    speech, warned = with_privacy_notice(plan.fallback_text, plan, ["TARJETA", "MONTO"])
+
+    assert speech.startswith(VOICE_PRIVACY_NOTICE)
+    assert warned.verbatim[0] == VOICE_PRIVACY_NOTICE
+    assert "4532" not in speech

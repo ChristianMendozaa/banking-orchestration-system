@@ -55,7 +55,8 @@ def _both_needs_accounted_for(session: ConversationSession, result: dict) -> lis
         session.clarification_rounds >= 1
     )
     spoken = " ".join(session.kiosk_utterances) + " " + (result.get("response") or "")
-    deferred_named = "horario" in spoken.lower() or len(session.requirement_ids) > 1
+    outcomes = result.get("outcomes") or []
+    deferred_named = "horario" in spoken.lower() and len(outcomes) > 1
     return [
         CheckResult(
             "security_half_was_not_dropped",
@@ -65,8 +66,7 @@ def _both_needs_accounted_for(session: ConversationSession, result: dict) -> lis
         CheckResult(
             "deferred_need_was_acknowledged",
             deferred_named,
-            f"requerimientos={len(session.requirement_ids)}",
-            severity="SOFT",
+            f"requerimientos={len(session.requirement_ids)} outcomes={len(outcomes)}",
         ),
     ]
 

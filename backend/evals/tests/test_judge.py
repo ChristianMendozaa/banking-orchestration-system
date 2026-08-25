@@ -26,6 +26,28 @@ FINAL_STATE = {
         "ticket": {"number": 7},
         "executive": {"name": "Carlos Mamani", "window_number": "Ventanilla 1"},
         "citations": [{"title": "Tarjetas", "page": 1, "score": 0.72}],
+        "outcomes": [
+            {
+                "need_index": 0,
+                "customer_summary": "Necesitas reportar un cargo que no reconoces.",
+                "category": "REPORTE_FRAUDE",
+                "priority": "CRITICO",
+                "resolution_type": "HUMAN",
+                "ticket": {"number": 7},
+                "executive": {"name": "Carlos Mamani", "window_number": "Ventanilla 1"},
+                "grounding_status": "NOT_APPLICABLE",
+            },
+            {
+                "need_index": 1,
+                "customer_summary": "Quieres saber el horario de atención.",
+                "category": "CONSULTA_GENERAL",
+                "priority": "BAJO",
+                "resolution_type": "AUTOMATIC",
+                "ticket": {"number": 8},
+                "response": "La sucursal atiende desde las 08:30.",
+                "grounding_status": "GROUNDED",
+            },
+        ],
     },
 }
 
@@ -70,6 +92,13 @@ def test_dossier_carries_the_final_state_as_ground_truth() -> None:
     dossier = _dossier()
     for expected in ("Carlos Mamani", "IDENTIFICADO", "CRITICO", "Ventanilla 1"):
         assert expected in dossier
+
+
+def test_dossier_carries_every_multi_need_outcome_as_ground_truth() -> None:
+    payload = json.loads(_dossier().split("\n\n", 1)[1])
+    outcomes = payload["final_recorded_state"]["all_outcomes"]
+    assert [outcome["ticket"]["number"] for outcome in outcomes] == [7, 8]
+    assert outcomes[1]["answer"] == "La sucursal atiende desde las 08:30."
 
 
 def test_dossier_labels_check_outcomes_for_applicable_checks() -> None:

@@ -33,8 +33,13 @@ from app.services.agents import (
     InitialAttentionAgent,
     PrioritizationAgent,
 )
-from app.services.graph.builder import confirmation_graph, identification_graph, turn_graph
+from app.services.graph.builder import (
+    confirmation_graph,
+    identification_graph,
+    turn_graph,
+)
 from app.services.graph.state import GraphContext
+from app.services.orchestrator.outcome_coordinator import OutcomeCoordinator
 from app.services.orchestrator.responses import (
     analysis_response,
     build_result,
@@ -55,6 +60,7 @@ class OrchestratorService:
         derivation: DerivationAgent,
         initial_attention: InitialAttentionAgent,
         repository: CaseRepository | None = None,
+        outcome_coordinator: OutcomeCoordinator | None = None,
     ) -> None:
         self.settings = settings
         self.pii = pii
@@ -63,6 +69,7 @@ class OrchestratorService:
         self.derivation = derivation
         self.initial_attention = initial_attention
         self.repository = repository or CaseRepository()
+        self.outcome_coordinator = outcome_coordinator or OutcomeCoordinator()
 
     def _graph_context(self, db: AsyncSession) -> GraphContext:
         return GraphContext(
@@ -89,6 +96,13 @@ class OrchestratorService:
         # guard_turn replayed an already-resolved turn_id -- every other path here still
         # ends in NEEDS_CLARIFICATION / AWAITING_CONFIRMATION / DECLINED, handled below.
         if final_state.get("next_action") == "BUILD_RESULT":
+            await self.outcome_coordinator.finalize_plan(
+                db,
+                kiosk_session,
+                final_state["requirement"],
+                self._graph_context(db),
+                identifier_payload=None,
+            )
             result = await build_result(db, kiosk_session.id, self.repository, self.settings)
             return completed_analysis_response(kiosk_session, final_state["requirement"], result)
         return analysis_response(final_state["kiosk_session"], final_state["requirement"])
@@ -127,9 +141,14 @@ class OrchestratorService:
             {"kiosk_session": kiosk_session, "identification_payload": payload},
             context=self._graph_context(db),
         )
-        return await self._dispatch_result(db, final_state)
+        return await self._dispatch_result(db, final_state, identifier_payload=payload)
 
-    async def _dispatch_result(self, db: AsyncSession, final_state: dict) -> FlowResult:
+    async def _dispatch_result(
+        self,
+        db: AsyncSession,
+        final_state: dict,
+        identifier_payload: IdentificationRequest | None = None,
+    ) -> FlowResult:
         """Resolves the `next_action` marker every confirmation_graph /
         identification_graph terminal node sets into the matching helper in
         `responses`. `BUILD_RESULT` covers both the short-circuits that reach a finished
@@ -143,6 +162,17 @@ class OrchestratorService:
             return identification_result(
                 kiosk_session, final_state["case"], final_state["requirement"]
             )
+        # Idempotent replay guards intentionally return only BUILD_RESULT: the siblings
+        # were finalized by the first request and there is no live graph requirement.
+        if "requirement" not in final_state:
+            return await build_result(db, kiosk_session.id, self.repository, self.settings)
+        await self.outcome_coordinator.finalize_plan(
+            db,
+            kiosk_session,
+            final_state["requirement"],
+            self._graph_context(db),
+            identifier_payload=identifier_payload,
+        )
         return await build_result(db, kiosk_session.id, self.repository, self.settings)
 
     async def build_session_status(

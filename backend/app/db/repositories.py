@@ -17,14 +17,35 @@ class CaseRepository:
             select(Requirement).where(
                 Requirement.session_id == session_id,
                 Requirement.turn_id == turn_id,
+                Requirement.need_index == 0,
             )
         )
 
     async def latest_requirement(self, db: AsyncSession, session_id: UUID) -> Requirement | None:
         return await db.scalar(
             select(Requirement)
-            .where(Requirement.session_id == session_id, Requirement.active.is_(True))
+            .where(
+                Requirement.session_id == session_id,
+                Requirement.active.is_(True),
+                Requirement.need_index == 0,
+            )
             .order_by(Requirement.created_at.desc())
+        )
+
+    async def requirements_for_turn(
+        self, db: AsyncSession, session_id: UUID, turn_id: UUID
+    ) -> list[Requirement]:
+        return list(
+            (
+                await db.scalars(
+                    select(Requirement)
+                    .where(
+                        Requirement.session_id == session_id,
+                        Requirement.turn_id == turn_id,
+                    )
+                    .order_by(Requirement.need_index)
+                )
+            ).all()
         )
 
     async def case_by_session(

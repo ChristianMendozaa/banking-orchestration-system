@@ -17,8 +17,8 @@ This module is pure: it takes values and returns `SpeechPlan`s. It touches no se
 no database and no agent.
 """
 
-from app.domain.enums import Category
-from app.domain.schemas import ExecutiveAssignment, SpeechPlan
+from app.domain.enums import Category, ResolutionType
+from app.domain.schemas import ExecutiveAssignment, FlowOutcome, SpeechPlan
 
 # The written rendering of a declined turn, used by the text channel and as the voice
 # channel's `fallback_text`. The voice channel no longer reads it aloud: it gets
@@ -75,6 +75,32 @@ IDENTIFICATION_WARNING = "No escribas contraseñas, PIN ni datos financieros."
 IDENTIFICATION_SPEECH_TEXT = (
     f"Para continuar, escribe tu CI en el campo protegido. {IDENTIFICATION_WARNING}"
 )
+
+VOICE_PRIVACY_NOTICE = (
+    "Por seguridad, no digas números de tarjeta ni datos financieros en voz alta."
+)
+_VOICE_FINANCIAL_PII = {"TARJETA", "MONTO", "CUENTA"}
+
+
+def with_privacy_notice(
+    speech: str,
+    plan: SpeechPlan,
+    pii_types: list[str],
+) -> tuple[str, SpeechPlan]:
+    """Prepend immediate voice-safety guidance when this turn contained financial PII."""
+    if not _VOICE_FINANCIAL_PII.intersection(pii_types):
+        return speech, plan
+    warned_speech = f"{VOICE_PRIVACY_NOTICE} {speech}"
+    return warned_speech, plan.model_copy(
+        update={
+            "verbatim": list(dict.fromkeys([VOICE_PRIVACY_NOTICE, *plan.verbatim])),
+            "guidance": (
+                "Primero repite la advertencia de `verbatim` sobre datos en voz alta. "
+                f"Después sigue esta instrucción: {plan.guidance}"
+            ),
+            "fallback_text": warned_speech,
+        }
+    )
 
 
 def decline_plan() -> SpeechPlan:
@@ -240,6 +266,61 @@ def pending_assignment_plan(ticket_number: int) -> tuple[str, SpeechPlan]:
             "Dale el número de ticket exactamente como aparece y explícale que "
             "todavía no hay una ventanilla asignada, que espere a que lo llamen. "
             "No inventes un ejecutivo ni una ventanilla."
+        ),
+        fallback_text=speech,
+    )
+
+
+def compose_outcomes_plan(
+    primary_speech: str,
+    primary_plan: SpeechPlan,
+    outcomes: list[FlowOutcome],
+) -> tuple[str, SpeechPlan]:
+    """Compose independent case outcomes without putting language in response shaping."""
+    if len(outcomes) <= 1:
+        return primary_speech, primary_plan
+
+    additions: list[str] = []
+    verbatim = list(primary_plan.verbatim)
+    for outcome in outcomes[1:]:
+        need = outcome.customer_summary.rstrip(".")
+        for opening in ("necesitas ", "quieres "):
+            if need.casefold().startswith(opening):
+                need = need[len(opening) :]
+                break
+        if outcome.resolution_type is ResolutionType.AUTOMATIC:
+            additions.append(f"Sobre {need}: {outcome.response}")
+        elif outcome.executive:
+            additions.append(
+                f"Sobre {need}, tu ticket es {outcome.ticket.number}. Dirígete a "
+                f"{outcome.executive.window_number} con {outcome.executive.name}."
+            )
+            verbatim.extend(
+                [
+                    str(outcome.ticket.number),
+                    outcome.executive.window_number,
+                    outcome.executive.name,
+                ]
+            )
+        else:
+            additions.append(
+                f"Sobre {need}, conserva también el ticket {outcome.ticket.number}; "
+                "está pendiente de asignación."
+            )
+            verbatim.append(str(outcome.ticket.number))
+
+    speech = " ".join([primary_speech, *additions])
+    return speech, SpeechPlan(
+        intent=(
+            "HANDOFF"
+            if any(outcome.resolution_type is ResolutionType.HUMAN for outcome in outcomes)
+            else "ANSWER"
+        ),
+        facts={"resultados": speech},
+        verbatim=list(dict.fromkeys(verbatim)),
+        guidance=(
+            "Comunica cada resultado y número de ticket; no omitas ninguna necesidad "
+            "independiente y no combines sus destinos."
         ),
         fallback_text=speech,
     )

@@ -177,6 +177,29 @@ def test_a_human_result_with_a_ticket_and_no_executive_is_still_actionable() -> 
     assert "asignacion pendiente" in check.detail
 
 
+def test_every_human_outcome_must_be_actionable() -> None:
+    checks = _evaluate(
+        result={
+            "resolution_type": "HUMAN",
+            "outcomes": [
+                {
+                    "need_index": 0,
+                    "resolution_type": "HUMAN",
+                    "ticket": {"number": 12},
+                },
+                {
+                    "need_index": 1,
+                    "resolution_type": "HUMAN",
+                    "ticket": {},
+                },
+            ],
+        }
+    )
+    check = _check(checks, "human_result_is_actionable")
+    assert check.passed is False
+    assert "outcome=1" in check.detail
+
+
 def test_routing_to_an_executive_without_the_skill_is_a_soft_failure() -> None:
     """Maria Fernandez holds card and fraud skills in the operational seed, not credit."""
     checks = _evaluate(

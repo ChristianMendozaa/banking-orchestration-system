@@ -56,7 +56,9 @@ def build_turn_graph(finalize_subgraph):
     # A confident GENERAL classification (see turn_nodes.requires_confirmation) skips the
     # confirmation round-trip and runs straight through the same finalize subgraph a
     # confirmed requirement uses -- clarify/force_human/decline never set auto_resolve, so
-    # they always take the "end" edge, exactly as before this branch existed.
+    # `force_human` also auto-captures an unresolved anonymous case: no identity or banking
+    # action follows, so asking for handoff consent and then overriding a rejection would be
+    # misleading. Clarify/decline still take the end edge.
     builder.add_conditional_edges(
         "persist_requirement",
         turn_nodes.route_after_persist,

@@ -41,7 +41,7 @@ async def test_openai_provider_parses_structured_outputs_and_batches_embeddings(
             output_parsed=GroundedAnswerDecision(
                 answer="Atención de lunes a viernes.",
                 supported=True,
-                cited_chunk_ids=[],
+                cited_evidence_refs=[],
             )
         ),
     ]

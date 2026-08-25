@@ -27,6 +27,7 @@ from app.domain.enums import (
 from app.domain.schemas import ClassificationDecision
 from app.services.agents.rules.language import (
     clarification_is_materially_simpler,
+    comprehension_repair_question,
     unresolved_customer_summary,
 )
 from app.services.graph import confirmation_nodes
@@ -188,6 +189,16 @@ async def classify(state: OrchestrationState, runtime: Runtime[GraphContext]) ->
         and state.get("previous_routing_category") is not None
     ):
         decision = decision.model_copy(update={"category": state["previous_routing_category"]})
+    if decision.clarification_outcome is ClarificationOutcome.DID_NOT_UNDERSTAND:
+        decision = decision.model_copy(
+            update={
+                "clarification_question": comprehension_repair_question(
+                    decision.category,
+                    decision.clarification_question,
+                    state.get("previous_clarification_question"),
+                )
+            }
+        )
     if state["turn_payload"].is_clarification:
         CLARIFICATION_OUTCOMES.labels(outcome=decision.clarification_outcome.value).inc()
     return {"decision": decision, "classification_source": source}
@@ -241,7 +252,6 @@ async def force_human(state: OrchestrationState) -> dict:
     still worth more to the person at the counter than no guess at all, and unlike
     identification it costs nothing if it is wrong: the executive sees the transcript.
     """
-    kiosk_session = state["kiosk_session"]
     UNRESOLVED_HANDOFFS.inc()
     handoff_summary = unresolved_customer_summary(state["decision"].category)
     decision = state["decision"].model_copy(
@@ -251,15 +261,22 @@ async def force_human(state: OrchestrationState) -> dict:
             "consultation_level": ConsultationLevel.GENERAL,
             "ambiguous": True,
             "clarification_question": None,
+            # Candidate secondary needs are not independently confirmed when the intake is
+            # unresolved. Preserve the whole dialogue in masked_text and create one neutral
+            # assistance case instead of materializing guesses as extra tickets.
+            "additional_needs": [],
         }
     )
-    kiosk_session.status = SessionStatus.AWAITING_CONFIRMATION
+    # An unresolved anonymous handoff performs no banking action and requests no identity.
+    # Finalize it directly instead of asking permission and later overriding a rejection to
+    # that same offer. Intent confirmations remain unchanged for understood sensitive needs.
     return {
         "decision": decision,
         "force_human": True,
         "intent_status": IntentStatus.UNRESOLVED,
         "confirmation_kind": ConfirmationKind.HUMAN_HANDOFF,
         "handoff_summary": handoff_summary,
+        "auto_resolve": True,
     }
 
 
@@ -311,6 +328,7 @@ async def persist_requirement(state: OrchestrationState, runtime: Runtime[GraphC
     requirement = Requirement(
         session_id=kiosk_session.id,
         turn_id=payload.turn_id,
+        need_index=0,
         masked_text=state["masked_context"],
         pii_metadata=state["pii_metadata"],
         summary=decision.summary,
@@ -333,6 +351,40 @@ async def persist_requirement(state: OrchestrationState, runtime: Runtime[GraphC
         distress_detected=decision.distress_detected,
     )
     runtime.context.db.add(requirement)
+    for index, need in enumerate(decision.additional_needs, start=1):
+        priority = runtime.context.prioritizer.run(
+            need.category,
+            need.summary,
+            kiosk_session.preferential_attention,
+            urgency_detected=need.urgency_detected,
+            security_incident=need.security_incident,
+            distress_detected=need.distress_detected,
+        )
+        runtime.context.db.add(
+            Requirement(
+                session_id=kiosk_session.id,
+                turn_id=payload.turn_id,
+                need_index=index,
+                masked_text=state["masked_context"],
+                pii_metadata=state["pii_metadata"],
+                summary=need.summary,
+                customer_summary=need.customer_summary,
+                category=need.category,
+                routing_category=need.category,
+                proposed_priority=priority,
+                consultation_level=need.consultation_level,
+                confidence=need.confidence,
+                classification_source=state["classification_source"],
+                ambiguous=False,
+                clarification_outcome=decision.clarification_outcome,
+                intent_status=state.get("intent_status", IntentStatus.CONFIRMED),
+                confirmation_kind=state.get("confirmation_kind", ConfirmationKind.INTENT),
+                active=False,
+                urgency_detected=need.urgency_detected,
+                security_incident=need.security_incident,
+                distress_detected=need.distress_detected,
+            )
+        )
     await runtime.context.db.flush()
     return {"requirement": requirement}
 

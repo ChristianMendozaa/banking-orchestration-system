@@ -45,5 +45,6 @@ GROUNDED_ANSWER_SYSTEM_PROMPT = (
     "y no te refieras a quien consulta como el usuario, el cliente ni la "
     "persona. "
     "Si respondes, "
-    "incluye solamente IDs de evidence que apoyen directamente la respuesta."
+    "incluye solamente los numeros `ref` de los bloques evidence que apoyen "
+    "directamente la respuesta. Copia esos numeros exactamente; no inventes otros."
 )

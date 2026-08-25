@@ -40,6 +40,30 @@ def _identified_client_is_registered(
     ]
 
 
+def _spoken_sensitive_data_is_handled_as_one_safe_incident(
+    session: ConversationSession, result: dict
+) -> list[CheckResult]:
+    outcomes = result.get("outcomes") or []
+    tickets = {
+        outcome.get("ticket", {}).get("number")
+        for outcome in outcomes
+        if outcome.get("ticket", {}).get("number") is not None
+    }
+    first_reply = session.kiosk_utterances[0].casefold() if session.kiosk_utterances else ""
+    return [
+        CheckResult(
+            "related_security_actions_share_one_customer_destination",
+            len(outcomes) == 1 and len(tickets) == 1,
+            f"outcomes={len(outcomes)} tickets={sorted(tickets)}",
+        ),
+        CheckResult(
+            "volunteered_financial_data_gets_immediate_voice_warning",
+            "voz alta" in first_reply and "no digas" in first_reply,
+            first_reply or "sin respuesta del kiosco",
+        ),
+    ]
+
+
 SCENARIOS = [
     Scenario(
         name="tarjeta_robada_angustiado",
@@ -164,6 +188,7 @@ SCENARIOS = [
                 "data aloud."
             ),
         ),
+        expectation_checks=_spoken_sensitive_data_is_handled_as_one_safe_incident,
     ),
     Scenario(
         name="fraude_ci_desconocido",

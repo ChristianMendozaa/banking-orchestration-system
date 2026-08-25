@@ -7,7 +7,7 @@ from sqlalchemy import select
 from app.api.deps import get_orchestrator
 from app.db.models import CaseRecord, Identification, KioskSession, Requirement, Ticket, TraceEvent
 from app.domain.enums import Category, ClarificationOutcome, ConsultationLevel
-from app.domain.schemas import ClassificationDecision
+from app.domain.schemas import ClassificationDecision, ClassifiedNeed
 from app.knowledge.service import KnowledgeService
 from app.main import app
 from app.services.agents import (
@@ -843,6 +843,208 @@ async def test_general_label_on_a_fraud_report_still_requires_identification(
         assert requirement.classification_source == "MODEL+FLOOR"
 
 
+async def test_one_turn_creates_separate_tickets_for_every_independent_need(
+    client: AsyncClient,
+) -> None:
+    class MultiNeedProvider:
+        async def classify(self, _: str) -> ClassificationDecision:
+            return ClassificationDecision(
+                summary="Reporta un cobro que no reconoce del mes pasado",
+                customer_summary=(
+                    "Necesitas reportar primero un cobro que no reconoces y después "
+                    "revisar por qué no te llega el extracto."
+                ),
+                category=Category.REPORTE_FRAUDE,
+                consultation_level=ConsultationLevel.SENSIBLE,
+                confidence=0.96,
+                ambiguous=False,
+                security_incident=True,
+                additional_needs=[
+                    ClassifiedNeed(
+                        summary="Consulta el horario de atención",
+                        customer_summary="Necesitas saber el horario de atención.",
+                        category=Category.CONSULTA_GENERAL,
+                        consultation_level=ConsultationLevel.GENERAL,
+                        confidence=0.94,
+                    )
+                ],
+            )
+
+        async def embedding(self, text: str):
+            return await fake_provider.embedding(text)
+
+        async def embeddings(self, texts: list[str]):
+            return await fake_provider.embeddings(texts)
+
+        async def grounded_answer(self, query, chunks):
+            return await fake_provider.grounded_answer(query, chunks)
+
+    provider = MultiNeedProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        session_id, token = await _session(client)
+        headers = {"X-Session-Token": token}
+        turn = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={
+                "turn_id": str(uuid4()),
+                "transcript": (
+                    "El mes pasado me cobraron algo raro y además necesito saber el "
+                    "horario de atención."
+                ),
+            },
+        )
+        assert turn.status_code == 200, turn.text
+        analysis = turn.json()
+        assert analysis["next_action"] == "CONFIRM"
+
+        confirmation = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={"requirement_id": analysis["requirement_id"], "confirmed": True},
+        )
+        assert confirmation.status_code == 200, confirmation.text
+        assert confirmation.json()["next_action"] == "IDENTIFY"
+
+        identification = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/identification",
+            headers=headers,
+            json={"identifier": "7842193"},
+        )
+        assert identification.status_code == 200, identification.text
+        result = identification.json()
+        assert [outcome["need_index"] for outcome in result["outcomes"]] == [0, 1]
+        assert [outcome["category"] for outcome in result["outcomes"]] == [
+            "REPORTE_FRAUDE",
+            "CONSULTA_GENERAL",
+        ]
+        assert len({outcome["ticket"]["number"] for outcome in result["outcomes"]}) == 2
+        assert "horario" in result["speech_text"].lower()
+        assert "para necesitas" not in result["speech_text"].lower()
+        assert result["grounding_status"] == "GROUNDED"
+        assert result["citations"]
+        assert result["grounding_detail"]["outcomes"][0]["need_index"] == 1
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+    async with TestSession() as db:
+        requirements = list(await db.scalars(select(Requirement)))
+        cases = list(await db.scalars(select(CaseRecord)))
+        identifications = list(await db.scalars(select(Identification)))
+        assert [requirement.need_index for requirement in requirements] == [0, 1]
+        assert len(cases) == 2
+        assert len(identifications) == 1
+        assert identifications[0].identifier_ciphertext
+
+
+async def test_related_security_actions_share_one_ticket_and_warn_about_spoken_pii(
+    client: AsyncClient,
+) -> None:
+    class RelatedSecurityProvider:
+        async def classify(self, _: str) -> ClassificationDecision:
+            return ClassificationDecision(
+                summary="Reporta un consumo que no reconoce",
+                customer_summary=(
+                    "Necesitas reportar el consumo que no reconoces y, si hace falta, "
+                    "bloquear tu tarjeta."
+                ),
+                category=Category.REPORTE_FRAUDE,
+                consultation_level=ConsultationLevel.SENSIBLE,
+                confidence=0.98,
+                ambiguous=False,
+                security_incident=True,
+                additional_needs=[
+                    ClassifiedNeed(
+                        summary="Bloquea la tarjeta por posible uso no reconocido",
+                        customer_summary=(
+                            "Necesitas bloquear tu tarjeta por posible uso no reconocido."
+                        ),
+                        category=Category.BLOQUEO_TARJETA,
+                        consultation_level=ConsultationLevel.SENSIBLE,
+                        confidence=0.91,
+                        security_incident=True,
+                    )
+                ],
+            )
+
+        async def embedding(self, text: str):
+            return await fake_provider.embedding(text)
+
+        async def embeddings(self, texts: list[str]):
+            return await fake_provider.embeddings(texts)
+
+        async def grounded_answer(self, query, chunks):
+            return await fake_provider.grounded_answer(query, chunks)
+
+    provider = RelatedSecurityProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        session_id, token = await _session(client)
+        headers = {"X-Session-Token": token}
+        turn = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={
+                "turn_id": str(uuid4()),
+                "transcript": (
+                    "No reconozco un consumo. Mi tarjeta es 4532 1122 3344 5566 y fue por Bs 4.500."
+                ),
+            },
+        )
+        analysis = turn.json()
+        assert analysis["next_action"] == "CONFIRM"
+        assert set(analysis["pii_types"]) == {"TARJETA", "MONTO"}
+        assert analysis["speech_text"].startswith("Por seguridad")
+        assert "4532" not in analysis["speech_text"]
+
+        confirmation = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={"requirement_id": analysis["requirement_id"], "confirmed": True},
+        )
+        assert confirmation.json()["next_action"] == "IDENTIFY"
+
+        identification = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/identification",
+            headers=headers,
+            json={"identifier": "6735666"},
+        )
+        result = identification.json()
+        assert len(result["outcomes"]) == 1
+        assert result["outcomes"][0]["category"] == "REPORTE_FRAUDE"
+        assert result["tracking_information"].startswith(
+            f"Conserva el ticket {result['ticket']['number']}."
+        )
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+    async with TestSession() as db:
+        requirements = list(await db.scalars(select(Requirement)))
+        cases = list(await db.scalars(select(CaseRecord)))
+        tickets = list(await db.scalars(select(Ticket)))
+        assert len(requirements) == len(cases) == len(tickets) == 1
+        assert "consumo" in requirements[0].summary.casefold()
+        assert "bloque" in requirements[0].summary.casefold()
+        assert cases[0].summary == requirements[0].summary
+
+
 async def test_repeated_corrections_hand_the_session_to_a_person(client: AsyncClient) -> None:
     """A customer who cannot phrase the request used to loop CONFIRM -> reject -> CAPTURE
     forever and leave with no ticket at all (`cliente_no_entiende_la_pregunta`, 2/10, ending
@@ -881,7 +1083,7 @@ async def test_repeated_corrections_hand_the_session_to_a_person(client: AsyncCl
         assert any(event.event_type == "CORRECTION_LIMIT_REACHED" for event in events)
 
 
-async def test_repeated_comprehension_failure_confirms_only_a_truthful_handoff(
+async def test_repeated_comprehension_failure_routes_an_anonymous_truthful_handoff(
     client: AsyncClient,
 ) -> None:
     class ComprehensionProvider:
@@ -960,19 +1162,7 @@ async def test_repeated_comprehension_failure_confirms_only_a_truthful_handoff(
                 "is_clarification": True,
             },
         )
-        analysis = third.json()
-        assert analysis["next_action"] == "CONFIRM"
-        assert analysis["confirmation_kind"] == "HUMAN_HANDOFF"
-        assert analysis["intent_status"] == "UNRESOLVED"
-        assert "persona" in analysis["speech_text"]
-        assert "bloquear" not in analysis["speech_text"].lower()
-
-        confirmation = await client.post(
-            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
-            headers=headers,
-            json={"requirement_id": analysis["requirement_id"], "confirmed": True},
-        )
-        result = confirmation.json()
+        result = third.json()["result"]
         assert result["next_action"] == "COMPLETE"
         assert result["resolution_type"] == "HUMAN"
         assert result["identification_status"] == "ANONIMO"

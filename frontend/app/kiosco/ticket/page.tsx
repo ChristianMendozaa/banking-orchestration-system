@@ -11,6 +11,9 @@ export default function TicketPage() {
   if (!result?.ticket) return null
   const priority = result.priority ?? analysis?.priority
   const customerSummary = result.customer_summary ?? analysis?.customer_summary
+  const additionalOutcomes = (result.outcomes ?? []).filter(
+    (outcome) => outcome.need_index > 0,
+  )
 
   return (
     <div className="flex flex-1 items-center justify-center px-5 py-10">
@@ -73,6 +76,35 @@ export default function TicketPage() {
           <section className="w-full rounded-2xl border border-white/10 bg-white/[.04] p-5">
             <p className="text-xs uppercase tracking-widest text-white/70">Lo que necesitas</p>
             <p className="mt-2 text-white/80">{customerSummary}</p>
+          </section>
+        )}
+        {additionalOutcomes.length > 0 && (
+          <section className="w-full space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-white/70">
+              Tus otros requerimientos
+            </h2>
+            {additionalOutcomes.map((outcome) => (
+              <article
+                className="rounded-2xl border border-white/15 bg-white/[.06] p-5"
+                key={outcome.requirement_id}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="font-semibold">Ticket #{outcome.ticket.number}</p>
+                  {outcome.priority && <Badge variant={outcome.priority} />}
+                </div>
+                <p className="mt-2 text-white/80">{outcome.customer_summary}</p>
+                {outcome.executive && (
+                  <p className="mt-3 text-sm text-[#7DD3FC]">
+                    {outcome.executive.name} · {outcome.executive.window_number}
+                  </p>
+                )}
+                {outcome.response && (
+                  <p className="mt-3 whitespace-pre-line text-sm text-white/75">
+                    {outcome.response}
+                  </p>
+                )}
+              </article>
+            ))}
           </section>
         )}
         {result.identification_status === "FALLIDO" && (

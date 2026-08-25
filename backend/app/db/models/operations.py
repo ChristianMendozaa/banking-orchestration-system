@@ -30,9 +30,11 @@ from app.domain.enums import (
     CaseStatus,
     Category,
     ConsultationLevel,
+    GroundingStatus,
     IdentificationStatus,
     Priority,
     ResolutionOutcome,
+    ResolutionType,
     TicketStatus,
 )
 
@@ -63,6 +65,15 @@ class CaseRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         string_enum(CaseStatus), default=CaseStatus.CREATED, index=True
     )
     force_human: Mapped[bool] = mapped_column(Boolean, default=False)
+    resolution_type: Mapped[ResolutionType | None] = mapped_column(
+        string_enum(ResolutionType), nullable=True
+    )
+    final_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    grounding_status: Mapped[GroundingStatus] = mapped_column(
+        string_enum(GroundingStatus), default=GroundingStatus.NOT_APPLICABLE
+    )
+    citations_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    grounding_detail_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     session: Mapped[KioskSession] = relationship(back_populates="cases")
     identification: Mapped["Identification | None"] = relationship(
         back_populates="case", cascade="all, delete-orphan", uselist=False

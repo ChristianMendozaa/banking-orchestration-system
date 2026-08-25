@@ -150,9 +150,9 @@ class OpenAIProvider:
         self, summary: str, chunks: list["RetrievedChunk"]
     ) -> GroundedAnswerDecision:
         evidence = "\n\n".join(
-            f'<evidence id="{item.chunk.id}" document="{item.document.title}" '
+            f'<evidence ref="{index}" document="{item.document.title}" '
             f'page="{item.chunk.page}">\n{item.chunk.content}\n</evidence>'
-            for item in chunks
+            for index, item in enumerate(chunks, start=1)
         )
         response = await self.client.responses.parse(
             model=self.settings.orchestration_model,

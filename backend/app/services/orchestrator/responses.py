@@ -10,15 +10,25 @@ Wording comes from `app.services.orchestrator.speech`; nothing here writes a sen
 
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.db.models import CaseRecord, KioskSession, Requirement
+from app.db.models import CaseRecord, KioskSession, Requirement, Ticket
 from app.db.repositories import CaseRepository
-from app.domain.enums import ConfirmationKind, IntentStatus, Priority, ResolutionType, SessionStatus
+from app.domain.enums import (
+    ConfirmationKind,
+    GroundingStatus,
+    IntentStatus,
+    Priority,
+    ResolutionType,
+    SessionStatus,
+)
 from app.domain.schemas import (
     ExecutiveAssignment,
+    FlowOutcome,
     FlowResult,
     KnowledgeCitation,
     TicketResult,
@@ -32,19 +42,26 @@ from app.services.orchestrator.speech import (
     answer_plan,
     capture_plan,
     clarify_plan,
+    compose_outcomes_plan,
     confirm_plan,
     decline_plan,
     handoff_confirmation_plan,
     handoff_plan,
     identification_plan,
     pending_assignment_plan,
+    with_privacy_notice,
 )
 
 
 def completed_analysis_response(
     kiosk_session: KioskSession, requirement: Requirement, result: FlowResult
 ) -> TurnAnalysisResponse:
-
+    speech, plan = with_privacy_notice(
+        result.speech_text,
+        result.speech_plan,
+        requirement.pii_metadata.get("types", []),
+    )
+    result = result.model_copy(update={"speech_text": speech, "speech_plan": plan})
     return TurnAnalysisResponse(
         requirement_id=requirement.id,
         status=kiosk_session.status,
@@ -60,8 +77,8 @@ def completed_analysis_response(
         clarification_outcome=requirement.clarification_outcome,
         pii_types=requirement.pii_metadata.get("types", []),
         next_action="COMPLETE",
-        speech_text=result.speech_text,
-        speech_plan=result.speech_plan,
+        speech_text=speech,
+        speech_plan=plan,
         result=result,
     )
 
@@ -102,6 +119,20 @@ def analysis_response(
         else f"¿Me confirmas si {confirmation_clause}?"
     )
     speech = question or confirmation_text
+    plan = (
+        clarify_plan(question)
+        if question
+        else (
+            handoff_confirmation_plan()
+            if handoff_confirmation
+            else confirm_plan(requirement.customer_summary, speech)
+        )
+    )
+    speech, plan = with_privacy_notice(
+        speech,
+        plan,
+        requirement.pii_metadata.get("types", []),
+    )
     return TurnAnalysisResponse(
         requirement_id=requirement.id,
         status=(
@@ -121,15 +152,7 @@ def analysis_response(
         pii_types=requirement.pii_metadata.get("types", []),
         next_action="CLARIFY" if clarify else "CONFIRM",
         speech_text=speech,
-        speech_plan=(
-            clarify_plan(question)
-            if question
-            else (
-                handoff_confirmation_plan()
-                if handoff_confirmation
-                else confirm_plan(requirement.customer_summary, speech)
-            )
-        ),
+        speech_plan=plan,
     )
 
 
@@ -173,66 +196,158 @@ async def build_result(
     settings: Settings,
 ) -> FlowResult:
 
-    ticket = await repository.result_ticket(db, session_id)
-    if not ticket:
+    primary_requirement = await db.scalar(
+        select(Requirement)
+        .where(Requirement.session_id == session_id, Requirement.need_index == 0)
+        .order_by(Requirement.created_at.desc())
+        .limit(1)
+    )
+    if not primary_requirement:
         raise AppError("RESULT_NOT_READY", "El resultado aun no esta disponible", 409)
-    case = ticket.case
-    requirement = await db.get(Requirement, case.requirement_id)
-    if not requirement:
-        raise AppError("REQUIREMENT_NOT_FOUND", "El requerimiento del caso no existe", 409)
-    assignment = None
-    if ticket.executive:
-        assignment = ExecutiveAssignment(
-            id=ticket.executive.id,
-            name=ticket.executive.display_name,
-            title=ticket.executive.title,
-            window_number=ticket.executive.window_number,
+    tickets = list(
+        (
+            await db.scalars(
+                select(Ticket)
+                .join(CaseRecord, Ticket.case_id == CaseRecord.id)
+                .join(Requirement, CaseRecord.requirement_id == Requirement.id)
+                .where(
+                    CaseRecord.session_id == session_id,
+                    Requirement.turn_id == primary_requirement.turn_id,
+                )
+                .order_by(Requirement.need_index)
+                .options(
+                    selectinload(Ticket.case).selectinload(CaseRecord.session),
+                    selectinload(Ticket.executive),
+                )
+            )
+        ).all()
+    )
+    if not tickets:
+        raise AppError("RESULT_NOT_READY", "El resultado aun no esta disponible", 409)
+
+    requirements = {
+        requirement.id: requirement
+        for requirement in await repository.requirements_for_turn(
+            db, session_id, primary_requirement.turn_id
         )
-    urgent_case = requirement.proposed_priority in {Priority.ALTO, Priority.CRITICO}
-    if case.session.resolution_type == ResolutionType.AUTOMATIC:
-        speech, plan = answer_plan(case.session.final_response)
-    elif assignment:
+    }
+    outcomes: list[FlowOutcome] = []
+    for ticket in tickets:
+        case = ticket.case
+        requirement = requirements[case.requirement_id]
+        assignment = None
+        if ticket.executive:
+            assignment = ExecutiveAssignment(
+                id=ticket.executive.id,
+                name=ticket.executive.display_name,
+                title=ticket.executive.title,
+                window_number=ticket.executive.window_number,
+            )
+        outcomes.append(
+            FlowOutcome(
+                requirement_id=requirement.id,
+                need_index=requirement.need_index,
+                customer_summary=requirement.customer_summary,
+                category=case.category,
+                priority=requirement.proposed_priority,
+                identification_status=case.identification_status,
+                resolution_type=case.resolution_type or ResolutionType.HUMAN,
+                ticket=TicketResult(
+                    id=ticket.public_id,
+                    number=ticket.number,
+                    status=ticket.status,
+                    estimated_wait_minutes=ticket.estimated_wait_minutes,
+                ),
+                executive=assignment,
+                response=case.final_response,
+                grounding_status=case.grounding_status,
+                grounding_detail=case.grounding_detail_json,
+                citations=[
+                    KnowledgeCitation.model_validate(citation) for citation in case.citations_json
+                ],
+            )
+        )
+
+    primary = outcomes[0]
+    primary_ticket = tickets[0]
+    primary_case = primary_ticket.case
+    primary_assignment = primary.executive
+    urgent_case = primary.priority in {Priority.ALTO, Priority.CRITICO}
+    if primary.resolution_type == ResolutionType.AUTOMATIC:
+        speech, plan = answer_plan(primary.response)
+    elif primary_assignment:
         speech, plan = handoff_plan(
-            category=case.category,
-            ticket_number=ticket.number,
-            estimated_wait_minutes=ticket.estimated_wait_minutes,
-            assignment=assignment,
+            category=primary_case.category,
+            ticket_number=primary_ticket.number,
+            estimated_wait_minutes=primary_ticket.estimated_wait_minutes,
+            assignment=primary_assignment,
             urgent_case=urgent_case,
             unresolved_summary=(
-                requirement.handoff_summary
-                if requirement.intent_status is IntentStatus.UNRESOLVED
+                primary_requirement.handoff_summary
+                if primary_requirement.intent_status is IntentStatus.UNRESOLVED
                 else None
             ),
         )
     else:
-        speech, plan = pending_assignment_plan(ticket.number)
+        speech, plan = pending_assignment_plan(primary_ticket.number)
+
+    speech, plan = compose_outcomes_plan(speech, plan, outcomes)
+
+    grounding_outcomes = [
+        outcome
+        for outcome in outcomes
+        if outcome.grounding_status is not GroundingStatus.NOT_APPLICABLE
+    ]
+    if not grounding_outcomes:
+        aggregate_grounding_status = GroundingStatus.NOT_APPLICABLE
+    elif any(
+        outcome.grounding_status is GroundingStatus.NO_EVIDENCE for outcome in grounding_outcomes
+    ):
+        aggregate_grounding_status = GroundingStatus.NO_EVIDENCE
+    else:
+        aggregate_grounding_status = GroundingStatus.GROUNDED
+    aggregate_citations = list(
+        {
+            citation.chunk_id: citation
+            for outcome in grounding_outcomes
+            for citation in outcome.citations
+        }.values()
+    )
+    aggregate_grounding_detail = {
+        "outcomes": [
+            {
+                "requirement_id": str(outcome.requirement_id),
+                "need_index": outcome.need_index,
+                "status": outcome.grounding_status.value,
+                "detail": outcome.grounding_detail,
+            }
+            for outcome in grounding_outcomes
+        ]
+    }
 
     return FlowResult(
         session_id=session_id,
-        requirement_id=case.requirement_id,
-        status=case.session.status,
+        requirement_id=primary.requirement_id,
+        status=primary_case.session.status,
         next_action="COMPLETE",
-        customer_summary=requirement.customer_summary,
-        priority=requirement.proposed_priority,
-        identification_status=case.identification_status,
-        resolution_type=case.session.resolution_type,
-        ticket=TicketResult(
-            id=ticket.public_id,
-            number=ticket.number,
-            status=ticket.status,
-            estimated_wait_minutes=ticket.estimated_wait_minutes,
-        ),
-        executive=assignment,
-        response=case.session.final_response,
+        customer_summary=primary.customer_summary,
+        priority=primary.priority,
+        identification_status=primary.identification_status,
+        resolution_type=primary.resolution_type,
+        ticket=primary.ticket,
+        executive=primary.executive,
+        response=primary.response,
         speech_text=speech,
         speech_plan=plan,
         tracking_information=(
-            f"Conserva el ticket {ticket.number}. {settings.support_tracking_information.strip()}"
+            "Conserva "
+            + ("los tickets " if len(outcomes) > 1 else "el ticket ")
+            + ", ".join(str(outcome.ticket.number) for outcome in outcomes)
+            + f". {settings.support_tracking_information.strip()}"
         ),
-        grounding_status=case.session.grounding_status,
-        grounding_detail=case.session.grounding_detail_json,
-        intent_status=requirement.intent_status,
-        citations=[
-            KnowledgeCitation.model_validate(citation) for citation in case.session.citations_json
-        ],
+        grounding_status=aggregate_grounding_status,
+        grounding_detail=aggregate_grounding_detail,
+        intent_status=primary_requirement.intent_status,
+        citations=aggregate_citations,
+        outcomes=outcomes,
     )

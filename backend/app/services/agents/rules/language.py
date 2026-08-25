@@ -77,6 +77,12 @@ def clarification_is_simple(text: str | None) -> bool:
 
 
 def clarification_is_materially_simpler(candidate: str | None, previous: str | None) -> bool:
+    """Whether a repair question is both usable and meaningfully different.
+
+    Comprehension is not a word-count contest. A concrete explanation can be longer than an
+    opaque two-word question, so length is deliberately not compared here. The one-concept
+    constraint and lexical difference prevent option lists and verbatim repeats.
+    """
     if not clarification_is_simple(candidate):
         return False
     if not previous:
@@ -85,9 +91,38 @@ def clarification_is_materially_simpler(candidate: str | None, previous: str | N
     normalized_previous = " ".join(re.findall(r"\w+", previous.casefold()))
     if normalized_candidate == normalized_previous:
         return False
-    candidate_words = normalized_candidate.split()
-    previous_words = normalized_previous.split()
-    return not clarification_is_simple(previous) or len(candidate_words) < len(previous_words)
+    return True
+
+
+_COMPREHENSION_REPAIR_QUESTIONS = {
+    Category.BLOQUEO_TARJETA: ("¿Quieres que tu tarjeta deje de funcionar para que nadie la use?"),
+    Category.REPORTE_FRAUDE: "¿Viste un cobro que tú no hiciste?",
+    Category.BANCA_DIGITAL: "¿No puedes entrar a la banca digital?",
+    Category.SOLICITUD_CREDITO: "¿Necesitas ayuda con un crédito que ya pediste?",
+    Category.CONSULTA_GENERAL: "¿Qué necesitas hacer en el banco?",
+}
+
+
+def comprehension_repair_question(
+    category: Category,
+    candidate: str | None,
+    previous: str | None,
+) -> str:
+    """Choose a concrete one-concept repair after the customer says they did not understand.
+
+    The model's candidate is kept when it satisfies the repair contract. Otherwise the
+    category policy supplies a stable accessible fallback. These are domain-level prompts,
+    not scenario phrases, and live here so the graph contains no wording branches.
+    """
+    if clarification_is_materially_simpler(candidate, previous):
+        return candidate
+    fallback = _COMPREHENSION_REPAIR_QUESTIONS[category]
+    if clarification_is_materially_simpler(fallback, previous):
+        return fallback
+    # The category fallback can only equal the prior question after it has already been used.
+    # Returning it lets the ordinary clarification budget route to a human on that turn; the
+    # graph never emits it a second time.
+    return fallback
 
 
 def unresolved_customer_summary(category: Category) -> str:

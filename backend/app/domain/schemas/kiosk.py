@@ -158,6 +158,22 @@ class TicketResult(BaseModel):
     estimated_wait_minutes: int | None = None
 
 
+class FlowOutcome(BaseModel):
+    requirement_id: UUID
+    need_index: int
+    customer_summary: str
+    category: Category
+    priority: Priority | None = None
+    identification_status: IdentificationStatus | None = None
+    resolution_type: ResolutionType
+    ticket: TicketResult
+    executive: ExecutiveAssignment | None = None
+    response: str | None = None
+    grounding_status: GroundingStatus = GroundingStatus.NOT_APPLICABLE
+    grounding_detail: dict[str, Any] = Field(default_factory=dict)
+    citations: list[KnowledgeCitation] = Field(default_factory=list)
+
+
 class FlowResult(BaseModel):
     session_id: UUID
     requirement_id: UUID
@@ -177,6 +193,7 @@ class FlowResult(BaseModel):
     grounding_detail: dict[str, Any] = Field(default_factory=dict)
     intent_status: IntentStatus = IntentStatus.CONFIRMED
     citations: list[KnowledgeCitation] = Field(default_factory=list)
+    outcomes: list[FlowOutcome] = Field(default_factory=list)
 
 
 class SessionStatusResponse(BaseModel):
