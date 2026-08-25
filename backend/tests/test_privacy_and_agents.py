@@ -15,6 +15,10 @@ from app.services.agents import (
     customer_facing_text_is_natural,
     grounded_answer_is_natural,
 )
+from app.services.agents.rules.language import (
+    clarification_is_materially_simpler,
+    clarification_is_simple,
+)
 from app.services.pii import PIIMaskingService
 
 
@@ -220,3 +224,17 @@ async def test_derivation_uses_semantic_similarity_before_experience() -> None:
     assert selected is not None
     assert selected.executive is semantic_match
     assert selected.active_load == 0
+
+
+def test_comprehension_retry_requires_one_short_concept() -> None:
+    assert clarification_is_simple("¿Qué pasó con tu tarjeta?")
+    assert not clarification_is_simple(
+        "¿Se perdió, fue robada, quedó bloqueada o simplemente no funciona?"
+    )
+    assert clarification_is_materially_simpler(
+        "¿Qué pasó con tu tarjeta?",
+        "¿Se perdió, fue robada, quedó bloqueada o simplemente no funciona?",
+    )
+    assert not clarification_is_materially_simpler(
+        "¿Qué pasó con tu tarjeta?", "¿Qué pasó con tu tarjeta?"
+    )

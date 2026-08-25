@@ -7,7 +7,7 @@ from uuid import uuid4
 from sqlalchemy import select
 
 from app.db.models import KnowledgeDocument, RAGInteraction
-from app.domain.enums import Category
+from app.domain.enums import Category, GroundingAttemptOutcome
 from app.domain.schemas import GroundedAnswerDecision
 from app.knowledge.chunking import chunk_pdf
 from app.knowledge.ingestion import KnowledgeIngestionService
@@ -86,7 +86,7 @@ async def test_ingestion_retires_replaced_managed_versions(tmp_path: Path) -> No
 async def test_no_semantic_evidence_is_logged_and_routes_to_human() -> None:
     service = KnowledgeService(settings_for_tests, fake_provider)
     async with TestSession() as db:
-        answer = await service.answer(
+        attempt = await service.answer(
             db,
             case_id=None,
             category=Category.CONSULTA_GENERAL,
@@ -96,9 +96,11 @@ async def test_no_semantic_evidence_is_logged_and_routes_to_human() -> None:
         interaction = await db.scalar(
             select(RAGInteraction).order_by(RAGInteraction.created_at.desc())
         )
-    assert answer is None
+    assert attempt.outcome is GroundingAttemptOutcome.NO_CANDIDATES
+    assert attempt.response is None
     assert interaction is not None
-    assert interaction.outcome == "NO_EVIDENCE"
+    assert interaction.outcome == "NO_CANDIDATES"
+    assert interaction.details_json["queries"] == ["pregunta completamente distinta"]
 
 
 async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
@@ -115,7 +117,7 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
 
     service = KnowledgeService(settings_for_tests, InvalidCitationProvider())
     async with TestSession() as db:
-        answer = await service.answer(
+        attempt = await service.answer(
             db,
             case_id=None,
             category=Category.CONSULTA_GENERAL,
@@ -125,9 +127,9 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
         interaction = await db.scalar(
             select(RAGInteraction).order_by(RAGInteraction.created_at.desc())
         )
-    assert answer is None
+    assert attempt.outcome is GroundingAttemptOutcome.INVALID_CITATIONS
     assert interaction is not None
-    assert interaction.outcome == "INVALID_GROUNDING"
+    assert interaction.outcome == "INVALID_CITATIONS"
 
 
 async def test_alternative_phrasings_are_searched_in_one_embedding_call() -> None:
@@ -161,16 +163,14 @@ async def test_alternative_phrasings_are_searched_in_one_embedding_call() -> Non
     async with TestSession() as db:
         # The vague phrasing on its own retrieves nothing: it is the NO_EVIDENCE the first
         # rung of the old ladder produced before any retry ran.
-        assert (
-            await service.answer(
-                db, case_id=None, category=Category.CONSULTA_GENERAL, masked_query=vague
-            )
-            is None
+        first = await service.answer(
+            db, case_id=None, category=Category.CONSULTA_GENERAL, masked_query=vague
         )
+        assert first.outcome is GroundingAttemptOutcome.NO_CANDIDATES
         provider.embedding_calls.clear()
         provider.grounding_calls.clear()
 
-        answer = await service.answer(
+        attempt = await service.answer(
             db,
             case_id=None,
             category=Category.CONSULTA_GENERAL,
@@ -178,10 +178,35 @@ async def test_alternative_phrasings_are_searched_in_one_embedding_call() -> Non
             retrieval_queries=[vague, sharp],
         )
 
-    assert answer is not None
+    assert attempt.outcome is GroundingAttemptOutcome.GROUNDED
+    assert attempt.response is not None
     assert provider.embedding_calls == [[vague, sharp]]
     # The variants widen the *search*; the question asked stays the one that was asked.
     assert provider.grounding_calls == [vague]
+
+
+async def test_hybrid_retrieval_recovers_ordinary_asr_spelling_noise() -> None:
+    """Lexical retrieval must rescue a legible query even when its vector is unrelated."""
+
+    class NoisyVectorProvider:
+        async def embeddings(self, texts):
+            return [[0.0, 1.0, *([0.0] * 1534)] for _ in texts]
+
+        async def grounded_answer(self, query, chunks):
+            return await fake_provider.grounded_answer(query, chunks)
+
+    service = KnowledgeService(settings_for_tests, NoisyVectorProvider())
+    async with TestSession() as db:
+        attempt = await service.answer(
+            db,
+            case_id=None,
+            category=Category.CONSULTA_GENERAL,
+            masked_query="cuales son los orarios de atencion de la sucursal",
+        )
+
+    assert attempt.outcome is GroundingAttemptOutcome.GROUNDED
+    assert attempt.response is not None
+    assert any("lexical" in item["channels"] for item in attempt.diagnostics["retrieved"])
 
 
 async def test_retrieval_queries_are_deduplicated_and_default_to_the_question() -> None:

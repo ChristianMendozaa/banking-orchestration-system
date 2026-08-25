@@ -70,6 +70,14 @@ customer_summary debe ser una frase natural dirigida directamente de tú, comenz
 forma como "Necesitas" o "Quieres", describir la necesidad y no devolver la pregunta de
 aclaracion (nunca "Necesitas decirme si...", "Necesitas contarme si..."), y nunca referirse a
 quien habla como "el usuario", "el cliente", "la persona" ni usar "usted", "su" o "sus".
+Cuando la entrada sea un objeto con `dialogue`, usa sus campos como turnos separados, no como
+una sola frase. `latest_customer_reply` responde a `previous_kiosk_question`.
+Para `clarification_outcome` usa PROVIDED_DETAIL si la respuesta aporta informacion que
+resuelve o reduce la duda, DID_NOT_UNDERSTAND si la persona expresa que no comprendio la
+pregunta, NO_USEFUL_DETAIL si responde pero no aporta informacion util, y NOT_APPLICABLE si
+no es una respuesta de aclaracion. Si es DID_NOT_UNDERSTAND, no repitas ni parafrasees la
+misma lista: formula una pregunta de un solo concepto, sin alternativas unidas por "o", sin
+enumeraciones y de no mas de 12 palabras. El contenido debe salir de los hechos del turno.
 Marca urgency_detected cuando existe urgencia explicita, security_incident solo cuando el
 hecho ya ocurrio o esta en curso sobre los productos de esa persona -- una pregunta
 preventiva o hipotetica no es un incidente -- y distress_detected cuando el lenguaje refleja

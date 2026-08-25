@@ -27,11 +27,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import Settings
 from app.db.models import CaseRecord, KioskSession, Requirement, Ticket
 from app.db.repositories import CaseRepository
-from app.domain.enums import IdentificationStatus
+from app.domain.enums import Category, ConfirmationKind, IdentificationStatus, IntentStatus
 from app.domain.schemas import (
     ClassificationDecision,
     ConfirmationRequest,
-    GroundedResponse,
+    GroundingAttempt,
     IdentificationRequest,
     TurnRequest,
 )
@@ -73,10 +73,16 @@ class OrchestrationState(TypedDict, total=False):
 
     # turn_graph working state.
     masked_context: str
+    classification_input: str
+    previous_routing_category: Category
+    previous_clarification_question: str
     pii_metadata: dict
     decision: ClassificationDecision
     classification_source: str
     force_human: bool
+    intent_status: IntentStatus
+    confirmation_kind: ConfirmationKind
+    handoff_summary: str
     auto_resolve: bool
 
     # Shared across graphs once known.
@@ -96,6 +102,6 @@ class OrchestrationState(TypedDict, total=False):
     identification_result_status: IdentificationStatus
 
     # finalize subgraph working state.
-    grounded_response: GroundedResponse | None
+    grounding_attempt: GroundingAttempt
     grounding_attempted: bool
     ticket: Ticket

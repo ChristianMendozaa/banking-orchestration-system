@@ -21,6 +21,7 @@ Chart design follows the project's data-visualisation rules:
   either direction.
 """
 
+import json
 from datetime import UTC, datetime
 
 from harness.report.theme import STYLES, TOGGLE_SCRIPT
@@ -303,6 +304,10 @@ def _judgement(result: ScenarioResult) -> str:
     if verdict and verdict.strengths:
         items = "".join(f"<li>{_e(strength)}</li>" for strength in verdict.strengths)
         parts.append(f'<h3>What went well</h3><ul class="bullets">{items}</ul>')
+    grounding_detail = result.session_snapshot.get("grounding_detail") or {}
+    if grounding_detail:
+        rendered = json.dumps(grounding_detail, ensure_ascii=False, indent=2)
+        parts.append(f"<h3>Grounding diagnostics</h3><pre>{_e(rendered)}</pre>")
     return "".join(parts)
 
 

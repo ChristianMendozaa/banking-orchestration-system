@@ -79,7 +79,8 @@ class KnowledgeIngestionService:
         if not categories:
             raise ValueError(f"Document {slug} does not declare any categories")
         sections = [str(value).strip() for value in spec.get("sections", []) if str(value).strip()]
-        index_signature = self._index_signature(categories, sections)
+        title = str(spec["title"])
+        index_signature = self._index_signature(title, categories, sections)
         metadata = {
             "categories": [category.value for category in categories],
             "sections": sections,
@@ -102,7 +103,7 @@ class KnowledgeIngestionService:
                 )
             previous_signature = document.metadata_json.get("index_signature")
             was_active = document.active
-            document.title = str(spec["title"])
+            document.title = title
             document.source_type = KnowledgeSourceType(str(spec["source_type"]))
             document.source_urls = list(spec.get("source_urls", []))
             document.verified_at = verified_at
@@ -132,7 +133,7 @@ class KnowledgeIngestionService:
         shutil.copy2(path, stored_path)
         document = KnowledgeDocument(
             slug=slug,
-            title=str(spec["title"]),
+            title=title,
             version=version,
             source_type=KnowledgeSourceType(str(spec["source_type"])),
             source_urls=list(spec.get("source_urls", [])),
@@ -152,13 +153,13 @@ class KnowledgeIngestionService:
         await db.flush()
         return await self._index_document(db, document, path, categories, sections)
 
-    def _index_signature(self, categories: list[Category], sections: list[str]) -> str:
+    def _index_signature(self, title: str, categories: list[Category], sections: list[str]) -> str:
         configuration = {
-            # v2 embeds a "<document title> — <section>" header with each chunk instead of the
-            # bare body (see knowledge.indexing._embedding_text). Bumping the strategy is what
-            # makes an existing corpus re-embed: the signature is the only thing standing
-            # between a changed embedding recipe and a silently stale index.
-            "strategy": "declared-sections-v2",
+            # v3 retains contextual embeddings and also builds normalized lexical fields.
+            # Bumping the strategy is what makes an existing corpus reindex: the signature
+            # prevents a changed retrieval recipe from leaving a silently stale index.
+            "strategy": "hybrid-search-v3",
+            "title": title,
             "embedding_model": self.settings.embedding_model,
             "chunk_tokens": self.settings.rag_chunk_tokens,
             "overlap_tokens": self.settings.rag_chunk_overlap,

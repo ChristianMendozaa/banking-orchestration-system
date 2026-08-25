@@ -118,6 +118,24 @@
         "title": "Category",
         "type": "string"
       },
+      "ClarificationOutcome": {
+        "enum": [
+          "PROVIDED_DETAIL",
+          "DID_NOT_UNDERSTAND",
+          "NO_USEFUL_DETAIL",
+          "NOT_APPLICABLE"
+        ],
+        "title": "ClarificationOutcome",
+        "type": "string"
+      },
+      "ConfirmationKind": {
+        "enum": [
+          "INTENT",
+          "HUMAN_HANDOFF"
+        ],
+        "title": "ConfirmationKind",
+        "type": "string"
+      },
       "ConfirmationRequest": {
         "properties": {
           "confirmed": {
@@ -402,6 +420,11 @@
               }
             ]
           },
+          "grounding_detail": {
+            "additionalProperties": true,
+            "title": "Grounding Detail",
+            "type": "object"
+          },
           "grounding_status": {
             "$ref": "#/components/schemas/GroundingStatus",
             "default": "NOT_APPLICABLE"
@@ -415,6 +438,10 @@
                 "type": "null"
               }
             ]
+          },
+          "intent_status": {
+            "$ref": "#/components/schemas/IntentStatus",
+            "default": "CONFIRMED"
           },
           "next_action": {
             "enum": [
@@ -592,6 +619,14 @@
         ],
         "title": "IdentifierRevealResponse",
         "type": "object"
+      },
+      "IntentStatus": {
+        "enum": [
+          "CONFIRMED",
+          "UNRESOLVED"
+        ],
+        "title": "IntentStatus",
+        "type": "string"
       },
       "KnowledgeCitation": {
         "properties": {
@@ -2356,6 +2391,10 @@
           "category": {
             "$ref": "#/components/schemas/Category"
           },
+          "clarification_outcome": {
+            "$ref": "#/components/schemas/ClarificationOutcome",
+            "default": "NOT_APPLICABLE"
+          },
           "clarification_question": {
             "anyOf": [
               {
@@ -2371,12 +2410,20 @@
             "title": "Confidence",
             "type": "number"
           },
+          "confirmation_kind": {
+            "$ref": "#/components/schemas/ConfirmationKind",
+            "default": "INTENT"
+          },
           "consultation_level": {
             "$ref": "#/components/schemas/ConsultationLevel"
           },
           "customer_summary": {
             "title": "Customer Summary",
             "type": "string"
+          },
+          "intent_status": {
+            "$ref": "#/components/schemas/IntentStatus",
+            "default": "CONFIRMED"
           },
           "next_action": {
             "enum": [
@@ -2407,6 +2454,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/FlowResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "routing_category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Category"
               },
               {
                 "type": "null"

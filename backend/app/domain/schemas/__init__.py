@@ -18,6 +18,7 @@ from app.domain.schemas.ai import (
     ClassificationDecision,
     GroundedAnswerDecision,
     GroundedResponse,
+    GroundingAttempt,
     KnowledgeCitation,
 )
 from app.domain.schemas.auth import LoginRequest, TokenResponse, UserSummary
@@ -84,6 +85,7 @@ __all__ = [
     "ExecutiveWorkload",
     "FlowResult",
     "GroundedAnswerDecision",
+    "GroundingAttempt",
     "GroundedResponse",
     "HourlyMetric",
     "IdentificationRequest",

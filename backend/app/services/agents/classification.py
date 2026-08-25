@@ -35,10 +35,14 @@ class ClassificationAgent:
         decision, _ = await self.run_with_source(masked_text)
         return decision
 
-    async def run_with_source(self, masked_text: str) -> tuple[ClassificationDecision, str]:
+    async def run_with_source(
+        self, masked_text: str, classification_input: str | None = None
+    ) -> tuple[ClassificationDecision, str]:
         if self.provider:
             try:
-                decision = self._ensure_customer_language(await self.provider.classify(masked_text))
+                decision = self._ensure_customer_language(
+                    await self.provider.classify(classification_input or masked_text)
+                )
                 return self._enforce_sensitivity(decision, masked_text)
             except Exception as exc:
                 logger.warning(

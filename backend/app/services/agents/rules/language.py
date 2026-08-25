@@ -62,3 +62,41 @@ def customer_facing_text_is_natural(text: str) -> bool:
 
 def grounded_answer_is_natural(text: str) -> bool:
     return not _UNNATURAL_THIRD_PERSON_REFERENCE.search(text)
+
+
+def clarification_is_simple(text: str | None) -> bool:
+    """A comprehension retry must be one short question about one concept."""
+    if not text:
+        return False
+    words = re.findall(r"\b[\wáéíóúüñ]+\b", text, re.IGNORECASE)
+    return (
+        1 <= len(words) <= 12
+        and text.count("?") <= 1
+        and not re.search(r"[,;:]|\b(?:o|u)\b", text, re.IGNORECASE)
+    )
+
+
+def clarification_is_materially_simpler(candidate: str | None, previous: str | None) -> bool:
+    if not clarification_is_simple(candidate):
+        return False
+    if not previous:
+        return True
+    normalized_candidate = " ".join(re.findall(r"\w+", candidate.casefold()))
+    normalized_previous = " ".join(re.findall(r"\w+", previous.casefold()))
+    if normalized_candidate == normalized_previous:
+        return False
+    candidate_words = normalized_candidate.split()
+    previous_words = normalized_previous.split()
+    return not clarification_is_simple(previous) or len(candidate_words) < len(previous_words)
+
+
+def unresolved_customer_summary(category: Category) -> str:
+    """Describe the established topic without inventing the requested action."""
+    topics = {
+        Category.BLOQUEO_TARJETA: "Tienes un problema con una tarjeta",
+        Category.REPORTE_FRAUDE: "Tienes un posible problema de seguridad bancaria",
+        Category.BANCA_DIGITAL: "Tienes un problema relacionado con la banca digital",
+        Category.SOLICITUD_CREDITO: "Necesitas ayuda con un tema de crédito",
+        Category.CONSULTA_GENERAL: "Necesitas ayuda con una consulta bancaria",
+    }
+    return f"{topics[category]}, pero no pudimos precisar qué ayuda necesitas."

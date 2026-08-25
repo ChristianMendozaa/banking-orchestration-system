@@ -7,14 +7,28 @@ control flow was made declarative. `PrioritizationAgent.run` stays a direct call
 scoring function, so promoting it to a node would only add indirection.
 """
 
+import json
+
 from langgraph.graph import END
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
 from app.core.errors import AppError
+from app.core.metrics import CLARIFICATION_OUTCOMES, UNRESOLVED_HANDOFFS
 from app.db.models import Requirement
-from app.domain.enums import Category, ConsultationLevel, SessionStatus
+from app.domain.enums import (
+    Category,
+    ClarificationOutcome,
+    ConfirmationKind,
+    ConsultationLevel,
+    IntentStatus,
+    SessionStatus,
+)
 from app.domain.schemas import ClassificationDecision
+from app.services.agents.rules.language import (
+    clarification_is_materially_simpler,
+    unresolved_customer_summary,
+)
 from app.services.graph import confirmation_nodes
 from app.services.graph.state import CLARIFICATION_JOINER, GraphContext, OrchestrationState
 
@@ -124,21 +138,58 @@ async def mask_pii(state: OrchestrationState, runtime: Runtime[GraphContext]) ->
     payload = state["turn_payload"]
     masked = runtime.context.pii.mask(payload.transcript)
     context = masked.masked_text
+    classification_input = masked.masked_text
+    previous_routing_category = None
+    previous_clarification_question = None
     if payload.is_clarification:
         previous = await runtime.context.repository.latest_requirement(
             runtime.context.db, kiosk_session.id
         )
         if previous:
+            previous_routing_category = previous.routing_category
+            previous_clarification_question = previous.clarification_question
             context = f"{previous.masked_text}{CLARIFICATION_JOINER}{masked.masked_text}"
+            classification_input = json.dumps(
+                {
+                    "dialogue": {
+                        "original_unresolved_need": previous.masked_text.split(
+                            CLARIFICATION_JOINER, 1
+                        )[0],
+                        "previous_kiosk_question": previous.clarification_question,
+                        "previous_customer_summary": previous.customer_summary,
+                        "accumulated_masked_context": previous.masked_text,
+                        "latest_customer_reply": masked.masked_text,
+                        "is_clarification": True,
+                        "clarification_count": kiosk_session.clarification_count,
+                        "routing_category": previous.routing_category.value,
+                        "security_incident": previous.security_incident,
+                        "urgency_detected": previous.urgency_detected,
+                    }
+                },
+                ensure_ascii=False,
+            )
             previous.active = False
     return {
         "masked_context": context,
+        "classification_input": classification_input,
+        "previous_routing_category": previous_routing_category,
+        "previous_clarification_question": previous_clarification_question,
         "pii_metadata": {"types": masked.pii_types, "counts": masked.counts},
     }
 
 
 async def classify(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
-    decision, source = await runtime.context.classifier.run_with_source(state["masked_context"])
+    decision, source = await runtime.context.classifier.run_with_source(
+        state["masked_context"], state["classification_input"]
+    )
+    if (
+        decision.clarification_outcome
+        in {ClarificationOutcome.DID_NOT_UNDERSTAND, ClarificationOutcome.NO_USEFUL_DETAIL}
+        and state.get("previous_routing_category") is not None
+    ):
+        decision = decision.model_copy(update={"category": state["previous_routing_category"]})
+    if state["turn_payload"].is_clarification:
+        CLARIFICATION_OUTCOMES.labels(outcome=decision.clarification_outcome.value).inc()
     return {"decision": decision, "classification_source": source}
 
 
@@ -148,6 +199,17 @@ def route_ambiguity(state: OrchestrationState, runtime: Runtime[GraphContext]) -
     settings = runtime.context.settings
     if decision.out_of_scope:
         return "decline"
+    if decision.clarification_outcome is ClarificationOutcome.DID_NOT_UNDERSTAND:
+        if kiosk_session.clarification_count >= settings.max_clarifications:
+            return "force_human"
+        return (
+            "clarify"
+            if clarification_is_materially_simpler(
+                decision.clarification_question,
+                state.get("previous_clarification_question"),
+            )
+            else "force_human"
+        )
     needs_clarification = (
         decision.ambiguous or decision.confidence < settings.classification_confidence_threshold
     )
@@ -170,8 +232,9 @@ async def force_human(state: OrchestrationState) -> dict:
 
     The level drops to GENERAL on purpose: `create_case_for_requirement` reads it to decide
     ANONIMO vs PENDIENTE, and demanding an identity card for a request nobody understood is
-    exactly the over-identification the policy forbids. The *category* is kept, though --
-    it is what `PrioritizationAgent` and `DerivationAgent` read, so flattening it to
+    exactly the over-identification the policy forbids. The category is retained only as a
+    routing hint for `PrioritizationAgent` and `DerivationAgent`; `intent_status` and the
+    neutral handoff summary prevent it from becoming a claimed customer action. Flattening it to
     CONSULTA_GENERAL was handing the executive a card or fraud matter labelled as a
     low-priority general query, which is what the 2026-08-18 judges flagged on
     `ambiguo_persistente` and `cliente_no_entiende_la_pregunta`. A guess about the topic is
@@ -179,17 +242,25 @@ async def force_human(state: OrchestrationState) -> dict:
     identification it costs nothing if it is wrong: the executive sees the transcript.
     """
     kiosk_session = state["kiosk_session"]
+    UNRESOLVED_HANDOFFS.inc()
+    handoff_summary = unresolved_customer_summary(state["decision"].category)
     decision = state["decision"].model_copy(
         update={
-            "summary": state["masked_context"][:500],
+            "summary": handoff_summary,
+            "customer_summary": handoff_summary,
             "consultation_level": ConsultationLevel.GENERAL,
-            "ambiguous": False,
+            "ambiguous": True,
             "clarification_question": None,
-            "confidence": max(state["decision"].confidence, 0.5),
         }
     )
     kiosk_session.status = SessionStatus.AWAITING_CONFIRMATION
-    return {"decision": decision, "force_human": True}
+    return {
+        "decision": decision,
+        "force_human": True,
+        "intent_status": IntentStatus.UNRESOLVED,
+        "confirmation_kind": ConfirmationKind.HUMAN_HANDOFF,
+        "handoff_summary": handoff_summary,
+    }
 
 
 async def accept(state: OrchestrationState) -> dict:
@@ -245,11 +316,16 @@ async def persist_requirement(state: OrchestrationState, runtime: Runtime[GraphC
         summary=decision.summary,
         customer_summary=decision.customer_summary,
         category=decision.category,
+        routing_category=decision.category,
         proposed_priority=proposed_priority,
         consultation_level=decision.consultation_level,
         confidence=decision.confidence,
         classification_source=state["classification_source"],
-        ambiguous=kiosk_session.status == SessionStatus.NEEDS_CLARIFICATION,
+        ambiguous=decision.ambiguous,
+        clarification_outcome=decision.clarification_outcome,
+        intent_status=state.get("intent_status", IntentStatus.CONFIRMED),
+        confirmation_kind=state.get("confirmation_kind", ConfirmationKind.INTENT),
+        handoff_summary=state.get("handoff_summary"),
         clarification_question=decision.clarification_question,
         force_human=state.get("force_human", False),
         urgency_detected=decision.urgency_detected,

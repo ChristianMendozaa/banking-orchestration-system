@@ -40,6 +40,7 @@ async def _seed_case(category: Category = Category.REPORTE_FRAUDE) -> CaseRecord
             summary="Reporte de movimiento no reconocido",
             customer_summary="Necesitas reportar un posible fraude.",
             category=category,
+            routing_category=category,
             proposed_priority=Priority.CRITICO,
             consultation_level=ConsultationLevel.SENSIBLE,
             confidence=0.9,

@@ -30,7 +30,16 @@ def to_dict(results: list[ScenarioResult], *, metadata: dict | None = None) -> d
     }
 
 
-_DECISION_KEYS = ("next_action", "category", "consultation_level", "confidence")
+_DECISION_KEYS = (
+    "next_action",
+    "category",
+    "routing_category",
+    "consultation_level",
+    "confidence",
+    "clarification_outcome",
+    "intent_status",
+    "confirmation_kind",
+)
 
 
 def _result_to_dict(result: ScenarioResult) -> dict:

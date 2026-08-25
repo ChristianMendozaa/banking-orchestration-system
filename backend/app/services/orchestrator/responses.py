@@ -16,7 +16,7 @@ from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.models import CaseRecord, KioskSession, Requirement
 from app.db.repositories import CaseRepository
-from app.domain.enums import Priority, ResolutionType, SessionStatus
+from app.domain.enums import ConfirmationKind, IntentStatus, Priority, ResolutionType, SessionStatus
 from app.domain.schemas import (
     ExecutiveAssignment,
     FlowResult,
@@ -27,12 +27,14 @@ from app.domain.schemas import (
 from app.services.orchestrator.speech import (
     CAPTURE_SPEECH_TEXT,
     DECLINE_SPEECH_TEXT,
+    HANDOFF_CONFIRMATION_TEXT,
     IDENTIFICATION_SPEECH_TEXT,
     answer_plan,
     capture_plan,
     clarify_plan,
     confirm_plan,
     decline_plan,
+    handoff_confirmation_plan,
     handoff_plan,
     identification_plan,
     pending_assignment_plan,
@@ -52,6 +54,10 @@ def completed_analysis_response(
         priority=requirement.proposed_priority,
         consultation_level=requirement.consultation_level,
         confidence=requirement.confidence,
+        routing_category=requirement.routing_category,
+        intent_status=requirement.intent_status,
+        confirmation_kind=requirement.confirmation_kind,
+        clarification_outcome=requirement.clarification_outcome,
         pii_types=requirement.pii_metadata.get("types", []),
         next_action="COMPLETE",
         speech_text=result.speech_text,
@@ -74,6 +80,10 @@ def analysis_response(
             priority=requirement.proposed_priority,
             consultation_level=requirement.consultation_level,
             confidence=requirement.confidence,
+            routing_category=requirement.routing_category,
+            intent_status=requirement.intent_status,
+            confirmation_kind=requirement.confirmation_kind,
+            clarification_outcome=requirement.clarification_outcome,
             pii_types=requirement.pii_metadata.get("types", []),
             next_action="DECLINE",
             speech_text=DECLINE_SPEECH_TEXT,
@@ -85,7 +95,13 @@ def analysis_response(
     confirmation_clause = customer_summary.rstrip(".?!")
     if confirmation_clause:
         confirmation_clause = confirmation_clause[0].lower() + confirmation_clause[1:]
-    speech = question or f"¿Me confirmas si {confirmation_clause}?"
+    handoff_confirmation = requirement.confirmation_kind is ConfirmationKind.HUMAN_HANDOFF
+    confirmation_text = (
+        HANDOFF_CONFIRMATION_TEXT
+        if handoff_confirmation
+        else f"¿Me confirmas si {confirmation_clause}?"
+    )
+    speech = question or confirmation_text
     return TurnAnalysisResponse(
         requirement_id=requirement.id,
         status=(
@@ -97,6 +113,10 @@ def analysis_response(
         priority=requirement.proposed_priority,
         consultation_level=requirement.consultation_level,
         confidence=requirement.confidence,
+        routing_category=requirement.routing_category,
+        intent_status=requirement.intent_status,
+        confirmation_kind=requirement.confirmation_kind,
+        clarification_outcome=requirement.clarification_outcome,
         clarification_question=question,
         pii_types=requirement.pii_metadata.get("types", []),
         next_action="CLARIFY" if clarify else "CONFIRM",
@@ -104,7 +124,11 @@ def analysis_response(
         speech_plan=(
             clarify_plan(question)
             if question
-            else confirm_plan(requirement.customer_summary, speech)
+            else (
+                handoff_confirmation_plan()
+                if handoff_confirmation
+                else confirm_plan(requirement.customer_summary, speech)
+            )
         ),
     )
 
@@ -117,6 +141,7 @@ def capture_result(kiosk_session: KioskSession, requirement: Requirement) -> Flo
         next_action="CAPTURE",
         customer_summary=requirement.customer_summary,
         priority=requirement.proposed_priority,
+        intent_status=requirement.intent_status,
         speech_text=CAPTURE_SPEECH_TEXT,
         speech_plan=capture_plan(),
     )
@@ -134,6 +159,7 @@ def identification_result(
         next_action="IDENTIFY",
         customer_summary=requirement.customer_summary,
         priority=requirement.proposed_priority,
+        intent_status=requirement.intent_status,
         identification_status=case.identification_status,
         speech_text=IDENTIFICATION_SPEECH_TEXT,
         speech_plan=identification_plan(),
@@ -172,6 +198,11 @@ async def build_result(
             estimated_wait_minutes=ticket.estimated_wait_minutes,
             assignment=assignment,
             urgent_case=urgent_case,
+            unresolved_summary=(
+                requirement.handoff_summary
+                if requirement.intent_status is IntentStatus.UNRESOLVED
+                else None
+            ),
         )
     else:
         speech, plan = pending_assignment_plan(ticket.number)
@@ -199,6 +230,8 @@ async def build_result(
             f"Conserva el ticket {ticket.number}. {settings.support_tracking_information.strip()}"
         ),
         grounding_status=case.session.grounding_status,
+        grounding_detail=case.session.grounding_detail_json,
+        intent_status=requirement.intent_status,
         citations=[
             KnowledgeCitation.model_validate(citation) for citation in case.session.citations_json
         ],

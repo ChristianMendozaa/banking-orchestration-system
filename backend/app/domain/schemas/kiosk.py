@@ -15,10 +15,13 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.domain.enums import (
     Category,
+    ClarificationOutcome,
+    ConfirmationKind,
     ConsultationLevel,
     ConversationRole,
     GroundingStatus,
     IdentificationStatus,
+    IntentStatus,
     Priority,
     ResolutionType,
     SessionStatus,
@@ -88,6 +91,10 @@ class TurnAnalysisResponse(BaseModel):
     priority: Priority
     consultation_level: ConsultationLevel
     confidence: float
+    routing_category: Category | None = None
+    intent_status: IntentStatus = IntentStatus.CONFIRMED
+    confirmation_kind: ConfirmationKind = ConfirmationKind.INTENT
+    clarification_outcome: ClarificationOutcome = ClarificationOutcome.NOT_APPLICABLE
     clarification_question: str | None = None
     pii_types: list[str] = Field(default_factory=list)
     next_action: Literal["CLARIFY", "CONFIRM", "DECLINE", "COMPLETE"]
@@ -167,6 +174,8 @@ class FlowResult(BaseModel):
     speech_plan: SpeechPlan
     tracking_information: str | None = None
     grounding_status: GroundingStatus = GroundingStatus.NOT_APPLICABLE
+    grounding_detail: dict[str, Any] = Field(default_factory=dict)
+    intent_status: IntentStatus = IntentStatus.CONFIRMED
     citations: list[KnowledgeCitation] = Field(default_factory=list)
 
 

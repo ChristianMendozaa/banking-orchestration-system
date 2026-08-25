@@ -1,15 +1,17 @@
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from difflib import SequenceMatcher
 from uuid import UUID
 
-from sqlalchemy import cast, delete, or_, select
+from sqlalchemy import cast, delete, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import KnowledgeChunk, KnowledgeDocument
 from app.domain.enums import Category
 from app.domain.schemas import KnowledgeCitation
+from app.knowledge.search import normalize_search_text
 
 
 @dataclass(frozen=True)
@@ -17,6 +19,7 @@ class RetrievedChunk:
     chunk: KnowledgeChunk
     document: KnowledgeDocument
     score: float
+    channels: dict[str, float] = field(default_factory=dict)
 
     def citation(self) -> KnowledgeCitation:
         return KnowledgeCitation(
@@ -135,6 +138,114 @@ class KnowledgeRepository:
             if item.chunk.categories and category.value not in item.chunk.categories:
                 continue
             if item.score < min_score:
+                continue
+            selected.append(item)
+            if len(selected) == top_k:
+                break
+        return selected
+
+    async def retrieve_lexical(
+        self,
+        db: AsyncSession,
+        query: str,
+        category: Category,
+        top_k: int,
+    ) -> list[RetrievedChunk]:
+        """Retrieve with Spanish FTS and typo-tolerant word similarity.
+
+        SQLite uses an equivalent deterministic token matcher for tests; production uses
+        the GIN-backed PostgreSQL columns installed by migration 0011.
+        """
+        normalized_query = normalize_search_text(query)
+        if not normalized_query:
+            return []
+        if db.bind is not None and db.bind.dialect.name == "postgresql":
+            ranked = (
+                await db.execute(
+                    text(
+                        """
+                        SELECT id,
+                               GREATEST(
+                                   ts_rank_cd(
+                                       search_vector,
+                                       websearch_to_tsquery('spanish', unaccent(:query))
+                                   ),
+                                   word_similarity(unaccent(:query), search_text)
+                               ) AS lexical_score
+                        FROM knowledge_chunks
+                        WHERE search_vector @@ websearch_to_tsquery('spanish', unaccent(:query))
+                           OR word_similarity(unaccent(:query), search_text) >= 0.35
+                        ORDER BY lexical_score DESC
+                        LIMIT :candidate_limit
+                        """
+                    ),
+                    {"query": normalized_query, "candidate_limit": top_k * 4},
+                )
+            ).all()
+            score_by_id = {row[0]: float(row[1]) for row in ranked}
+            if not score_by_id:
+                return []
+            rows = (
+                await db.execute(
+                    select(KnowledgeChunk, KnowledgeDocument)
+                    .join(KnowledgeChunk.document)
+                    .where(KnowledgeChunk.id.in_(score_by_id))
+                )
+            ).all()
+            candidates = [
+                RetrievedChunk(
+                    chunk=chunk,
+                    document=document,
+                    score=score_by_id[chunk.id],
+                    channels={"lexical": score_by_id[chunk.id]},
+                )
+                for chunk, document in rows
+            ]
+        else:
+            rows = (
+                await db.execute(
+                    select(KnowledgeChunk, KnowledgeDocument).join(KnowledgeChunk.document)
+                )
+            ).all()
+            query_tokens = {token for token in normalized_query.split() if len(token) >= 4}
+            candidates = []
+            for chunk, document in rows:
+                haystack = chunk.search_text or normalize_search_text(
+                    " ".join(
+                        part for part in (document.title, chunk.section, chunk.content) if part
+                    )
+                )
+                haystack_tokens = set(haystack.split())
+                matched = sum(
+                    1
+                    for token in query_tokens
+                    if token in haystack_tokens
+                    or any(
+                        SequenceMatcher(None, token, candidate).ratio() >= 0.82
+                        for candidate in haystack_tokens
+                        if abs(len(candidate) - len(token)) <= 2
+                    )
+                )
+                score = matched / max(len(query_tokens), 1)
+                if matched >= 2 or score >= 0.5:
+                    candidates.append(
+                        RetrievedChunk(
+                            chunk=chunk,
+                            document=document,
+                            score=score,
+                            channels={"lexical": score},
+                        )
+                    )
+
+        now = datetime.now(UTC)
+        selected = []
+        for item in sorted(candidates, key=lambda candidate: candidate.score, reverse=True):
+            review_after = item.document.review_after
+            if review_after and review_after.tzinfo is None:
+                review_after = review_after.replace(tzinfo=UTC)
+            if not item.document.active or (review_after and review_after < now):
+                continue
+            if item.chunk.categories and category.value not in item.chunk.categories:
                 continue
             selected.append(item)
             if len(selected) == top_k:

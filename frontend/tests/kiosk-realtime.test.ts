@@ -25,6 +25,9 @@ const analysis: TurnAnalysis = {
   priority: "CRITICO",
   consultation_level: "SENSIBLE",
   confidence: 0.99,
+  intent_status: "CONFIRMED",
+  confirmation_kind: "INTENT",
+  clarification_outcome: "NOT_APPLICABLE",
   clarification_question: null,
   pii_types: [],
   next_action: "CONFIRM",
@@ -65,6 +68,7 @@ const completed: FlowResult = {
   },
   tracking_information: null,
   grounding_status: "NOT_APPLICABLE",
+  intent_status: "CONFIRMED",
   citations: [],
 }
 

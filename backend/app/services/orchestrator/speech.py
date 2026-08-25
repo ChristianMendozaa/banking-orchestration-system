@@ -114,6 +114,23 @@ def confirm_plan(customer_summary: str, fallback_text: str) -> SpeechPlan:
     )
 
 
+HANDOFF_CONFIRMATION_TEXT = (
+    "No pude precisar exactamente qué necesitas. ¿Quieres que te atienda una persona?"
+)
+
+
+def handoff_confirmation_plan() -> SpeechPlan:
+    return SpeechPlan(
+        intent="CONFIRM",
+        facts={"accion": "recibir ayuda de una persona"},
+        guidance=(
+            "Explica brevemente que no pudiste precisar la necesidad y pregunta solamente "
+            "si quiere que una persona la atienda. No menciones una acción bancaria concreta."
+        ),
+        fallback_text=HANDOFF_CONFIRMATION_TEXT,
+    )
+
+
 CAPTURE_SPEECH_TEXT = "Cuéntame nuevamente qué necesitas."
 
 
@@ -170,9 +187,14 @@ def handoff_plan(
     estimated_wait_minutes: int | None,
     assignment: ExecutiveAssignment,
     urgent_case: bool,
+    unresolved_summary: str | None = None,
 ) -> tuple[str, SpeechPlan]:
     """A named executive at a named window. Returns the written rendering and the plan."""
-    reason = HANDOFF_REASONS.get(category, "")
+    reason = (
+        f"Voy a derivarte con un ejecutivo para ayudarte. {unresolved_summary}"
+        if unresolved_summary
+        else HANDOFF_REASONS.get(category, "")
+    )
     urgent = URGENT_HANDOFF_REASSURANCE if urgent_case else ""
     wait_message = (
         f" La espera estimada es de {estimated_wait_minutes} minutos."

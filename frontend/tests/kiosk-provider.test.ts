@@ -41,6 +41,7 @@ function result(
     },
     tracking_information: null,
     grounding_status: "NOT_APPLICABLE",
+    intent_status: "CONFIRMED",
     citations: [],
   }
 }

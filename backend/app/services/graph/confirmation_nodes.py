@@ -16,7 +16,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
 from app.db.models import CaseRecord, KioskSession, Requirement, TraceEvent
-from app.domain.enums import CaseStatus, ConsultationLevel, IdentificationStatus, SessionStatus
+from app.domain.enums import (
+    CaseStatus,
+    ConfirmationKind,
+    ConsultationLevel,
+    IdentificationStatus,
+    IntentStatus,
+    SessionStatus,
+)
+from app.services.agents.rules.language import unresolved_customer_summary
 from app.services.graph.state import GraphContext, OrchestrationState
 
 
@@ -31,15 +39,16 @@ async def create_case_for_requirement(
     identification_status = (
         IdentificationStatus.ANONIMO
         if requirement.consultation_level == ConsultationLevel.GENERAL
+        or requirement.intent_status is IntentStatus.UNRESOLVED
         else IdentificationStatus.PENDIENTE
     )
     case = CaseRecord(
         session_id=kiosk_session.id,
         requirement_id=requirement.id,
-        category=requirement.category,
+        category=requirement.routing_category,
         consultation_level=requirement.consultation_level,
         identification_status=identification_status,
-        summary=requirement.summary,
+        summary=requirement.handoff_summary or requirement.summary,
         preferential_attention=kiosk_session.preferential_attention,
         status=CaseStatus.CLASSIFIED,
         force_human=requirement.force_human,
@@ -51,7 +60,16 @@ async def create_case_for_requirement(
             TraceEvent(
                 case_id=case.id,
                 event_type="REQUIREMENT_CAPTURED",
-                description="Requerimiento capturado y confirmado",
+                description=(
+                    "Derivacion humana confirmada con intencion aun no resuelta"
+                    if requirement.intent_status is IntentStatus.UNRESOLVED
+                    else "Requerimiento capturado y confirmado"
+                ),
+                metadata_json={
+                    "intent_status": requirement.intent_status.value,
+                    "confirmation_kind": requirement.confirmation_kind.value,
+                    "routing_category": requirement.routing_category.value,
+                },
             ),
             TraceEvent(
                 case_id=case.id,
@@ -186,7 +204,8 @@ async def validate_fresh_confirmation(
             "La confirmación corresponde a un requerimiento anterior",
             409,
         )
-    if requirement.ambiguous:
+    unresolved_intent_confirmation = requirement.confirmation_kind is ConfirmationKind.HUMAN_HANDOFF
+    if requirement.ambiguous and not unresolved_intent_confirmation:
         raise AppError(
             "CLARIFICATION_REQUIRED",
             "Primero responde la pregunta de aclaración",
@@ -216,6 +235,10 @@ async def apply_confirmation(state: OrchestrationState, runtime: Runtime[GraphCo
         # `finalize_nodes.eligibility_gate` route it straight to a human on `force_human`,
         # skipping RAG the same way a low-confidence guess does.
         requirement.force_human = True
+        requirement.intent_status = IntentStatus.UNRESOLVED
+        requirement.confirmation_kind = ConfirmationKind.HUMAN_HANDOFF
+        requirement.handoff_summary = unresolved_customer_summary(requirement.routing_category)
+        requirement.customer_summary = requirement.handoff_summary
         if case is None:
             case = await create_case_for_requirement(db, kiosk_session, requirement)
         else:
@@ -234,6 +257,10 @@ async def apply_confirmation(state: OrchestrationState, runtime: Runtime[GraphCo
 
     if not case:
         case = await create_case_for_requirement(db, kiosk_session, requirement)
+
+    if requirement.confirmation_kind is ConfirmationKind.HUMAN_HANDOFF:
+        case.force_human = True
+        return Command(goto="finalize", update={"case": case})
 
     if case.identification_status == IdentificationStatus.PENDIENTE:
         kiosk_session.status = SessionStatus.AWAITING_IDENTIFICATION

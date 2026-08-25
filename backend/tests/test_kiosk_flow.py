@@ -6,7 +6,7 @@ from sqlalchemy import select
 
 from app.api.deps import get_orchestrator
 from app.db.models import CaseRecord, Identification, KioskSession, Requirement, Ticket, TraceEvent
-from app.domain.enums import Category, ConsultationLevel
+from app.domain.enums import Category, ClarificationOutcome, ConsultationLevel
 from app.domain.schemas import ClassificationDecision
 from app.knowledge.service import KnowledgeService
 from app.main import app
@@ -18,7 +18,7 @@ from app.services.agents import (
 )
 from app.services.orchestrator import OrchestratorService
 from app.services.pii import PIIMaskingService
-from tests.conftest import TestSession, settings_for_tests, test_orchestrator
+from tests.conftest import TestSession, fake_provider, settings_for_tests, test_orchestrator
 
 
 async def _session(client: AsyncClient) -> tuple[str, str]:
@@ -879,3 +879,105 @@ async def test_repeated_corrections_hand_the_session_to_a_person(client: AsyncCl
         assert case is not None and case.force_human is True
         events = list(await db.scalars(select(TraceEvent)))
         assert any(event.event_type == "CORRECTION_LIMIT_REACHED" for event in events)
+
+
+async def test_repeated_comprehension_failure_confirms_only_a_truthful_handoff(
+    client: AsyncClient,
+) -> None:
+    class ComprehensionProvider:
+        async def classify(self, payload: str) -> ClassificationDecision:
+            if "latest_customer_reply" not in payload:
+                return ClassificationDecision(
+                    summary="Tiene un problema con una tarjeta que necesita precisar",
+                    customer_summary="Tienes un problema con una tarjeta.",
+                    category=Category.BLOQUEO_TARJETA,
+                    consultation_level=ConsultationLevel.SENSIBLE,
+                    confidence=0.66,
+                    ambiguous=True,
+                    clarification_question=(
+                        "¿Se perdió, fue robada, está dañada o tiene un cargo desconocido?"
+                    ),
+                )
+            return ClassificationDecision(
+                summary="Sigue sin poder explicar el problema con la tarjeta",
+                customer_summary="Tienes un problema con una tarjeta.",
+                category=Category.CONSULTA_GENERAL,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.55,
+                ambiguous=True,
+                clarification_question="¿Qué pasó con tu tarjeta?",
+                clarification_outcome=ClarificationOutcome.DID_NOT_UNDERSTAND,
+            )
+
+        async def embedding(self, text: str):
+            return await fake_provider.embedding(text)
+
+        async def embeddings(self, texts: list[str]):
+            return await fake_provider.embeddings(texts)
+
+        async def grounded_answer(self, query, chunks):
+            return await fake_provider.grounded_answer(query, chunks)
+
+    provider = ComprehensionProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        session_id, token = await _session(client)
+        headers = {"X-Session-Token": token}
+
+        first = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={"turn_id": str(uuid4()), "transcript": "Quiero arreglar lo de mi tarjeta"},
+        )
+        assert first.json()["next_action"] == "CLARIFY"
+
+        second = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={
+                "turn_id": str(uuid4()),
+                "transcript": "No entendí, dime más fácil",
+                "is_clarification": True,
+            },
+        )
+        assert second.json()["next_action"] == "CLARIFY"
+        assert second.json()["clarification_question"] == "¿Qué pasó con tu tarjeta?"
+
+        third = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={
+                "turn_id": str(uuid4()),
+                "transcript": "Todavía no entiendo",
+                "is_clarification": True,
+            },
+        )
+        analysis = third.json()
+        assert analysis["next_action"] == "CONFIRM"
+        assert analysis["confirmation_kind"] == "HUMAN_HANDOFF"
+        assert analysis["intent_status"] == "UNRESOLVED"
+        assert "persona" in analysis["speech_text"]
+        assert "bloquear" not in analysis["speech_text"].lower()
+
+        confirmation = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={"requirement_id": analysis["requirement_id"], "confirmed": True},
+        )
+        result = confirmation.json()
+        assert result["next_action"] == "COMPLETE"
+        assert result["resolution_type"] == "HUMAN"
+        assert result["identification_status"] == "ANONIMO"
+        assert result["intent_status"] == "UNRESOLVED"
+        assert "bloquear" not in result["speech_text"].lower()
+        assert result["executive"]["title"] == "Tarjetas y Seguridad"
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator

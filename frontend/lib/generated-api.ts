@@ -566,6 +566,16 @@ export interface components {
          * @enum {string}
          */
         Category: "BLOQUEO_TARJETA" | "REPORTE_FRAUDE" | "CONSULTA_GENERAL" | "SOLICITUD_CREDITO" | "BANCA_DIGITAL";
+        /**
+         * ClarificationOutcome
+         * @enum {string}
+         */
+        ClarificationOutcome: "PROVIDED_DETAIL" | "DID_NOT_UNDERSTAND" | "NO_USEFUL_DETAIL" | "NOT_APPLICABLE";
+        /**
+         * ConfirmationKind
+         * @enum {string}
+         */
+        ConfirmationKind: "INTENT" | "HUMAN_HANDOFF";
         /** ConfirmationRequest */
         ConfirmationRequest: {
             /** Confirmed */
@@ -689,9 +699,15 @@ export interface components {
             /** Customer Summary */
             customer_summary?: string | null;
             executive?: components["schemas"]["ExecutiveAssignment"] | null;
+            /** Grounding Detail */
+            grounding_detail?: {
+                [key: string]: unknown;
+            };
             /** @default NOT_APPLICABLE */
             grounding_status: components["schemas"]["GroundingStatus"];
             identification_status?: components["schemas"]["IdentificationStatus"] | null;
+            /** @default CONFIRMED */
+            intent_status: components["schemas"]["IntentStatus"];
             /**
              * Next Action
              * @enum {string}
@@ -756,6 +772,11 @@ export interface components {
              */
             reveal_seconds: number;
         };
+        /**
+         * IntentStatus
+         * @enum {string}
+         */
+        IntentStatus: "CONFIRMED" | "UNRESOLVED";
         /** KnowledgeCitation */
         KnowledgeCitation: {
             /**
@@ -1360,13 +1381,19 @@ export interface components {
         /** TurnAnalysisResponse */
         TurnAnalysisResponse: {
             category: components["schemas"]["Category"];
+            /** @default NOT_APPLICABLE */
+            clarification_outcome: components["schemas"]["ClarificationOutcome"];
             /** Clarification Question */
             clarification_question?: string | null;
             /** Confidence */
             confidence: number;
+            /** @default INTENT */
+            confirmation_kind: components["schemas"]["ConfirmationKind"];
             consultation_level: components["schemas"]["ConsultationLevel"];
             /** Customer Summary */
             customer_summary: string;
+            /** @default CONFIRMED */
+            intent_status: components["schemas"]["IntentStatus"];
             /**
              * Next Action
              * @enum {string}
@@ -1381,6 +1408,7 @@ export interface components {
              */
             requirement_id: string;
             result?: components["schemas"]["FlowResult"] | null;
+            routing_category?: components["schemas"]["Category"] | null;
             speech_plan: components["schemas"]["SpeechPlan"];
             /** Speech Text */
             speech_text: string;

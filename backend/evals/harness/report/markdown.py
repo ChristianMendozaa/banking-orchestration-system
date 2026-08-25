@@ -93,5 +93,12 @@ def to_markdown(results: list[ScenarioResult], *, duration_seconds: int = 0) -> 
             if result.verdict:
                 for failure in result.verdict.failures:
                     lines.append(f"- judge: {failure}")
+            grounding_detail = result.session_snapshot.get("grounding_detail") or {}
+            if grounding_detail:
+                lines.append(
+                    "- grounding: "
+                    f"outcome={grounding_detail.get('outcome', 'UNKNOWN')} "
+                    f"queries={grounding_detail.get('queries', [])!r}"
+                )
             lines.extend(["", result.reasoning, ""])
     return "\n".join(lines)

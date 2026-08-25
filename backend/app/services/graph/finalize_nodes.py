@@ -22,6 +22,7 @@ from app.db.models import Requirement, Ticket, TraceEvent
 from app.domain.enums import (
     CaseStatus,
     ConsultationLevel,
+    GroundingAttemptOutcome,
     GroundingStatus,
     ResolutionType,
     SessionStatus,
@@ -109,7 +110,7 @@ async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphCon
     # reconstructing masked data), so it is safe to embed directly; fall back to masked_text
     # if it is empty.
     primary = requirement.summary.strip() or requirement.masked_text
-    retrieval_queries = [primary]
+    retrieval_queries = [primary, requirement.masked_text]
     if CLARIFICATION_JOINER in requirement.masked_text:
         # `horarios_ambiguo` asked a clean question about branch hours on turn 2 and came
         # back NO_EVIDENCE while `horarios_directo`, the same question in one turn, grounded
@@ -138,7 +139,7 @@ async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphCon
             )
         )
 
-    grounded_response = await runtime.context.initial_attention.run(
+    grounding_attempt = await runtime.context.initial_attention.run(
         runtime.context.db,
         case.id,
         case.category,
@@ -150,17 +151,35 @@ async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphCon
     # consultation level other than GENERAL, so grounding was only genuinely attempted -- as
     # opposed to simply not applicable to this case -- when the level is GENERAL.
     grounding_attempted = case.consultation_level == ConsultationLevel.GENERAL
-    return {"grounded_response": grounded_response, "grounding_attempted": grounding_attempted}
+    if grounding_attempted:
+        state["kiosk_session"].grounding_detail_json = {
+            "outcome": grounding_attempt.outcome.value,
+            **grounding_attempt.diagnostics,
+        }
+        runtime.context.db.add(
+            TraceEvent(
+                case_id=case.id,
+                event_type="GROUNDING_ATTEMPTED",
+                description=f"Resultado de fundamentacion: {grounding_attempt.outcome.value}",
+                metadata_json=state["kiosk_session"].grounding_detail_json,
+            )
+        )
+    return {"grounding_attempt": grounding_attempt, "grounding_attempted": grounding_attempted}
 
 
 def verify_grounding(state: OrchestrationState) -> str:
-    return "automatic_ticket" if state.get("grounded_response") else "route_human"
+    attempt = state.get("grounding_attempt")
+    return (
+        "automatic_ticket"
+        if attempt and attempt.outcome is GroundingAttemptOutcome.GROUNDED and attempt.response
+        else "route_human"
+    )
 
 
 async def automatic_ticket(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
     kiosk_session = state["kiosk_session"]
     case = state["case"]
-    grounded_response = state["grounded_response"]
+    grounded_response = state["grounding_attempt"].response
     now = datetime.now(UTC)
     ticket = Ticket(
         public_id=uuid4(),
@@ -177,6 +196,10 @@ async def automatic_ticket(state: OrchestrationState, runtime: Runtime[GraphCont
     kiosk_session.resolution_type = ResolutionType.AUTOMATIC
     kiosk_session.final_response = grounded_response.answer
     kiosk_session.grounding_status = GroundingStatus.GROUNDED
+    kiosk_session.grounding_detail_json = {
+        "outcome": GroundingAttemptOutcome.GROUNDED.value,
+        **state["grounding_attempt"].diagnostics,
+    }
     kiosk_session.citations_json = [
         citation.model_dump(mode="json") for citation in grounded_response.citations
     ]

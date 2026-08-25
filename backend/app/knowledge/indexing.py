@@ -7,6 +7,7 @@ from app.db.models import KnowledgeChunk, KnowledgeDocument
 from app.domain.enums import Category
 from app.knowledge.chunking import TextChunk, chunk_pdf
 from app.knowledge.repository import KnowledgeRepository
+from app.knowledge.search import normalize_search_text
 from app.services.openai_provider import OpenAIProvider
 
 
@@ -67,6 +68,9 @@ async def index_document(
             page=chunk.page,
             section=chunk.section,
             content=chunk.content,
+            search_text=normalize_search_text(
+                " ".join(part for part in (document.title, chunk.section, chunk.content) if part)
+            ),
             token_count=chunk.token_count,
             categories=category_values,
             content_sha256=chunk.content_sha256,

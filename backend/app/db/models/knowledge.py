@@ -75,6 +75,7 @@ class KnowledgeChunk(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     page: Mapped[int] = mapped_column(Integer)
     section: Mapped[str | None] = mapped_column(String(240), nullable=True)
     content: Mapped[str] = mapped_column(Text)
+    search_text: Mapped[str] = mapped_column(Text, default="")
     token_count: Mapped[int] = mapped_column(Integer)
     categories: Mapped[list[str]] = mapped_column(JSON, default=list)
     content_sha256: Mapped[str] = mapped_column(String(64), index=True)
@@ -119,6 +120,8 @@ class RAGInteraction(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     prompt_version: Mapped[str] = mapped_column(String(40))
     retrieved_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
     answer_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    details_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
 
 Index(

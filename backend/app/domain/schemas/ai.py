@@ -11,7 +11,9 @@ from pydantic import BaseModel, Field
 
 from app.domain.enums import (
     Category,
+    ClarificationOutcome,
     ConsultationLevel,
+    GroundingAttemptOutcome,
 )
 
 
@@ -36,6 +38,12 @@ class GroundedResponse(BaseModel):
     citations: list[KnowledgeCitation]
 
 
+class GroundingAttempt(BaseModel):
+    outcome: GroundingAttemptOutcome
+    response: GroundedResponse | None = None
+    diagnostics: dict = Field(default_factory=dict)
+
+
 class ClassificationDecision(BaseModel):
     summary: str = Field(min_length=5, max_length=500)
     customer_summary: str = Field(min_length=5, max_length=500)
@@ -48,3 +56,4 @@ class ClassificationDecision(BaseModel):
     security_incident: bool = False
     distress_detected: bool = False
     out_of_scope: bool = False
+    clarification_outcome: ClarificationOutcome = ClarificationOutcome.NOT_APPLICABLE

@@ -31,9 +31,12 @@ if TYPE_CHECKING:  # `operations` imports this module, so the reverse must stay 
     from app.db.models.operations import CaseRecord
 from app.domain.enums import (
     Category,
+    ClarificationOutcome,
+    ConfirmationKind,
     ConsultationLevel,
     ConversationRole,
     GroundingStatus,
+    IntentStatus,
     Priority,
     ResolutionType,
     SessionStatus,
@@ -59,6 +62,7 @@ class KioskSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         string_enum(GroundingStatus), default=GroundingStatus.NOT_APPLICABLE
     )
     citations_json: Mapped[list[dict[str, Any]]] = mapped_column(JSON, default=list)
+    grounding_detail_json: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     requirements: Mapped[list["Requirement"]] = relationship(
         back_populates="session", cascade="all, delete-orphan"
     )
@@ -119,6 +123,7 @@ class Requirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     confirmation_decision: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     category: Mapped[Category] = mapped_column(string_enum(Category), index=True)
+    routing_category: Mapped[Category] = mapped_column(string_enum(Category), index=True)
     proposed_priority: Mapped[Priority] = mapped_column(string_enum(Priority), index=True)
     consultation_level: Mapped[ConsultationLevel] = mapped_column(
         string_enum(ConsultationLevel), index=True
@@ -126,6 +131,16 @@ class Requirement(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     confidence: Mapped[float] = mapped_column(Float)
     classification_source: Mapped[str] = mapped_column(String(20), default="FALLBACK")
     ambiguous: Mapped[bool] = mapped_column(Boolean, default=False)
+    clarification_outcome: Mapped[ClarificationOutcome] = mapped_column(
+        string_enum(ClarificationOutcome), default=ClarificationOutcome.NOT_APPLICABLE
+    )
+    intent_status: Mapped[IntentStatus] = mapped_column(
+        string_enum(IntentStatus), default=IntentStatus.CONFIRMED
+    )
+    confirmation_kind: Mapped[ConfirmationKind] = mapped_column(
+        string_enum(ConfirmationKind), default=ConfirmationKind.INTENT
+    )
+    handoff_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     clarification_question: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     force_human: Mapped[bool] = mapped_column(Boolean, default=False)
