@@ -62,7 +62,7 @@ no deployment data or backup credentials live in code. Copy `.env.example` only 
    and ticket; `cases.session_id` is no longer unique. `ASSIGNED` sessions are excluded --
    an executive already holds that case.
 
-`app/services/orchestrator.py` is a thin adapter over three LangGraph graphs:
+`app/services/orchestrator/` is a thin adapter over three LangGraph graphs:
 `turn_graph`, `confirmation_graph`, and `identification_graph`. All three reuse the one
 compiled `finalize` subgraph, which applies priority, attempts a grounded answer, and,
 when applicable, routes to a person -- `turn_graph` reaches it through `auto_capture` when
@@ -158,6 +158,8 @@ Migrations are explicit and frozen:
 - `20260813_0009`: permanent retirement of the historical document-proposal table.
 - `20260818_0010`: drops the unique constraint on `cases.session_id` so one kiosk session
   can hold several cases; `tickets.case_id` stays unique.
+- `20260824_0011`: kiosk robustness hardening.
+- `20260825_0012`: multi-need intake support.
 
 Upgrading to `0009` deletes any records that may exist in that table. Take a backup
 before migrating if you need to keep them; a downgrade reconstructs only the empty
@@ -182,7 +184,7 @@ From the repo root, `make test` runs the hermetic full suites and `make check` r
 required test category plus lint/typecheck/build/coverage/contract quality gates. `make check`
 does not start Docker, require `backend/.env`, or run the live evaluation harness; it only displays
 metrics from the newest saved live report as historical information. Use `make check-live` for
-the deliberate, billed full validation. See the root [test command guide](../docs/testing.md).
+the deliberate, billed full validation. See the root [test command and evidence guide](../README.md#test-commands-and-evidence).
 Equivalently, from `backend/`:
 
 ```bash
@@ -199,7 +201,7 @@ run), and cover the general flow, clarification, correction, identification, pri
 RAG, expiry, roles, refresh, concurrency, and the document lifecycle.
 
 The policy evaluation harness lives as an independent project in
-[`evals/`](evals/README.md). A simulated customer drives 42 scenarios against a real REST
+[`evals/`](evals/README.md). A simulated customer drives 45 scenarios against a real REST
 API turn by turn; each finished session is scored by a deterministic, non-LLM evaluator and
 by an LLM judge, with any failed hard check capping the score at 4/10 whatever the judge
 thought. Both the customer and the judge can run on OpenAI or on a local `claude` / `codex`

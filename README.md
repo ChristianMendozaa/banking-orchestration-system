@@ -418,7 +418,7 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | `app/db` | Async SQLAlchemy models split into their four bounded contexts (`identity`, `kiosk`, `operations`, `knowledge`), plus repositories, session management, and idempotent operational seeding |
 | `alembic` | Explicit, ordered schema migrations including pgvector and the HNSW vector index |
 | `scripts/` | Operational scripts: OpenAPI export, graph-diagram rendering, operational-document rendering, pre-eval queue reset, classifier stability probe |
-| `evals/` (standalone project) | 42-scenario harness and LLM judge scoring policy compliance and service quality against a live backend; own venv, not part of the modular backend (see [Quality assurance](#quality-assurance)) |
+| `evals/` (standalone project) | 45-scenario harness and LLM judge scoring policy compliance and service quality against a live backend; own venv, not part of the modular backend (see [Quality assurance](#quality-assurance)) |
 
 ### Specialized orchestration components
 
@@ -663,7 +663,7 @@ erDiagram
     }
 ```
 
-Schema evolution is managed by ten ordered Alembic revisions covering the operational
+Schema evolution is managed by twelve ordered Alembic revisions covering the operational
 model, pgvector knowledge schema, production hardening, the natural kiosk flow, the
 protected staff case file, and compatibility-safe retirement of superseded schema.
 
@@ -829,7 +829,7 @@ frontend jobs when the corresponding path did not change, runs the backend test 
 3.12 and 3.14, uploads coverage artifacts, and fails the run if the OpenAPI contract or the
 generated TypeScript types drift from what `generate:api` produces.
 
-### Running everything with one command
+### Test commands and evidence
 
 A root `Makefile` wraps every suite -- backend, `backend/evals`, and frontend -- behind three
 entry points. Run `make help` for the full target list.
@@ -847,8 +847,30 @@ contract-drift check. It does not require `backend/.env`, Docker, `OPENAI_API_KE
 harness. Its final report is grouped by the five categories and quality gates, then
 shows the newest saved live-evaluation metrics as informational historical evidence. Every suite
 runs despite earlier failures, and the final status is non-zero when a current automated check
-failed. See [the command and evidence guide](docs/testing.md) for category definitions, overlap,
-cost, and participant-testing limits.
+failed.
+
+The test-command guidance lives here in the root README; there is no separate `docs/` folder.
+The five required categories intentionally overlap, so the Makefile totals are test executions,
+not a count of unique tests. All category commands are deterministic and local: they need neither
+Docker, a running backend, `OPENAI_API_KEY`, nor a model call.
+
+| Command | Runs | Cost and use |
+| --- | --- | --- |
+| `make unit-test` | Isolated backend rules, frontend components/hooks/utilities, and mocked harness internals | Free; use while developing a component or rule. |
+| `make functional-test` | Critical kiosk, text, RAG, staff, and realtime behavior | Free; use to demonstrate requirements and user flows. |
+| `make integration-test` | API, services, SQLite persistence, auth, RAG, MCP, and frontend boundary collaboration using local/fake dependencies | Free; use after changes spanning layers. |
+| `make regression-test` | Documented fixes, classifier-floor scenarios, idempotency/state-machine behavior, and realtime ordering | Free; use before merging a fix or milestone. |
+| `make usability-test` | Automated accessibility and clarity support checks, including labelled controls, live announcements, explicit choices, and scoped axe checks | Free; it supports but does not replace testing with participants. |
+| `make check` | Every free category plus coverage, lint, type-check, build, and OpenAPI contract quality gates | Free normal validation; displays the newest saved live-evaluation metrics without rerunning it. |
+| `make evals-live` | Live Docker backend, simulated LLM customer, deterministic evaluator, and LLM judge | Deliberate billed validation. |
+| `make evals-live-codex` / `make evals-live-claude-code` | The same live backend evaluation through the named local CLI provider | Deliberate billed validation; backend model calls still require `OPENAI_API_KEY`. |
+| `make check-live` | `make check`, then `make evals-live` | Maximum milestone validation; can incur API cost. |
+
+Coverage, linting, type checking, frontend build, and OpenAPI drift checks are quality gates,
+not substitutes for the five test categories. The live harness complements deterministic tests:
+its evaluator enforces policy facts and its LLM judge evaluates qualities rules cannot fully
+decide. Neither a good judge score nor automated accessibility checks demonstrates human
+usability; participant observation, tasks, consent, and findings remain a manual study.
 
 Each target also runs standalone, e.g. `make backend-test` or `make frontend-lint`, if you only
 want one suite.
@@ -920,9 +942,10 @@ finished session is then scored twice:
   contradict, and **any failed hard check caps the final score at 4/10** whatever the judge
   thought.
 
-The catalog covers 45 scenarios across all five categories, grounded and ungrounded inquiries,
-the clarification and correction loops, preferential attention, adversarial input, transcription
-noise, and the state-machine guards.
+The catalog covers 45 scenarios across eight groups: card fraud, general inquiry, digital and
+credit requests, flow control, accessibility, adversarial input, transcription noise, and protocol
+guards. It includes grounded and ungrounded inquiries, clarification and correction loops, and
+preferential attention.
 
 **What this harness does not measure.** It drives the kiosk's REST contract with written text.
 It never opens a Realtime session, never produces or consumes audio, and never hears a spoken
@@ -963,34 +986,37 @@ which is the thing being evaluated. Each `make evals-*` target first runs
 ticket ever created and otherwise reports hundreds of minutes after a few runs, which tells you
 nothing about the session under test.
 
-### Evaluated behavior
+### Latest live-evaluation evidence
 
-The most recent full run --
-[`reports/runs/20260818T205536Z-8db975c`](backend/evals/reports/runs/20260818T205536Z-8db975c/report.html),
-customer and judge both on the local `codex` CLI, against `8db975c` with
-`MAX_CLARIFICATIONS=2` and `RAG_MIN_SCORE=0.45`, 448 seconds wall clock:
+The latest saved full run --
+[`20260825T210844Z-21fe4bf`](backend/evals/reports/runs/20260825T210844Z-21fe4bf/report.html)
+(a local generated artifact, excluded from Git) -- was produced on 2026-08-25 at 21:08 UTC.
+Both the customer and judge used the local `codex` CLI. It ran for 538 seconds against commit
+`21fe4bf` with a dirty worktree, `MAX_CLARIFICATIONS=2`, and `RAG_MIN_SCORE=0.45`:
 
 | | |
 | --- | --- |
-| Scenarios | **42 / 42 passed** (0 partial, 0 failed) |
-| Average score | **9.19 / 10** |
-| Policy checks | **413 / 413 passed**, 0 hard failures, 0 capped scores |
+| Scenarios | **45 / 45 passed** (0 partial, 0 failed) |
+| Average score | **9.27 / 10** |
+| Policy checks | **446 / 446 passed**, 0 hard failures |
 
 | Group | Average | Group | Average |
 | --- | --- | --- | --- |
-| `protocol` | 10.0 | `flow` | 9.17 |
-| `digital_credit` | 9.6 | `adversarial` | 8.83 |
-| `card_fraud` | 9.5 | `general_inquiry` | 8.78 |
-| | | `accessibility` | 8.5 |
+| `asr_noise` | 10.0 | `protocol` | 10.0 |
+| `card_fraud` | 9.83 | `digital_credit` | 9.8 |
+| `flow` | 9.17 | `general_inquiry` | 8.89 |
+| `adversarial` | 8.5 | `accessibility` | 8.25 |
 
-Read that as one measurement, not a guarantee: it is a single run, and scores from different
-judge models are not the same measurement -- `reports/index.html` marks where the judge changed
-for exactly that reason. The two full-catalog runs before it scored 95.2% and 92.9%, the latter
-with two hard policy failures in `general_inquiry` and `flow`; what closed them is the work
-described under [Orchestration policy](#orchestration-policy) -- the sensitivity floor, the
-category-preserving `force_human`, and treating a summary that hands the question back as the
-clarification it actually is. The full history is in `backend/evals/reports/history.jsonl`,
-plotted in `reports/index.html`.
+Measured API-call latency was 3.3 s p50 / 7.2 s p95 / 9.3 s max for `send_turn` (46 calls),
+0.5 s / 3.7 s / 4.4 s for protected identification (20 calls), and below 0.1 s at each percentile
+for confirmation (22 calls). Voice interaction additionally includes speech detection and
+text-to-speech time.
+
+Treat this as one measurement, not a guarantee. It evaluates the exact live configuration and
+dirty worktree recorded above; results from another commit, configuration, customer provider, or
+judge model are not directly interchangeable. The local run directory contains the detailed
+scorecard, JSON evidence, and HTML dashboard; the tracked README retains this summary because the
+generated report directory does not travel with commits.
 
 Its coverage is intentionally kept out of `backend/`'s `fail_under=90` gate, and there is no CI
 workflow for the live run -- each run makes real, billed calls on three fronts (the simulated
