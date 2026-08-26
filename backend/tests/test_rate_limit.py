@@ -1,4 +1,8 @@
+import pytest
+
 from app.core.rate_limit import InMemoryRateLimiter
+
+pytestmark = [pytest.mark.unit]
 
 
 def test_rate_limiter_preserves_window_and_prunes_stale_clients() -> None:

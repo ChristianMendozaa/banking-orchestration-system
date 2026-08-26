@@ -1,3 +1,5 @@
+// @module-tag unit
+
 import { describe, expect, it } from "vitest"
 
 import { kioskRouteForState } from "../lib/kiosk-realtime"

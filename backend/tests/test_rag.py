@@ -3,6 +3,7 @@ import json
 import shutil
 from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 
 from app.db.models import KnowledgeDocument, RAGInteraction
@@ -12,6 +13,8 @@ from app.knowledge.chunking import chunk_pdf
 from app.knowledge.ingestion import KnowledgeIngestionService
 from app.knowledge.service import KnowledgeService
 from tests.conftest import TestSession, fake_provider, settings_for_tests
+
+pytestmark = [pytest.mark.functional, pytest.mark.integration, pytest.mark.regression]
 
 CORPUS_DIR = Path(__file__).parents[2] / "doc" / "rag"
 

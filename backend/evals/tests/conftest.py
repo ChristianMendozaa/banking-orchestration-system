@@ -15,6 +15,12 @@ from harness.scoring import ScenarioResult
 from harness.session import ConversationSession, ExchangeRecord
 
 
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """The harness's test project is an isolated, mocked unit-test suite."""
+    for item in items:
+        item.add_marker(pytest.mark.unit)
+
+
 @pytest.fixture(autouse=True)
 def _fake_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """`OpenAIChatCompletionClient` checks for a credential when constructed. The fake key

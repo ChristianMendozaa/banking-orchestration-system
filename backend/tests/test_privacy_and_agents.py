@@ -1,5 +1,7 @@
 from collections import defaultdict
 
+import pytest
+
 from app.db.models import Executive, ExecutiveSkill
 from app.domain.enums import (
     Category,
@@ -23,6 +25,8 @@ from app.services.agents.rules.language import (
 from app.services.intake import IntakePlanner
 from app.services.orchestrator.speech import VOICE_PRIVACY_NOTICE, with_privacy_notice
 from app.services.pii import PIIMaskingService
+
+pytestmark = [pytest.mark.unit]
 
 
 def test_pii_masking_removes_sensitive_values() -> None:
@@ -171,6 +175,7 @@ def test_priority_rules_and_preferential_upgrade() -> None:
     assert agent.run(Category.BLOQUEO_TARJETA, "bloqueo", True) == Priority.ALTO
 
 
+@pytest.mark.regression
 def test_stolen_card_urgency_never_outranks_the_fraud_ceiling() -> None:
     """Regression test for the priority-ladder operator-precedence bug: `A or B or C and D`
     parsed as `A or B or (C and D)`, so any category paired with `security_incident and
@@ -252,6 +257,7 @@ async def test_derivation_uses_semantic_similarity_before_experience() -> None:
     assert selected.active_load == 0
 
 
+@pytest.mark.usability
 def test_comprehension_retry_requires_one_short_concept() -> None:
     assert clarification_is_simple("¿Qué pasó con tu tarjeta?")
     assert not clarification_is_simple(
@@ -270,6 +276,7 @@ def test_comprehension_retry_requires_one_short_concept() -> None:
     )
 
 
+@pytest.mark.usability
 def test_comprehension_repair_replaces_a_repeated_opaque_question() -> None:
     repaired = comprehension_repair_question(
         Category.BLOQUEO_TARJETA,

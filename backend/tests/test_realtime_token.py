@@ -11,6 +11,8 @@ from app.main import app
 from app.services.openai_provider import KIOSK_VOICE_INSTRUCTIONS, OpenAIProvider
 from tests.conftest import TestSession
 
+pytestmark = [pytest.mark.functional, pytest.mark.integration, pytest.mark.regression]
+
 
 class FakeRealtimeProvider:
     async def create_realtime_client_secret(self, safety_identifier: str):

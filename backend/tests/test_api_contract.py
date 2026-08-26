@@ -1,9 +1,12 @@
+import pytest
 from httpx import AsyncClient
 from pydantic import SecretStr
 
 from app.main import app
 from scripts.export_openapi import CANONICAL_OPENAPI_TITLE, canonical_openapi_schema
 from tests.conftest import settings_for_tests
+
+pytestmark = [pytest.mark.integration, pytest.mark.regression]
 
 EXPECTED_OPERATIONS = {
     ("POST", "/api/v1/auth/login"),

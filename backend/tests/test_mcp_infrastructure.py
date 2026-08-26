@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
@@ -22,6 +23,8 @@ from app.core.security import create_access_token
 from app.mcp_server.auth import BearerAuthMiddleware, _bearer_token
 from app.mcp_server.context import app_lifespan
 from tests.conftest import TestSession, settings_for_tests
+
+pytestmark = [pytest.mark.integration]
 
 
 async def _echo(_request):

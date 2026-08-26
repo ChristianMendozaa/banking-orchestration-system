@@ -10,6 +10,8 @@ from app.knowledge import worker as worker_module
 from app.knowledge.worker import KnowledgeWorker
 from tests.conftest import TestSession
 
+pytestmark = [pytest.mark.integration]
+
 
 async def _job(*, attempts: int, max_attempts: int = 3) -> KnowledgeJob:
     async with TestSession() as db:

@@ -1,3 +1,5 @@
+// @module-tag functional
+// @module-tag integration
 // @vitest-environment jsdom
 
 import { act, render, waitFor } from "@testing-library/react"

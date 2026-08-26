@@ -1,3 +1,7 @@
+// @module-tag functional
+// @module-tag integration
+// @module-tag regression
+
 import { describe, expect, it, vi } from "vitest"
 
 import {

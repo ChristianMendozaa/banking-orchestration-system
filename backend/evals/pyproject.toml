@@ -29,6 +29,9 @@ dev = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+  "unit: isolated mocked evaluation-harness components",
+]
 
 [tool.ruff]
 line-length = 100

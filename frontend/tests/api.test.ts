@@ -1,3 +1,5 @@
+// @module-tag unit
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ApiError, apiDownload, errorMessage } from "../lib/api"

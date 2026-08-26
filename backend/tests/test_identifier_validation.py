@@ -7,6 +7,8 @@ from app.db.models import ClientReference
 from app.domain.schemas import IdentificationRequest
 from tests.conftest import TestSession, settings_for_tests
 
+pytestmark = [pytest.mark.unit]
+
 
 @pytest.mark.parametrize(
     ("raw_identifier", "expected"),

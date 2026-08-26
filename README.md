@@ -837,19 +837,18 @@ entry points. Run `make help` for the full target list.
 ```bash
 make install   # uv sync (backend/, backend/evals/) + pnpm install --frozen-lockfile (frontend/)
 make test      # the hermetic suites only: backend pytest, evals pytest, frontend vitest
-make check     # everything CI runs, plus the evals suites CI doesn't, plus the live harness
+make check     # all free required test categories plus quality gates; never runs live evals
+make check-live # deliberate maximum validation: check, then billed live evaluation
 ```
 
-`make test` needs nothing running -- it's the fast, free path for everyday iteration. `make
-check` adds linting, typechecking, `next build`, the OpenAPI contract-drift check, and the live
-evaluation harness described below (`evals-live` -- one of several provider modes); it starts
-`docker compose` and reads `OPENAI_API_KEY`, `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` straight out
-of `backend/.env` -- the last two are policy thresholds the harness asserts against, so reading
-them keeps the harness and the system under test in agreement rather than duplicating constants in
-the Makefile. If the key is absent, `evals-live` is reported as `SKIP`
-rather than failing the run. Every suite runs regardless of earlier failures, and `make check`
-ends with one summary table (suite, PASS/FAIL/SKIP, duration) and a non-zero exit if anything
-failed.
+`make test` and `make check` need nothing running. `make check` adds the five categorized,
+non-billed suites, linting, typechecking, `next build`, coverage gates, and the OpenAPI
+contract-drift check. It does not require `backend/.env`, Docker, `OPENAI_API_KEY`, or a live
+harness. Its final report is grouped by the five categories and quality gates, then
+shows the newest saved live-evaluation metrics as informational historical evidence. Every suite
+runs despite earlier failures, and the final status is non-zero when a current automated check
+failed. See [the command and evidence guide](docs/testing.md) for category definitions, overlap,
+cost, and participant-testing limits.
 
 Each target also runs standalone, e.g. `make backend-test` or `make frontend-lint`, if you only
 want one suite.
@@ -948,8 +947,8 @@ Who plays the customer and who judges is chosen per run:
 
 | Target | Customer | Judge | Cost |
 | --- | --- | --- | --- |
-| `make evals-smoke` | `gpt-5.4-mini` | none -- deterministic checks only | Backend calls only |
-| `make evals-live` (the `make check` default) | `gpt-5.4-mini` | `gpt-5.4-mini` at high reasoning effort, skipped for the six judgement-free `protocol` scenarios | Roughly 90% under a flagship judge |
+| `make evals-smoke` | `gpt-5.4-mini` | none -- deterministic checks only | Still a live, billed backend/customer run |
+| `make evals-live` | `gpt-5.4-mini` | `gpt-5.4-mini` at high reasoning effort, skipped for the six judgement-free `protocol` scenarios | Deliberate billed validation |
 | `make evals-deep` | `gpt-5.4-mini` | `gpt-5.4` | Milestone runs |
 | `make evals-live-codex` / `make evals-live-claude-code` | local `codex` / `claude` CLI over the harness's own MCP bridge | the same CLI | Billed against that CLI's own auth, not `OPENAI_API_KEY` |
 

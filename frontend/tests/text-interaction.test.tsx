@@ -1,3 +1,5 @@
+// @module-tag functional
+// @module-tag usability
 // @vitest-environment jsdom
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"

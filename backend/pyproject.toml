@@ -49,6 +49,13 @@ asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+  "unit: isolated deterministic rules or components",
+  "functional: critical user-visible system requirements",
+  "integration: collaboration across application layers using local or fake dependencies",
+  "regression: preserved bug fixes and stable critical flows",
+  "usability: automated accessibility or clarity support checks, not participant research",
+]
 
 [tool.ruff]
 line-length = 100

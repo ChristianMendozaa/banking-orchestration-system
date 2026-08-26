@@ -1,3 +1,5 @@
+// @module-tag unit
+// @module-tag regression
 // @vitest-environment jsdom
 
 import { act, render, renderHook, waitFor } from "@testing-library/react"

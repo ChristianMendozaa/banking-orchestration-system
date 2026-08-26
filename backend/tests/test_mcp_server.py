@@ -19,6 +19,8 @@ from app.mcp_server import domain
 from app.services.agents import DerivationAgent, PrioritizationAgent
 from tests.conftest import TestSession, fake_provider
 
+pytestmark = [pytest.mark.integration]
+
 
 async def _seed_case(category: Category = Category.REPORTE_FRAUDE) -> CaseRecord:
     """Build a minimal session -> requirement -> case chain, mirroring what

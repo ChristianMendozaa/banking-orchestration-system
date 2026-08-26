@@ -1,8 +1,11 @@
 from uuid import uuid4
 
+import pytest
 from httpx import AsyncClient
 
 from tests.conftest import settings_for_tests
+
+pytestmark = [pytest.mark.functional, pytest.mark.integration]
 
 
 async def _login(client: AsyncClient, email: str, password: str) -> str:

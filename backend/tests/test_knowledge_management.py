@@ -15,6 +15,8 @@ from app.knowledge.worker import KnowledgeWorker
 from app.main import app
 from tests.conftest import TestSession, engine, fake_provider, settings_for_tests
 
+pytestmark = [pytest.mark.functional, pytest.mark.integration]
+
 
 def pdf_bytes(text: str) -> bytes:
     output = BytesIO()

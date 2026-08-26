@@ -81,13 +81,15 @@ Or from the repository root, which reads `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE
 runs with:
 
 ```bash
-make evals-smoke   # full catalog, no judge -- free
+make evals-smoke   # full catalog, no judge -- still a billed live customer/backend run
 make evals-live    # full catalog, mini judge -- the default, billed but cheap
 make evals-deep    # full catalog, flagship judge -- billed at the original, higher rate
 ```
 
 Exits non-zero if any scenario did not pass, so any of these still works as a manually
-triggered gate. `make check` runs `evals-live`.
+triggered gate. `make check` never runs any live evaluation; use `make check-live` only for a
+deliberate maximum validation run that can incur API cost. `make check` does print metrics from
+the newest already-saved report as informational evidence.
 
 `make evals-live-claude-code` / `make evals-live-codex` run the same full catalog with
 *both* the simulated customer and the judge routed to a local CLI instead of OpenAI — see

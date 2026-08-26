@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -8,6 +9,8 @@ from app.db.models import ConversationMessage, Identification, KioskSession, Tic
 from app.domain.enums import ConversationRole, SessionStatus
 from app.services.retention import purge_expired_conversations
 from tests.conftest import TestSession, settings_for_tests
+
+pytestmark = [pytest.mark.functional, pytest.mark.integration]
 
 
 async def _login(client: AsyncClient, email: str, password: str) -> str:

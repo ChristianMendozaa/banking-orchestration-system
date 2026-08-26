@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 
@@ -19,6 +20,8 @@ from app.services.agents import (
 from app.services.orchestrator import OrchestratorService
 from app.services.pii import PIIMaskingService
 from tests.conftest import TestSession, fake_provider, settings_for_tests, test_orchestrator
+
+pytestmark = [pytest.mark.functional, pytest.mark.integration, pytest.mark.regression]
 
 
 async def _session(client: AsyncClient) -> tuple[str, str]:

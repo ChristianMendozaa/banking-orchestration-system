@@ -1,3 +1,5 @@
+// @module-tag unit
+
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createKioskSession, kioskSessionRequest } from "../lib/kiosk-api"

@@ -19,6 +19,8 @@ import pytest
 from app.domain.enums import Category, ConsultationLevel
 from app.services.agents import category_from_keywords, sensitivity_floor
 
+pytestmark = [pytest.mark.unit, pytest.mark.regression]
+
 SENSIBLE = ConsultationLevel.SENSIBLE
 PERSONALIZADA = ConsultationLevel.PERSONALIZADA
 

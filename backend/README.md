@@ -178,10 +178,11 @@ ephemeral SQLite schema.
 
 ## Verification
 
-From the repo root, `make test` (hermetic suites only) or `make check` (everything, including
-lint/typecheck/build and the live evals harness) run this project alongside `evals/` and
-`frontend/` with one command and a single pass/fail summary -- see the root
-[README's "Running everything with one command"](../README.md#running-everything-with-one-command).
+From the repo root, `make test` runs the hermetic full suites and `make check` runs every free
+required test category plus lint/typecheck/build/coverage/contract quality gates. `make check`
+does not start Docker, require `backend/.env`, or run the live evaluation harness; it only displays
+metrics from the newest saved live report as historical information. Use `make check-live` for
+the deliberate, billed full validation. See the root [test command guide](../docs/testing.md).
 Equivalently, from `backend/`:
 
 ```bash

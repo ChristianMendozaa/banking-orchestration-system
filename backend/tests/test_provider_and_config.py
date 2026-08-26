@@ -14,6 +14,8 @@ from app.services import retention
 from app.services.openai_provider import OpenAIProvider
 from tests.conftest import settings_for_tests
 
+pytestmark = [pytest.mark.unit]
+
 
 def _provider() -> OpenAIProvider:
     provider = object.__new__(OpenAIProvider)

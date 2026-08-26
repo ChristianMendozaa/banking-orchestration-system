@@ -1,5 +1,6 @@
 from uuid import UUID, uuid4
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -7,6 +8,8 @@ from sqlalchemy.orm import selectinload
 from app.db.models import OperationalAuditEvent, Ticket
 from app.domain.enums import Priority
 from tests.conftest import TestSession, settings_for_tests
+
+pytestmark = [pytest.mark.functional, pytest.mark.integration]
 
 
 async def _login(client: AsyncClient) -> str:
