@@ -48,9 +48,7 @@ def _all_expressed_needs_have_outcomes(
     outcomes = result.get("outcomes") or []
     summaries = " ".join(str(outcome.get("customer_summary", "")) for outcome in outcomes).lower()
     tickets = {
-        outcome.get("ticket", {}).get("number")
-        for outcome in outcomes
-        if outcome.get("ticket")
+        outcome.get("ticket", {}).get("number") for outcome in outcomes if outcome.get("ticket")
     }
     return [
         CheckResult(
