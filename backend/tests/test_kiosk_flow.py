@@ -58,6 +58,8 @@ async def test_general_query_is_masked_and_resolved_automatically(client: AsyncC
     assert result["conversation_can_continue"] is True
     assert result["remaining_turns"] == settings_for_tests.kiosk_max_turns - 1
     assert result["response"]
+    assert result["speech_plan"]["facts"]["respuesta_fundamentada"] == result["response"]
+    assert result["speech_plan"]["verbatim"] == [result["response"]]
 
     async with TestSession() as db:
         requirement = await db.scalar(select(Requirement))
@@ -222,6 +224,57 @@ async def test_follow_up_needing_confirmation_is_not_rejected_as_a_mismatch(
         )
         assert len(cases) == 2
         assert len({case.requirement_id for case in cases}) == 2
+
+
+async def test_direct_credit_request_after_information_enters_the_ticket_flow(
+    client: AsyncClient,
+) -> None:
+    """A follow-up that changes from learning to doing must re-enter orchestration.
+
+    This is the reported production sequence in its essential form: an automatic public
+    answer followed by "quiero sacar un crédito ahora". It must ask for confirmation and,
+    once confirmed and identified, create a real ticket instead of repeating requirements
+    or claiming that ticket creation is unavailable.
+    """
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    information = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Quiero conocer el horario de atención"},
+    )
+    assert information.status_code == 200, information.text
+    assert information.json()["next_action"] == "COMPLETE"
+
+    action = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Quiero sacar un crédito ahora"},
+    )
+    assert action.status_code == 200, action.text
+    analysis = action.json()
+    assert analysis["category"] == "SOLICITUD_CREDITO"
+    assert analysis["consultation_level"] == "PERSONALIZADA"
+    assert analysis["next_action"] == "CONFIRM"
+
+    confirmation = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+        headers=headers,
+        json={"requirement_id": analysis["requirement_id"], "confirmed": True},
+    )
+    assert confirmation.status_code == 200, confirmation.text
+    assert confirmation.json()["next_action"] == "IDENTIFY"
+
+    identification = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/identification",
+        headers=headers,
+        json={"identifier": "6735666"},
+    )
+    assert identification.status_code == 200, identification.text
+    result = identification.json()
+    assert result["status"] == "ASSIGNED"
+    assert result["ticket"] is not None
+    assert result["ticket"]["number"] > 0
 
 
 async def test_unfinished_case_for_another_requirement_is_still_a_mismatch(

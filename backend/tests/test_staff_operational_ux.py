@@ -79,6 +79,24 @@ async def test_conversation_and_identifier_are_exposed_by_role(client: AsyncClie
     )
     assert repeated.json()["accepted"] == 0
 
+    history = await client.get(
+        f"/api/v1/kiosk/sessions/{flow['session_id']}/conversation/messages",
+        headers=flow["headers"],
+    )
+    assert history.status_code == 200, history.text
+    messages = history.json()["messages"]
+    assert [message["item_id"] for message in messages] == ["customer-1", "assistant-1"]
+    assert [message["role"] for message in messages] == ["CUSTOMER", "ASSISTANT"]
+    assert all("ana@example.com" not in message["text"] for message in messages)
+    assert all(message["created_at"] for message in messages)
+
+    other_session = await client.post("/api/v1/kiosk/sessions", json={})
+    denied = await client.get(
+        f"/api/v1/kiosk/sessions/{flow['session_id']}/conversation/messages",
+        headers={"X-Session-Token": other_session.json()["session_token"]},
+    )
+    assert denied.status_code == 404
+
     executive_token = await _login(
         client,
         _executive_email(flow["result"]["executive"]["name"]),

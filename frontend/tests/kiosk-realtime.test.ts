@@ -8,13 +8,19 @@ import {
   analysisToolOutput,
   APPLICATION_EVENT_PREFIX,
   captionsFromHistory,
+  captionsFromStoredConversation,
   isTerminalFlowResult,
+  isConversationClose,
   explicitConfirmation,
   flowToolOutput,
+  mergeConversationCaptions,
   missingVerbatim,
+  realtimeToolChoiceForPhase,
+  realtimeVoiceSessionConfig,
   selectAuthoritativeTranscript,
   shouldApplyAnalysisResponse,
   shouldApplyFlowResponse,
+  shouldRetryMissingVerbatim,
   speechPlanToolOutput,
 } from "../lib/kiosk-realtime"
 import { createKioskRealtimeAgent } from "../lib/kiosk-realtime-agent"
@@ -155,6 +161,92 @@ describe("captionsFromHistory", () => {
   })
 })
 
+describe("persistent conversation history", () => {
+  it("keeps every stored message when a reconnect supplies only newer live history", () => {
+    const stored = captionsFromStoredConversation(
+      Array.from({ length: 8 }, (_, index) => ({
+        item_id: `stored-${index}`,
+        role: index % 2 === 0 ? ("CUSTOMER" as const) : ("ASSISTANT" as const),
+        text: `Mensaje ${index}`,
+        created_at: `2026-08-31T10:00:0${index}Z`,
+      })),
+    )
+    const merged = mergeConversationCaptions(stored, [
+      {
+        id: "live-9",
+        role: "user",
+        text: "Quiero sacar un crédito ahora",
+        completed: true,
+      },
+    ])
+
+    expect(merged).toHaveLength(9)
+    expect(merged.map((caption) => caption.id)).toEqual([
+      ...stored.map((caption) => caption.id),
+      "live-9",
+    ])
+  })
+
+  it("updates a persisted item from live history without duplicating it", () => {
+    const stored = captionsFromStoredConversation([
+      {
+        item_id: "same",
+        role: "CUSTOMER",
+        text: "Quiero sacar un crédito",
+        created_at: "2026-08-31T10:00:00Z",
+      },
+    ])
+    const merged = mergeConversationCaptions(stored, [
+      { id: "same", role: "user", text: "Quiero sacar un crédito ahora", completed: true },
+    ])
+
+    expect(merged).toHaveLength(1)
+    expect(merged[0].text).toBe("Quiero sacar un crédito ahora")
+  })
+})
+
+describe("realtime turn controls", () => {
+  it("forbids startup tools, requires customer-turn processing, then permits speech", () => {
+    expect(realtimeToolChoiceForPhase("greeting")).toBe("none")
+    expect(realtimeToolChoiceForPhase("customer_turn")).toBe("required")
+    expect(realtimeToolChoiceForPhase("tool_result")).toBe("auto")
+  })
+
+  it.each(["No, gracias", "Eso es todo", "Nada más, gracias"])(
+    "recognizes a complete social close: %s",
+    (value) => expect(isConversationClose(value)).toBe(true),
+  )
+
+  it.each(["No puedo abrir la cuenta", "Gracias, quiero un crédito", "Necesito algo más"])(
+    "does not mistake a banking turn for a close: %s",
+    (value) => expect(isConversationClose(value)).toBe(false),
+  )
+
+  it("preserves backend audio settings whenever tool choice changes", () => {
+    const audioInput = {
+      noise_reduction: { type: "near_field" },
+      transcription: { model: "gpt-realtime-whisper", language: "es" },
+      turn_detection: {
+        type: "semantic_vad",
+        eagerness: "auto" as const,
+        create_response: true,
+        interrupt_response: true,
+      },
+    }
+    const required = realtimeVoiceSessionConfig(audioInput, "marin", "required")
+    const automatic = realtimeVoiceSessionConfig(audioInput, "marin", "auto")
+    const greeting = realtimeVoiceSessionConfig(audioInput, "marin", "none")
+
+    expect(required.toolChoice).toBe("required")
+    expect(automatic.toolChoice).toBe("auto")
+    expect(greeting.toolChoice).toBe("none")
+    expect(required.audio).toEqual(automatic.audio)
+    expect(greeting.audio).toEqual(required.audio)
+    expect(required.audio.input.transcription).toEqual(audioInput.transcription)
+    expect(required.audio.input.turnDetection).toEqual(audioInput.turn_detection)
+  })
+})
+
 describe("selectAuthoritativeTranscript", () => {
   const caption = (
     id: string,
@@ -267,42 +359,38 @@ describe("createKioskRealtimeAgent", () => {
     const agent = createKioskRealtimeAgent(
       {
         resolveSpokenText: async () => null,
-        hasPendingRequirement: () => true,
-        analyzeRequirement: vi.fn(),
-        confirmRequirement: vi.fn(),
+        processSpokenTurn: vi.fn(),
       },
       agentOptions,
     )
 
     expect(agent.voice).toBe("marin")
     expect(agent.instructions).toBe(agentOptions.instructions)
-    expect(agent.tools.map((item) => item.name)).toEqual([
-      "analizar_requerimiento",
-      "confirmar_requerimiento",
-    ])
+    expect(agent.tools.map((item) => item.name)).toEqual(["procesar_turno"])
   })
 
   it("hands the model facts and guidance, never a sentence to read out", async () => {
     // The whole point of the change: a tool result is raw material for the model's own
     // wording. `speech_text` deliberately does not reach it.
-    const analyzeRequirement = vi.fn().mockResolvedValue(analysis)
+    const processSpokenTurn = vi.fn().mockResolvedValue({
+      kind: "analysis",
+      response: analysis,
+    })
     const agent = createKioskRealtimeAgent(
       {
         resolveSpokenText: async () => ({ text: "Me robaron la tarjeta.", commit: vi.fn() }),
-        hasPendingRequirement: () => true,
-        analyzeRequirement,
-        confirmRequirement: vi.fn(),
+        processSpokenTurn,
       },
       agentOptions,
     )
 
-    const output = await toolNamed(agent, "analizar_requerimiento").invoke(
+    const output = await toolNamed(agent, "procesar_turno").invoke(
       {} as never,
       JSON.stringify({}),
       { toolCall: { callId: "call-1" } } as never,
     )
 
-    expect(analyzeRequirement).toHaveBeenCalledWith("Me robaron la tarjeta.", "call-1")
+    expect(processSpokenTurn).toHaveBeenCalledWith("Me robaron la tarjeta.", "call-1")
     const parsed = output
     expect(parsed).toMatchObject({
       ok: true,
@@ -322,13 +410,14 @@ describe("createKioskRealtimeAgent", () => {
     const agent = createKioskRealtimeAgent(
       {
         resolveSpokenText: async () => ({ text: "Quiero reportar el robo de mi tarjeta de débito.", commit: vi.fn() }),
-        hasPendingRequirement: () => true,
-        analyzeRequirement: vi.fn().mockResolvedValue(analysis),
-        confirmRequirement: vi.fn(),
+        processSpokenTurn: vi.fn().mockResolvedValue({
+          kind: "analysis",
+          response: analysis,
+        }),
       },
       agentOptions,
     )
-    const analyzeTool = toolNamed(agent, "analizar_requerimiento")
+    const analyzeTool = toolNamed(agent, "procesar_turno")
 
     expect(
       Object.keys(
@@ -339,46 +428,45 @@ describe("createKioskRealtimeAgent", () => {
 
   it("asks the person to repeat when the transcription never landed", async () => {
     // There is no second-best transcript. Inventing one is the bug this replaced.
-    const analyzeRequirement = vi.fn()
+    const processSpokenTurn = vi.fn()
     const agent = createKioskRealtimeAgent(
       {
         resolveSpokenText: async () => null,
-        hasPendingRequirement: () => true,
-        analyzeRequirement,
-        confirmRequirement: vi.fn(),
+        processSpokenTurn,
       },
       agentOptions,
     )
 
-    const output = await toolNamed(agent, "analizar_requerimiento").invoke(
+    const output = await toolNamed(agent, "procesar_turno").invoke(
       {} as never,
       JSON.stringify({}),
       { toolCall: { callId: "call-2" } } as never,
     )
 
-    expect(analyzeRequirement).not.toHaveBeenCalled()
+    expect(processSpokenTurn).not.toHaveBeenCalled()
     expect(output).toMatchObject({ ok: false, intent: "RETRY" })
   })
 
   it("passes the terminal facts through as strings the model must keep intact", async () => {
-    const confirmRequirement = vi.fn().mockResolvedValue(completed)
+    const processSpokenTurn = vi.fn().mockResolvedValue({
+      kind: "flow",
+      response: completed,
+    })
     const agent = createKioskRealtimeAgent(
       {
         resolveSpokenText: async () => ({ text: "Sí, es correcto", commit: vi.fn() }),
-        hasPendingRequirement: () => true,
-        analyzeRequirement: vi.fn(),
-        confirmRequirement,
+        processSpokenTurn,
       },
       agentOptions,
     )
 
-    const output = await toolNamed(agent, "confirmar_requerimiento").invoke(
+    const output = await toolNamed(agent, "procesar_turno").invoke(
       {} as never,
-      JSON.stringify({ confirmed: true }),
+      JSON.stringify({}),
       { toolCall: { callId: "call-3" } } as never,
     )
 
-    expect(confirmRequirement).toHaveBeenCalledWith(true, "call-3")
+    expect(processSpokenTurn).toHaveBeenCalledWith("Sí, es correcto", "call-3")
     expect(output).toMatchObject({
       next_action: "COMPLETE",
       intent: "HANDOFF",
@@ -386,69 +474,21 @@ describe("createKioskRealtimeAgent", () => {
     })
   })
 
-  it("refuses a confirmation the transcription does not support", async () => {
-    // A mis-heard "no" would otherwise open a case the customer just declined: `confirmed`
-    // is the model's own reading, and it has to agree with what was actually transcribed.
-    const confirmRequirement = vi.fn()
-    const agent = createKioskRealtimeAgent(
-      {
-        resolveSpokenText: async () => ({ text: "No, eso no es lo que necesito", commit: vi.fn() }),
-        hasPendingRequirement: () => true,
-        analyzeRequirement: vi.fn(),
-        confirmRequirement,
-      },
-      agentOptions,
-    )
-
-    const output = await toolNamed(agent, "confirmar_requerimiento").invoke(
-      {} as never,
-      JSON.stringify({ confirmed: true }),
-      { toolCall: { callId: "call-4" } } as never,
-    )
-
-    expect(confirmRequirement).not.toHaveBeenCalled()
-    expect(output).toMatchObject({ ok: false, intent: "RETRY" })
-  })
-
-  it("re-asks an ambiguous answer without calling the backend", async () => {
-    const confirmRequirement = vi.fn()
-    const agent = createKioskRealtimeAgent(
-      {
-        resolveSpokenText: async () => ({ text: "Puede ser", commit: vi.fn() }),
-        hasPendingRequirement: () => true,
-        analyzeRequirement: vi.fn(),
-        confirmRequirement,
-      },
-      agentOptions,
-    )
-
-    const output = await toolNamed(agent, "confirmar_requerimiento").invoke(
-      {} as never,
-      JSON.stringify({ confirmed: true }),
-      { toolCall: { callId: "call-5" } } as never,
-    )
-
-    expect(confirmRequirement).not.toHaveBeenCalled()
-    expect(output).toMatchObject({ ok: false, intent: "RETRY" })
-  })
-
   it("spends the turn only once the backend has answered", async () => {
     // Reading the transcript is not spending it. A backend that never answered has consumed
     // nothing, so the words stay available and a retry classifies what the person actually
     // said instead of asking them to repeat it.
     const commit = vi.fn()
-    const analyzeRequirement = vi.fn().mockRejectedValue(new Error("sin red"))
+    const processSpokenTurn = vi.fn().mockRejectedValue(new Error("sin red"))
     const agent = createKioskRealtimeAgent(
       {
         resolveSpokenText: async () => ({ text: "Me robaron la tarjeta.", commit }),
-        hasPendingRequirement: () => true,
-        analyzeRequirement,
-        confirmRequirement: vi.fn(),
+        processSpokenTurn,
       },
       agentOptions,
     )
 
-    const output = await toolNamed(agent, "analizar_requerimiento").invoke(
+    const output = await toolNamed(agent, "procesar_turno").invoke(
       {} as never,
       JSON.stringify({}),
       { toolCall: { callId: "call-6" } } as never,
@@ -456,38 +496,6 @@ describe("createKioskRealtimeAgent", () => {
 
     expect(output).toMatchObject({ ok: false, intent: "RETRY" })
     expect(commit).not.toHaveBeenCalled()
-  })
-
-  it("does not read the turn at all when there is nothing to confirm", async () => {
-    // Called out of order, this tool would otherwise spend the person's opening request as
-    // if it were a yes or a no, and `analizar_requerimiento` would find nothing left to
-    // classify -- the theft report would be gone.
-    const commit = vi.fn()
-    const resolveSpokenText = vi.fn()
-    const confirmRequirement = vi.fn()
-    const agent = createKioskRealtimeAgent(
-      {
-        resolveSpokenText: resolveSpokenText.mockResolvedValue({
-          text: "Quiero reportar el robo de mi tarjeta de débito.",
-          commit,
-        }),
-        hasPendingRequirement: () => false,
-        analyzeRequirement: vi.fn(),
-        confirmRequirement,
-      },
-      agentOptions,
-    )
-
-    const output = await toolNamed(agent, "confirmar_requerimiento").invoke(
-      {} as never,
-      JSON.stringify({ confirmed: true }),
-      { toolCall: { callId: "call-7" } } as never,
-    )
-
-    expect(output).toMatchObject({ ok: false, intent: "RETRY" })
-    expect(resolveSpokenText).not.toHaveBeenCalled()
-    expect(commit).not.toHaveBeenCalled()
-    expect(confirmRequirement).not.toHaveBeenCalled()
   })
 
   it("spends an answer it could not read, so it cannot bleed into the next one", async () => {
@@ -498,16 +506,17 @@ describe("createKioskRealtimeAgent", () => {
     const agent = createKioskRealtimeAgent(
       {
         resolveSpokenText: async () => ({ text: "No sé", commit }),
-        hasPendingRequirement: () => true,
-        analyzeRequirement: vi.fn(),
-        confirmRequirement: vi.fn(),
+        processSpokenTurn: vi.fn().mockResolvedValue({
+          kind: "retry",
+          guidance: "Pide una respuesta clara.",
+        }),
       },
       agentOptions,
     )
 
-    const output = await toolNamed(agent, "confirmar_requerimiento").invoke(
+    const output = await toolNamed(agent, "procesar_turno").invoke(
       {} as never,
-      JSON.stringify({ confirmed: true }),
+      JSON.stringify({}),
       { toolCall: { callId: "call-8" } } as never,
     )
 
@@ -517,6 +526,59 @@ describe("createKioskRealtimeAgent", () => {
 })
 
 describe("tool output", () => {
+  it("makes each grounded answer authoritative without carrying the previous answer forward", () => {
+    const hours =
+      "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00."
+    const credit = "Para solicitar un crédito de consumo debes ser mayor de 18 años."
+    const automatic = (requirementId: string, answer: string): FlowResult => ({
+      ...completed,
+      requirement_id: requirementId,
+      status: "RESOLVED_AUTOMATIC",
+      resolution_type: "AUTOMATIC",
+      ticket: null,
+      response: answer,
+      speech_text: answer,
+      speech_plan: {
+        intent: "ANSWER",
+        facts: { respuesta_fundamentada: answer },
+        verbatim: [answer],
+        guidance: "Di la respuesta aprobada completa.",
+        fallback_text: answer,
+      },
+      grounding_status: "GROUNDED",
+      conversation_can_continue: true,
+      remaining_turns: 7,
+    })
+
+    const hoursOutput = flowToolOutput(automatic("hours", hours))
+    const creditOutput = flowToolOutput(automatic("credit", credit))
+
+    expect(hoursOutput).toMatchObject({
+      intent: "ANSWER",
+      grounded_answer: hours,
+      facts: { respuesta_fundamentada: hours },
+    })
+    expect(creditOutput).toMatchObject({
+      intent: "ANSWER",
+      grounded_answer: credit,
+      facts: { respuesta_fundamentada: credit },
+    })
+    expect(JSON.stringify(creditOutput)).not.toContain(hours)
+  })
+
+  it("never launches a deferred correction for a conversational automatic answer", () => {
+    expect(
+      shouldRetryMissingVerbatim({
+        intent: "ANSWER",
+        facts: { respuesta_fundamentada: "Horario aprobado" },
+        verbatim: ["Horario aprobado"],
+        guidance: "Dilo completo.",
+        fallback_text: "Horario aprobado",
+      }),
+    ).toBe(false)
+    expect(shouldRetryMissingVerbatim(completed.speech_plan)).toBe(true)
+  })
+
   it("routes a COMPLETE analysis (GENERAL, no confirmation step) through the flow tool output", () => {
     const autoResolved: TurnAnalysis = {
       ...analysis,

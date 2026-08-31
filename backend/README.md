@@ -83,9 +83,11 @@ Agents have separated responsibilities:
 
 Audio and the original transcript are not persisted. Realtime keeps the conversation
 speech-to-speech and the browser syncs only completed messages; the backend re-masks
-them before storing and purges them according to the configured retention. The
-Realtime agent's tools delegate classification, confirmation, RAG, identification, and
-tickets to the backend via REST.
+them before storing and purges them according to the configured retention. The same
+opaque kiosk-session token can read those masked messages back after a reconnect. The
+Realtime agent exposes one mandatory customer-turn tool; the browser dispatches it to
+analysis or confirmation from reconciled state, while RAG, identification, and ticket
+creation remain behind the backend REST API.
 
 The CI keeps the HMAC digest and masked suffix for comparison and listings.
 Additionally, it is encrypted with AES-256-GCM so only the assigned executive can

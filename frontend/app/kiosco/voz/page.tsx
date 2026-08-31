@@ -63,7 +63,6 @@ export default function VoicePage() {
   if (!hydrated || !session) return null
   if (interactionMode === "text") return <TextInteraction />
 
-  const recentCaptions = captions.slice(-6)
   const animated = voiceState === "listening" || voiceState === "speaking"
 
   return (
@@ -154,12 +153,12 @@ export default function VoicePage() {
         </section>
       )}
 
-      {recentCaptions.length > 0 && (
+      {captions.length > 0 && (
         <section
-          aria-label="Subtítulos de la conversación"
-          className="w-full max-w-3xl space-y-3"
+          aria-label="Conversación completa"
+          className="max-h-[32rem] w-full max-w-3xl space-y-3 overflow-y-auto rounded-2xl border border-white/10 bg-black/10 p-3 [scrollbar-gutter:stable]"
         >
-          {recentCaptions.map((caption) => (
+          {captions.map((caption) => (
             <div
               className={`flex ${caption.role === "user" ? "justify-end" : "justify-start"}`}
               key={caption.id}

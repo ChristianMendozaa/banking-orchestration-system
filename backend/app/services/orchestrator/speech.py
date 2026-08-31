@@ -195,6 +195,11 @@ def answer_plan(
     speech = final_response or "Tu consulta quedó resuelta."
     return speech, SpeechPlan(
         intent="ANSWER",
+        # Put the approved answer in `facts` as well as `verbatim`. The compact Realtime
+        # model reliably treats `facts` as tool data, while `verbatim` preserves the exact
+        # grounded wording. Keeping both prevents it from claiming that the tool supplied
+        # no hours or requirements even though the approved answer was present.
+        facts={"respuesta_fundamentada": speech},
         # The answer is bound to the retrieved evidence and was already checked
         # against it (`GroundedAnswerDecision.supported`). Rewording it would break
         # that binding, so it is the one long string the model must reproduce.

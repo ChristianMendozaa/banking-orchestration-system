@@ -70,6 +70,24 @@ _DIGITAL_OPERATION_FAILURE = re.compile(
     r"\bintentos?\b|\berror\b|bloquead",
     re.IGNORECASE,
 )
+# The customer is asking the bank to start or execute a supported service, as opposed to
+# asking how it works. This is intentionally expressed as a grammatical shape instead of a
+# list of whole utterances so it covers products beyond the credit example that exposed the
+# bug. The informational veto keeps "quiero saber los requisitos para abrir..." public.
+_DIRECT_SERVICE_ACTION = re.compile(
+    r"\b(?:quiero|necesito|deseo|quisiera|vengo\s+a|vine\s+a)\s+"
+    r"(?:que\s+me\s+)?(?:abrir|sacar|solicitar|tramitar|iniciar|empezar|hacer|realizar|"
+    r"presentar|registrar|habilitar|activar|bloquear|reportar|denunciar|transferir)\b"
+    r".{0,45}\b(?:cr[eé]dito|pr[eé]stamo|cuenta|tarjeta|tr[aá]mite|solicitud|"
+    r"banca\s+(?:digital|m[oó]vil)|transferencia|fraude|reclamo|ticket|ficha|turno)\b",
+    re.IGNORECASE,
+)
+_INFORMATION_REQUEST = re.compile(
+    r"\b(?:quiero|necesito|deseo|quisiera)\s+saber\b|"
+    r"\b(?:informaci[oó]n|requisitos?|qu[eé]\s+(?:documentos?|papeles?)|"
+    r"cu[aá]les?\s+son|c[oó]mo\s+(?:funciona|se\s+hace)|d[oó]nde|horarios?)\b",
+    re.IGNORECASE,
+)
 # Preventive or hypothetical framing. Vetoes _OWN_BANKING_OBJECT and the digital-failure rule,
 # never _INCIDENT_EVENT.
 _HYPOTHETICAL = re.compile(
@@ -110,6 +128,15 @@ def security_incident_category(masked_text: str) -> Category | None:
     return None
 
 
+def requests_service_action(masked_text: str) -> bool:
+    """Whether the customer wants a bank operation started, not merely explained."""
+    return bool(
+        _DIRECT_SERVICE_ACTION.search(masked_text)
+        and not _INFORMATION_REQUEST.search(masked_text)
+        and not _HYPOTHETICAL.search(masked_text)
+    )
+
+
 def sensitivity_floor(masked_text: str, category: Category) -> ConsultationLevel | None:
     """The lowest consultation level this request may be treated as, from its text alone.
     `None` means the text carries no signal and the classifier's own answer stands.
@@ -131,6 +158,8 @@ def sensitivity_floor(masked_text: str, category: Category) -> ConsultationLevel
     if not preventive and _OWN_BANKING_OBJECT.search(masked_text):
         return ConsultationLevel.SENSIBLE
     if _OWN_FILE_OR_ACCESS.search(masked_text):
+        return ConsultationLevel.PERSONALIZADA
+    if requests_service_action(masked_text):
         return ConsultationLevel.PERSONALIZADA
     if (
         not preventive

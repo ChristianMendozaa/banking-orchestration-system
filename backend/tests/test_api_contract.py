@@ -20,6 +20,7 @@ EXPECTED_OPERATIONS = {
     ("GET", "/api/v1/kiosk/sessions/{session_id}"),
     ("POST", "/api/v1/kiosk/sessions/{session_id}/confirmation"),
     ("POST", "/api/v1/kiosk/sessions/{session_id}/conversation/messages"),
+    ("GET", "/api/v1/kiosk/sessions/{session_id}/conversation/messages"),
     ("POST", "/api/v1/kiosk/sessions/{session_id}/identification"),
     ("POST", "/api/v1/kiosk/sessions/{session_id}/realtime-token"),
     ("POST", "/api/v1/kiosk/sessions/{session_id}/turns"),

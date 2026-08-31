@@ -13,6 +13,8 @@ from app.db.session import get_db
 from app.domain.enums import SessionStatus
 from app.domain.schemas import (
     ConfirmationRequest,
+    ConversationHistoryMessage,
+    ConversationHistoryResponse,
     ConversationSyncRequest,
     ConversationSyncResponse,
     FlowResult,
@@ -130,6 +132,40 @@ async def sync_conversation(
         created += 1
     await db.commit()
     return ConversationSyncResponse(accepted=created)
+
+
+@router.get(
+    "/sessions/{session_id}/conversation/messages",
+    response_model=ConversationHistoryResponse,
+)
+async def conversation_history(
+    kiosk_session: KioskSession = Depends(get_kiosk_session),
+    db: AsyncSession = Depends(get_db),
+) -> ConversationHistoryResponse:
+    """Restore the PII-masked transcript for this kiosk session.
+
+    Access is deliberately guarded by the same opaque session token as every other kiosk
+    operation. Raw speech is never returned: messages are masked before persistence and only
+    that stored representation is exposed here.
+    """
+    messages = (
+        await db.scalars(
+            select(ConversationMessage)
+            .where(ConversationMessage.session_id == kiosk_session.id)
+            .order_by(ConversationMessage.created_at, ConversationMessage.id)
+        )
+    ).all()
+    return ConversationHistoryResponse(
+        messages=[
+            ConversationHistoryMessage(
+                item_id=message.external_item_id,
+                role=message.role,
+                text=message.masked_text,
+                created_at=message.created_at,
+            )
+            for message in messages
+        ]
+    )
 
 
 @router.post("/sessions/{session_id}/confirmation", response_model=FlowResult)

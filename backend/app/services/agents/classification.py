@@ -192,12 +192,19 @@ class ClassificationAgent:
                     "mi cuenta",
                 )
             )
-            if sensitive:
-                level = ConsultationLevel.SENSIBLE
-            elif personalized and not informational:
-                level = ConsultationLevel.PERSONALIZADA
-            else:
-                level = ConsultationLevel.GENERAL
+            heuristic_level = (
+                ConsultationLevel.SENSIBLE
+                if sensitive
+                else ConsultationLevel.PERSONALIZADA
+                if personalized and not informational
+                else ConsultationLevel.GENERAL
+            )
+            floor = sensitivity_floor(text, category)
+            level = (
+                floor
+                if floor is not None and _LEVEL_ORDER[floor] > _LEVEL_ORDER[heuristic_level]
+                else heuristic_level
+            )
             return ClassificationDecision(
                 summary=text[:500],
                 customer_summary=customer_summary_for(category),

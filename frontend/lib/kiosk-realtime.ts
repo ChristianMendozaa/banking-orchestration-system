@@ -1,5 +1,6 @@
 import type { RealtimeItem } from "@openai/agents/realtime"
 
+import type { RealtimeAudioInput } from "@/lib/kiosk-api"
 import type { FlowResult, KioskSession, SpeechPlan, TurnAnalysis } from "@/lib/types"
 
 // Prefix for conversation items the application injects for the model's benefit rather than
@@ -12,6 +13,7 @@ export interface ConversationCaption {
   role: "user" | "assistant"
   text: string
   completed: boolean
+  createdAt?: string
 }
 
 // What a tool gets when it reads the turn. Reading is deliberately not the same as spending:
@@ -28,13 +30,18 @@ export interface KioskRealtimeCallbacks {
   // ("reportar el robo" -> "portar el juego") and the backend classified the corruption.
   // Returns null when transcription has not landed, which is a retry, not a fallback.
   resolveSpokenText: () => Promise<SpokenTurn | null>
-  // Whether there is a requirement waiting to be confirmed. `confirmar_requerimiento` checks
-  // this before it reads the turn, so a confirmation the model calls for out of order cannot
-  // spend a transcript that was never an answer to a confirmation question.
-  hasPendingRequirement: () => boolean
-  analyzeRequirement: (transcript: string, callId?: string) => Promise<TurnAnalysis>
-  confirmRequirement: (confirmed: boolean, callId?: string) => Promise<FlowResult>
+  // The application, not the voice model, chooses the business endpoint from current state.
+  processSpokenTurn: (
+    transcript: string,
+    callId?: string,
+  ) => Promise<KioskTurnProcessingResult>
 }
+
+export type KioskTurnProcessingResult =
+  | { kind: "analysis"; response: TurnAnalysis }
+  | { kind: "flow"; response: FlowResult }
+  | { kind: "retry"; guidance: string }
+  | { kind: "close" }
 
 export function kioskRouteForState(state: {
   session: KioskSession | null
@@ -126,6 +133,83 @@ export function captionsFromHistory(history: RealtimeItem[]): ConversationCaptio
   })
 }
 
+export interface StoredConversationMessage {
+  item_id: string
+  role: "CUSTOMER" | "ASSISTANT"
+  text: string
+  created_at: string
+}
+
+export function captionsFromStoredConversation(
+  messages: StoredConversationMessage[],
+): ConversationCaption[] {
+  return messages.map((message) => ({
+    id: message.item_id,
+    role: message.role === "CUSTOMER" ? "user" : "assistant",
+    text: compactText(message.text),
+    completed: true,
+    createdAt: message.created_at,
+  }))
+}
+
+// Realtime history is connection-local; persisted history spans reconnects. Keep the base
+// order, replace matching entries with their fresher live version, and append truly new items.
+export function mergeConversationCaptions(
+  base: ConversationCaption[],
+  incoming: ConversationCaption[],
+): ConversationCaption[] {
+  const incomingById = new Map(incoming.map((caption) => [caption.id, caption]))
+  const merged = base.map((caption) => incomingById.get(caption.id) ?? caption)
+  const seen = new Set(base.map((caption) => caption.id))
+  for (const caption of incoming) {
+    if (!seen.has(caption.id)) {
+      merged.push(caption)
+      seen.add(caption.id)
+    }
+  }
+  return merged
+}
+
+export function isConversationClose(value: string): boolean {
+  const normalized = foldForComparison(value).replace(/[.!?]+$/g, "")
+  return /^(?:no\s*,?\s*)?(?:gracias|nada mas|eso es todo|seria todo|no necesito nada mas|listo)(?:\s*,?\s*gracias)?$/.test(
+    normalized,
+  )
+}
+
+export type RealtimeTurnPhase = "greeting" | "customer_turn" | "tool_result"
+
+export function realtimeToolChoiceForPhase(
+  phase: RealtimeTurnPhase,
+): "none" | "auto" | "required" {
+  if (phase === "greeting") return "none"
+  if (phase === "customer_turn") return "required"
+  return "auto"
+}
+
+export function realtimeVoiceSessionConfig(
+  audioInput: RealtimeAudioInput,
+  voice: string,
+  toolChoice: "none" | "auto" | "required",
+) {
+  return {
+    outputModalities: ["audio"] as const,
+    parallelToolCalls: false,
+    toolChoice,
+    // The transport fills omitted audio properties with SDK defaults on every update. Always
+    // resend the backend-minted block while toggling tool choice so transcription and VAD do
+    // not silently change halfway through a conversation.
+    audio: {
+      input: {
+        noiseReduction: audioInput.noise_reduction,
+        transcription: audioInput.transcription,
+        turnDetection: audioInput.turn_detection,
+      },
+      output: { voice },
+    },
+  }
+}
+
 export interface TranscriptSelection {
   text: string
   itemIds: string[]
@@ -184,12 +268,18 @@ export function analysisToolOutput(response: TurnAnalysis): Record<string, unkno
 }
 
 export function flowToolOutput(response: FlowResult): Record<string, unknown> {
-  return speechPlanToolOutput(response.speech_plan, {
+  const extras: Record<string, unknown> = {
     next_action: response.next_action,
     requirement_id: response.requirement_id,
     resolution_type: response.resolution_type,
     identification_status: response.identification_status,
-  })
+  }
+  if (response.resolution_type === "AUTOMATIC" && response.response) {
+    // Do not make the voice model infer that a long `verbatim` entry is the actual bank
+    // answer. This top-level field makes the successful grounding result unmistakable.
+    extras.grounded_answer = response.response
+  }
+  return speechPlanToolOutput(response.speech_plan, extras)
 }
 
 export function errorToolOutput(guidance: string): Record<string, unknown> {
@@ -198,6 +288,22 @@ export function errorToolOutput(guidance: string): Record<string, unknown> {
     next_action: "RETRY",
     intent: "RETRY",
     guidance,
+    facts: {},
+    verbatim: [],
+  }
+}
+
+export function turnProcessingToolOutput(
+  result: KioskTurnProcessingResult,
+): Record<string, unknown> {
+  if (result.kind === "analysis") return analysisToolOutput(result.response)
+  if (result.kind === "flow") return flowToolOutput(result.response)
+  if (result.kind === "retry") return errorToolOutput(result.guidance)
+  return {
+    ok: true,
+    next_action: "CLOSE",
+    intent: "CLOSE",
+    guidance: "Despídete brevemente y no hagas otra pregunta.",
     facts: {},
     verbatim: [],
   }
@@ -214,6 +320,14 @@ export function missingVerbatim(spoken: string, verbatim: readonly string[]): st
     const needle = foldForComparison(entry)
     return needle.length > 0 && !haystack.includes(needle)
   })
+}
+
+export function shouldRetryMissingVerbatim(plan: SpeechPlan | undefined): boolean {
+  // Automatic answers are the only non-terminal kiosk result. Retrying one by injecting a
+  // new model message can race the customer's next question and append the old answer to
+  // the new one. Keep the full answer visible on screen and report a voice error instead;
+  // short safety warnings and terminal handoff details may still use the one retry.
+  return plan?.intent !== "ANSWER" && Boolean(plan?.verbatim?.length)
 }
 
 export function analysisSpeechPlan(response: TurnAnalysis): SpeechPlan {

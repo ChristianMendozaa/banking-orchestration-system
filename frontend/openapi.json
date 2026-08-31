@@ -164,6 +164,50 @@
         "title": "ConsultationLevel",
         "type": "string"
       },
+      "ConversationHistoryMessage": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "item_id": {
+            "title": "Item Id",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ConversationRole"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "item_id",
+          "role",
+          "text",
+          "created_at"
+        ],
+        "title": "ConversationHistoryMessage",
+        "type": "object"
+      },
+      "ConversationHistoryResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationHistoryMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "title": "ConversationHistoryResponse",
+        "type": "object"
+      },
       "ConversationMessageInput": {
         "properties": {
           "item_id": {
@@ -3271,6 +3315,64 @@
       }
     },
     "/api/v1/kiosk/sessions/{session_id}/conversation/messages": {
+      "get": {
+        "description": "Restore the PII-masked transcript for this kiosk session.\n\nAccess is deliberately guarded by the same opaque session token as every other kiosk\noperation. Raw speech is never returned: messages are masked before persistence and only\nthat stored representation is exposed here.",
+        "operationId": "conversation_history_api_v1_kiosk_sessions__session_id__conversation_messages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Session-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Session-Token"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationHistoryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Conversation History",
+        "tags": [
+          "Kiosco"
+        ]
+      },
       "post": {
         "operationId": "sync_conversation_api_v1_kiosk_sessions__session_id__conversation_messages_post",
         "parameters": [

@@ -111,10 +111,13 @@ async def test_realtime_session_enables_conversation_and_interruptions(
     assert session["audio"]["input"]["transcription"]["model"] == "gpt-realtime-whisper"
     assert session["audio"]["output"]["voice"] == "marin"
     assert "Trátala de tú" in session["instructions"]
-    # The model composes what it says; it is never handed a sentence to read out. These two
-    # lines are what makes the tool results facts rather than a script.
+    # The model composes around authoritative tool data. A grounded answer is the exception:
+    # it must reproduce the approved wording instead of improvising or claiming no access.
     assert "no un guión" in session["instructions"]
-    assert "No lo leas en voz alta" in session["instructions"]
+    assert "`grounded_answer` es la respuesta aprobada" in session["instructions"]
+    assert "Cada turno nuevo" in session["instructions"]
+    assert "`procesar_turno`" in session["instructions"]
+    assert "nunca niegues esa capacidad" in session["instructions"]
     assert turn_detection == {
         "type": "semantic_vad",
         "eagerness": "auto",
@@ -158,6 +161,9 @@ async def test_realtime_secret_returns_the_persona_the_browser_must_apply(
     data = await OpenAIProvider(configured).create_realtime_client_secret("session-test")
 
     assert data["session"]["instructions"] == KIOSK_VOICE_INSTRUCTIONS
+    assert "`grounded_answer` es la respuesta aprobada" in KIOSK_VOICE_INSTRUCTIONS
+    assert "no agregues respuestas, correcciones ni datos" in KIOSK_VOICE_INSTRUCTIONS
+    assert "Cada turno nuevo" in KIOSK_VOICE_INSTRUCTIONS
     assert data["session"]["model"] == "gpt-realtime-2.1-mini"
     assert data["session"]["voice"] == "marin"
 

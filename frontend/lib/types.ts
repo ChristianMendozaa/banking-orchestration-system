@@ -17,6 +17,7 @@ export type User = Schemas["UserSummary"]
 export type TokenResponse = Schemas["TokenResponse"]
 export type PublicSystemConfig = Schemas["PublicSystemConfig"]
 export type KioskSession = Schemas["SessionCreatedResponse"]
+export type ConversationHistory = Schemas["ConversationHistoryResponse"]
 // What the voice channel receives instead of a sentence to read out: the facts the backend
 // decided, one line of guidance, and the strings that must survive word for word. See
 // SpeechPlan in backend/app/domain/schemas.py.

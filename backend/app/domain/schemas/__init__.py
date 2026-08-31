@@ -26,6 +26,8 @@ from app.domain.schemas.auth import LoginRequest, TokenResponse, UserSummary
 from app.domain.schemas.common import ORMModel
 from app.domain.schemas.kiosk import (
     ConfirmationRequest,
+    ConversationHistoryMessage,
+    ConversationHistoryResponse,
     ConversationMessageInput,
     ConversationSyncRequest,
     ConversationSyncResponse,
@@ -78,6 +80,8 @@ __all__ = [
     "ClassificationDecision",
     "ClassifiedNeed",
     "ConfirmationRequest",
+    "ConversationHistoryMessage",
+    "ConversationHistoryResponse",
     "ConversationMessageInput",
     "ConversationMessageOut",
     "ConversationSyncRequest",

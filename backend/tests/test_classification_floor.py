@@ -245,3 +245,30 @@ def test_a_negation_that_is_not_negating_the_incident_still_raises_the_floor() -
         )
         is SENSIBLE
     )
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "Quiero sacar un crédito ahora.",
+        "Necesito abrir una cuenta de ahorro.",
+        "Quisiera solicitar un préstamo personal.",
+        "Vine a presentar un reclamo.",
+        "Quiero sacar una ficha para tramitar mi crédito.",
+    ),
+)
+def test_direct_service_requests_require_personalized_attention(text: str) -> None:
+    assert sensitivity_floor(text, Category.SOLICITUD_CREDITO) is PERSONALIZADA
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        "¿Cuáles son los requisitos para sacar un crédito?",
+        "Quiero saber cómo se abre una cuenta de ahorro.",
+        "Quisiera información general para solicitar un préstamo.",
+        "Quiero abrir una cuenta. ¿Qué documentos me van a pedir?",
+    ),
+)
+def test_service_information_stays_general(text: str) -> None:
+    assert sensitivity_floor(text, Category.SOLICITUD_CREDITO) is None

@@ -144,6 +144,17 @@ class ConversationSyncResponse(BaseModel):
     accepted: int
 
 
+class ConversationHistoryMessage(BaseModel):
+    item_id: str
+    role: ConversationRole
+    text: str
+    created_at: datetime
+
+
+class ConversationHistoryResponse(BaseModel):
+    messages: list[ConversationHistoryMessage]
+
+
 class ExecutiveAssignment(BaseModel):
     id: UUID
     name: str

@@ -22,16 +22,24 @@ import {
   APPLICATION_EVENT_PREFIX,
   analysisSpeechPlan,
   captionsFromHistory,
+  captionsFromStoredConversation,
+  explicitConfirmation,
+  isConversationClose,
   isTerminalFlowResult,
   kioskRouteForState,
+  mergeConversationCaptions,
   missingVerbatim,
+  realtimeToolChoiceForPhase,
+  realtimeVoiceSessionConfig,
   selectAuthoritativeTranscript,
   shouldApplyAnalysisResponse,
   shouldApplyFlowResponse,
+  shouldRetryMissingVerbatim,
   type ConversationCaption,
   type SpokenTurn,
 } from "@/lib/kiosk-realtime"
 import type {
+  ConversationHistory,
   FlowResult,
   KioskSession,
   KioskSessionStatus,
@@ -172,6 +180,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   // permitted correction has already been spent on them.
   const pendingVerbatimRef = useRef<string[]>([])
   const verbatimRetriedRef = useRef(false)
+  const verbatimRetryAllowedRef = useRef(false)
   const verbatimBaselineRef = useRef(new Set<string>())
   const confirmationPromisesRef = useRef(
     new Map<string, { promise: Promise<FlowResult>; revision: number }>(),
@@ -186,6 +195,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const terminalAudioTimeoutRef = useRef<number | null>(null)
   const followUpTimeoutRef = useRef<number | null>(null)
   const followUpPendingRef = useRef(false)
+  const conversationClosePendingRef = useRef(false)
 
   const updateState = useCallback((updater: (current: KioskState) => KioskState) => {
     const next = updater(stateRef.current)
@@ -224,7 +234,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     activeToolCallsRef.current.clear()
     pendingVerbatimRef.current = []
     verbatimRetriedRef.current = false
+    verbatimRetryAllowedRef.current = false
     verbatimBaselineRef.current.clear()
+    conversationClosePendingRef.current = false
   }, [])
 
   const clearFlowTracking = useCallback(() => {
@@ -232,6 +244,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     activeToolCallsRef.current.clear()
     pendingVerbatimRef.current = []
     verbatimRetriedRef.current = false
+    verbatimRetryAllowedRef.current = false
     verbatimBaselineRef.current.clear()
     turnIdsRef.current.clear()
     syncedConversationItemsRef.current.clear()
@@ -241,6 +254,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     identificationPromiseRef.current = null
     reconciliationPromiseRef.current = null
     followUpPendingRef.current = false
+    conversationClosePendingRef.current = false
   }, [])
 
   const reset = useCallback(() => {
@@ -322,6 +336,28 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     )
   }, [startCompletionCountdown])
 
+  const restoreConversationHistory = useCallback(
+    async (activeSession: KioskSession) => {
+      const history = await kioskSessionRequest<ConversationHistory>(
+        activeSession,
+        "/conversation/messages",
+      )
+      if (stateRef.current.session?.session_id !== activeSession.session_id) return
+
+      const restored = captionsFromStoredConversation(history.messages)
+      restored.forEach((caption) => {
+        syncedConversationItemsRef.current.add(caption.id)
+        if (caption.role === "user") consumedTranscriptItemsRef.current.add(caption.id)
+      })
+      setCaptions((current) => {
+        const merged = mergeConversationCaptions(restored, current)
+        userCaptionsRef.current = merged
+        return merged
+      })
+    },
+    [],
+  )
+
   const reconcileSession = useCallback(
     async (activeSession: KioskSession): Promise<KioskSessionStatus | null> => {
       const existing = reconciliationPromiseRef.current
@@ -341,7 +377,10 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        const snapshot = await promise
+        const [snapshot] = await Promise.all([
+          promise,
+          restoreConversationHistory(activeSession),
+        ])
         if (stateRef.current.session?.session_id !== activeSession.session_id) {
           return snapshot
         }
@@ -387,7 +426,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    [reset, updateState],
+    [reset, restoreConversationHistory, updateState],
   )
 
   useEffect(() => {
@@ -552,6 +591,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const rememberVerbatim = useCallback((plan: SpeechPlan | undefined) => {
     pendingVerbatimRef.current = plan?.verbatim ?? []
     verbatimRetriedRef.current = false
+    verbatimRetryAllowedRef.current = shouldRetryMissingVerbatim(plan)
     verbatimBaselineRef.current = new Set(
       userCaptionsRef.current
         .filter((caption) => caption.role === "assistant")
@@ -636,197 +676,228 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           stateRef.current.analysis?.requirement_id ??
           stateRef.current.result?.requirement_id ??
           agentRequirementId
+        const analyzeRequirement = async (
+          transcript: string,
+          callId?: string,
+        ): Promise<TurnAnalysis> => {
+          const key = callId ?? crypto.randomUUID()
+          const requestRevision = businessRevisionRef.current
+          const startingRequirementId =
+            stateRef.current.analysis?.requirement_id ?? null
+          let turnId = turnIdsRef.current.get(key)
+          if (!turnId) {
+            turnId = crypto.randomUUID()
+            turnIdsRef.current.set(key, turnId)
+          }
+
+          try {
+            cancelFollowUpWindow()
+            followUpPendingRef.current = false
+            const response = await kioskSessionRequest<TurnAnalysis>(
+              activeSession,
+              "/turns",
+              {
+                method: "POST",
+                body: JSON.stringify({
+                  turn_id: turnId,
+                  transcript,
+                  is_clarification: clarificationRef.current,
+                }),
+              },
+            )
+            agentRequirementId = response.requirement_id
+            rememberVerbatim(analysisSpeechPlan(response))
+            if (!isBusinessSessionCurrent()) return response
+            // A confident GENERAL request resolves on this same turn -- no confirmation
+            // round-trip -- and next_action is COMPLETE with the answer embedded in
+            // `result`. Store it exactly like confirmRequirement / submitIdentification
+            // store a completed flow, so routing and the mic policy (both keyed off
+            // state.result) apply unchanged.
+            if (response.next_action === "COMPLETE" && response.result) {
+              const completedFlow = response.result
+              if (
+                !shouldApplyFlowResponse(
+                  stateRef.current,
+                  completedFlow,
+                  startingRequirementId ?? completedFlow.requirement_id,
+                  businessRevisionRef.current !== requestRevision,
+                )
+              ) {
+                return response
+              }
+              setVoiceError(null)
+              clarificationRef.current = false
+              updateState((stored) => ({
+                ...stored,
+                session: stored.session
+                  ? { ...stored.session, status: completedFlow.status }
+                  : stored.session,
+                analysis: null,
+                result: completedFlow,
+                isClarification: false,
+              }))
+              followUpPendingRef.current = completedFlow.conversation_can_continue
+              return response
+            }
+            if (
+              !shouldApplyAnalysisResponse(
+                stateRef.current,
+                response,
+                startingRequirementId,
+                businessRevisionRef.current !== requestRevision,
+              )
+            ) {
+              return response
+            }
+            setVoiceError(null)
+            const isClarification = response.next_action === "CLARIFY"
+            clarificationRef.current = isClarification
+            updateState((stored) => ({
+              ...stored,
+              session: stored.session
+                ? { ...stored.session, status: response.status }
+                : stored.session,
+              analysis: response,
+              result: null,
+              isClarification,
+            }))
+            return response
+          } catch (reason) {
+            if (!isBusinessSessionCurrent()) {
+              throw reason
+            }
+            const currentState = stateRef.current
+            const requestWasSuperseded =
+              businessRevisionRef.current !== requestRevision &&
+              (currentState.result !== null ||
+                (currentState.analysis !== null &&
+                  currentState.analysis.requirement_id !==
+                    startingRequirementId))
+            if (requestWasSuperseded) {
+              throw reason
+            } else if (
+              reason instanceof ApiError &&
+              reason.code === "SESSION_EXPIRED"
+            ) {
+              handleExpiredSession()
+            } else {
+              setVoiceError(errorMessage(reason))
+            }
+            throw reason
+          }
+        }
+        const confirmRequirement = async (confirmed: boolean): Promise<FlowResult> => {
+          const requirementId = pendingRequirementId()
+          if (!requirementId) {
+            throw new Error("No existe un requerimiento pendiente de confirmación")
+          }
+          const requestKey = `${activeSession.session_id}:${requirementId}:${confirmed}`
+          let requestEntry = confirmationPromisesRef.current.get(requestKey)
+          if (!requestEntry) {
+            requestEntry = {
+              revision: businessRevisionRef.current,
+              promise: kioskSessionRequest<FlowResult>(
+                activeSession,
+                "/confirmation",
+                {
+                  method: "POST",
+                  body: JSON.stringify({
+                    requirement_id: requirementId,
+                    confirmed,
+                  }),
+                },
+              ),
+            }
+            confirmationPromisesRef.current.set(requestKey, requestEntry)
+          }
+
+          try {
+            const response = await requestEntry.promise
+            rememberVerbatim(response.speech_plan)
+            if (!isBusinessSessionCurrent()) return response
+            if (
+              !shouldApplyFlowResponse(
+                stateRef.current,
+                response,
+                requirementId,
+                businessRevisionRef.current !== requestEntry.revision,
+              )
+            ) {
+              return response
+            }
+            setVoiceError(null)
+            clarificationRef.current = false
+            updateState((stored) => ({
+              ...stored,
+              session: stored.session
+                ? { ...stored.session, status: response.status }
+                : stored.session,
+              analysis: null,
+              result: response,
+              isClarification: false,
+            }))
+            followUpPendingRef.current = Boolean(
+              response.conversation_can_continue,
+            )
+            return response
+          } catch (reason) {
+            if (
+              confirmationPromisesRef.current.get(requestKey) === requestEntry
+            ) {
+              confirmationPromisesRef.current.delete(requestKey)
+            }
+            if (!isBusinessSessionCurrent()) {
+              throw reason
+            }
+            const currentState = stateRef.current
+            const requestWasSuperseded =
+              businessRevisionRef.current !== requestEntry.revision &&
+              (currentState.result !== null ||
+                (currentState.analysis !== null &&
+                  currentState.analysis.requirement_id !== requirementId))
+            if (requestWasSuperseded) {
+              throw reason
+            } else if (
+              reason instanceof ApiError &&
+              reason.code === "SESSION_EXPIRED"
+            ) {
+              handleExpiredSession()
+            } else {
+              setVoiceError(errorMessage(reason))
+            }
+            throw reason
+          }
+        }
         const agent = createKioskRealtimeAgent(
           {
             resolveSpokenText: resolveTurnTranscript,
-            hasPendingRequirement: () => pendingRequirementId() !== null,
-            analyzeRequirement: async (transcript, callId) => {
-              const key = callId ?? crypto.randomUUID()
-              const requestRevision = businessRevisionRef.current
-              const startingRequirementId =
-                stateRef.current.analysis?.requirement_id ?? null
-              let turnId = turnIdsRef.current.get(key)
-              if (!turnId) {
-                turnId = crypto.randomUUID()
-                turnIdsRef.current.set(key, turnId)
-              }
-
-              try {
+            processSpokenTurn: async (transcript, callId) => {
+              if (followUpPendingRef.current && isConversationClose(transcript)) {
                 cancelFollowUpWindow()
                 followUpPendingRef.current = false
-                const response = await kioskSessionRequest<TurnAnalysis>(
-                  activeSession,
-                  "/turns",
-                  {
-                    method: "POST",
-                    body: JSON.stringify({
-                      turn_id: turnId,
-                      transcript,
-                      is_clarification: clarificationRef.current,
-                    }),
-                  },
-                )
-                agentRequirementId = response.requirement_id
-                rememberVerbatim(analysisSpeechPlan(response))
-                if (!isBusinessSessionCurrent()) return response
-                // A confident GENERAL request resolves on this same turn -- no confirmation
-                // round-trip -- and next_action is COMPLETE with the answer embedded in
-                // `result`. Store it exactly like confirmRequirement / submitIdentification
-                // store a completed flow, so routing and the mic policy (both keyed off
-                // state.result) apply unchanged.
-                if (response.next_action === "COMPLETE" && response.result) {
-                  const completedFlow = response.result
-                  if (
-                    !shouldApplyFlowResponse(
-                      stateRef.current,
-                      completedFlow,
-                      startingRequirementId ?? completedFlow.requirement_id,
-                      businessRevisionRef.current !== requestRevision,
-                    )
-                  ) {
-                    return response
-                  }
-                  setVoiceError(null)
-                  clarificationRef.current = false
-                  updateState((stored) => ({
-                    ...stored,
-                    session: stored.session
-                      ? { ...stored.session, status: completedFlow.status }
-                      : stored.session,
-                    analysis: null,
-                    result: completedFlow,
-                    isClarification: false,
-                  }))
-                  followUpPendingRef.current = completedFlow.conversation_can_continue
-                  return response
-                }
-                if (
-                  !shouldApplyAnalysisResponse(
-                    stateRef.current,
-                    response,
-                    startingRequirementId,
-                    businessRevisionRef.current !== requestRevision,
-                  )
-                ) {
-                  return response
-                }
-                setVoiceError(null)
-                const isClarification = response.next_action === "CLARIFY"
-                clarificationRef.current = isClarification
-                updateState((stored) => ({
-                  ...stored,
-                  session: stored.session
-                    ? { ...stored.session, status: response.status }
-                    : stored.session,
-                  analysis: response,
-                  result: null,
-                  isClarification,
-                }))
-                return response
-              } catch (reason) {
-                if (!isBusinessSessionCurrent()) {
-                  throw reason
-                }
-                const currentState = stateRef.current
-                const requestWasSuperseded =
-                  businessRevisionRef.current !== requestRevision &&
-                  (currentState.result !== null ||
-                    (currentState.analysis !== null &&
-                      currentState.analysis.requirement_id !==
-                        startingRequirementId))
-                if (requestWasSuperseded) {
-                  throw reason
-                } else if (
-                  reason instanceof ApiError &&
-                  reason.code === "SESSION_EXPIRED"
-                ) {
-                  handleExpiredSession()
-                } else {
-                  setVoiceError(errorMessage(reason))
-                }
-                throw reason
-              }
-            },
-            confirmRequirement: async (confirmed) => {
-              const requirementId = pendingRequirementId()
-              if (!requirementId) {
-                throw new Error("No existe un requerimiento pendiente de confirmación")
-              }
-              const requestKey = `${activeSession.session_id}:${requirementId}:${confirmed}`
-              let requestEntry = confirmationPromisesRef.current.get(requestKey)
-              if (!requestEntry) {
-                requestEntry = {
-                  revision: businessRevisionRef.current,
-                  promise: kioskSessionRequest<FlowResult>(
-                    activeSession,
-                    "/confirmation",
-                    {
-                      method: "POST",
-                      body: JSON.stringify({
-                        requirement_id: requirementId,
-                        confirmed,
-                      }),
-                    },
-                  ),
-                }
-                confirmationPromisesRef.current.set(requestKey, requestEntry)
+                conversationClosePendingRef.current = true
+                return { kind: "close" }
               }
 
-              try {
-                const response = await requestEntry.promise
-                rememberVerbatim(response.speech_plan)
-                if (!isBusinessSessionCurrent()) return response
-                if (
-                  !shouldApplyFlowResponse(
-                    stateRef.current,
-                    response,
-                    requirementId,
-                    businessRevisionRef.current !== requestEntry.revision,
-                  )
-                ) {
-                  return response
+              if (stateRef.current.analysis?.next_action === "CONFIRM") {
+                const confirmed = explicitConfirmation(transcript)
+                if (confirmed === null) {
+                  return {
+                    kind: "retry",
+                    guidance:
+                      "No quedó claro si te dijo que sí o que no. Vuelve a preguntárselo " +
+                      "con tus palabras, pidiendo una respuesta clara.",
+                  }
                 }
-                setVoiceError(null)
-                clarificationRef.current = false
-                updateState((stored) => ({
-                  ...stored,
-                  session: stored.session
-                    ? { ...stored.session, status: response.status }
-                    : stored.session,
-                  analysis: null,
-                  result: response,
-                  isClarification: false,
-                }))
-                followUpPendingRef.current = Boolean(
-                  response.conversation_can_continue,
-                )
-                return response
-              } catch (reason) {
-                if (
-                  confirmationPromisesRef.current.get(requestKey) === requestEntry
-                ) {
-                  confirmationPromisesRef.current.delete(requestKey)
+                return {
+                  kind: "flow",
+                  response: await confirmRequirement(confirmed),
                 }
-                if (!isBusinessSessionCurrent()) {
-                  throw reason
-                }
-                const currentState = stateRef.current
-                const requestWasSuperseded =
-                  businessRevisionRef.current !== requestEntry.revision &&
-                  (currentState.result !== null ||
-                    (currentState.analysis !== null &&
-                      currentState.analysis.requirement_id !== requirementId))
-                if (requestWasSuperseded) {
-                  throw reason
-                } else if (
-                  reason instanceof ApiError &&
-                  reason.code === "SESSION_EXPIRED"
-                ) {
-                  handleExpiredSession()
-                } else {
-                  setVoiceError(errorMessage(reason))
-                }
-                throw reason
+              }
+
+              return {
+                kind: "analysis",
+                response: await analyzeRequirement(transcript, callId),
               }
             },
           },
@@ -837,33 +908,24 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           model,
           historyStoreAudio: false,
           tracingDisabled: true,
-          config: {
-            outputModalities: ["audio"],
-            // One tool at a time: both tools advance the same backend state machine, and
-            // letting them run concurrently would race a confirmation against the analysis
-            // it confirms.
-            parallelToolCalls: false,
-            // Re-sent, not re-chosen. The SDK's session.update lands after the one that
-            // minted the secret and fills every omitted `audio.input` field with its own
-            // default -- `gpt-4o-mini-transcribe` in place of the transcription model, a bare
-            // `semantic_vad` without the interruption settings -- so these have to be here.
-            // They are the values the backend echoed rather than a second copy written by
-            // hand, because a hand-written copy is how `transcription_model` becomes a
-            // setting only the backend obeys. The SDK reads turn detection in either casing,
-            // so the API's own snake_case passes straight through.
-            audio: {
-              input: {
-                noiseReduction: audioInput.noise_reduction,
-                transcription: audioInput.transcription,
-                turnDetection: audioInput.turn_detection,
-              },
-              output: { voice },
-            },
-          },
+          // There is no customer turn during the greeting, so tools are forbidden. Using
+          // `auto` here let the model call `procesar_turno` before any transcription existed,
+          // producing a false "repíteme tu pedido" immediately after session startup. Actual
+          // customer speech switches this to `required` below.
+          config: realtimeVoiceSessionConfig(
+            audioInput,
+            voice,
+            realtimeToolChoiceForPhase("greeting"),
+          ),
         })
         realtimeRef.current = realtime
         const isCurrentRealtime = () =>
           isActiveAttempt() && realtimeRef.current === realtime
+        const setToolChoice = (choice: "none" | "auto" | "required") => {
+          realtime.transport.updateSessionConfig(
+            realtimeVoiceSessionConfig(audioInput, voice, choice),
+          )
+        }
 
         const settleVoiceState = () => {
           if (activeToolCallsRef.current.size > 0) return
@@ -894,10 +956,19 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           const missing = missingVerbatim(spoken, required)
           if (missing.length === 0) {
             pendingVerbatimRef.current = []
+            verbatimRetryAllowedRef.current = false
+            return
+          }
+          if (!verbatimRetryAllowedRef.current) {
+            pendingVerbatimRef.current = []
+            setVoiceError(
+              "No pude reproducir toda la respuesta; el detalle completo está en pantalla.",
+            )
             return
           }
           if (verbatimRetriedRef.current) {
             pendingVerbatimRef.current = []
+            verbatimRetryAllowedRef.current = false
             setVoiceError(
               "No pude decirte parte del mensaje; el detalle completo está en pantalla.",
             )
@@ -925,12 +996,17 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             )
           } catch {
             pendingVerbatimRef.current = []
+            verbatimRetryAllowedRef.current = false
           }
         }
 
         realtime.on("history_updated", (history) => {
           if (!isCurrentRealtime()) return
-          const nextCaptions = captionsFromHistory(history)
+          const liveCaptions = captionsFromHistory(history)
+          const nextCaptions = mergeConversationCaptions(
+            userCaptionsRef.current,
+            liveCaptions,
+          )
           setCaptions(nextCaptions)
           userCaptionsRef.current = nextCaptions
           const session = stateRef.current.session
@@ -955,9 +1031,18 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         })
         realtime.on("agent_tool_start", (_context, _agent, _tool, details) => {
           if (!isCurrentRealtime()) return
+          // The tool has now been selected. Restore automatic choice before its output starts
+          // a new response, otherwise `required` would force a recursive tool call instead of
+          // allowing the assistant to say the authoritative result.
+          setToolChoice(realtimeToolChoiceForPhase("tool_result"))
           // The microphone stays live. A backend round-trip takes several seconds, and the
           // customer must be able to interrupt, correct or add something during it.
           activeToolCallsRef.current.add(toolCallKey(details.toolCall, _tool.name))
+          // A tool call belongs to a new customer turn. Any unchecked requirement from the
+          // preceding answer is stale and must never be corrected into this response.
+          pendingVerbatimRef.current = []
+          verbatimRetryAllowedRef.current = false
+          verbatimBaselineRef.current.clear()
           cancelFollowUpWindow()
           setVoiceState("thinking")
         })
@@ -981,6 +1066,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           // failure: nothing is replayed, and a verbatim string the model was cut off from
           // saying is dropped rather than forced through a second time.
           pendingVerbatimRef.current = []
+          verbatimRetryAllowedRef.current = false
           verbatimBaselineRef.current.clear()
           cancelFollowUpWindow()
           setVoiceState("listening")
@@ -993,8 +1079,17 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             // so running it at both moments only makes it more likely to see the text at all.
             checkVerbatim()
             settleVoiceState()
-            if (followUpPendingRef.current) armFollowUpWindow()
+            if (conversationClosePendingRef.current) {
+              conversationClosePendingRef.current = false
+              startCompletionCountdown()
+            } else if (followUpPendingRef.current) {
+              armFollowUpWindow()
+            }
           } else if (event.type === "input_audio_buffer.speech_started") {
+            setToolChoice(realtimeToolChoiceForPhase("customer_turn"))
+            pendingVerbatimRef.current = []
+            verbatimRetryAllowedRef.current = false
+            verbatimBaselineRef.current.clear()
             cancelFollowUpWindow()
             setVoiceState("listening")
           } else if (event.type === "input_audio_buffer.speech_stopped") {
@@ -1075,6 +1170,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     reconcileSession,
     rememberVerbatim,
     resolveTurnTranscript,
+    startCompletionCountdown,
     updateState,
   ])
 

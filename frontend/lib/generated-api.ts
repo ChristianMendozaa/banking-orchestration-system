@@ -181,7 +181,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Conversation History
+         * @description Restore the PII-masked transcript for this kiosk session.
+         *
+         *     Access is deliberately guarded by the same opaque session token as every other kiosk
+         *     operation. Raw speech is never returned: messages are masked before persistence and only
+         *     that stored representation is exposed here.
+         */
+        get: operations["conversation_history_api_v1_kiosk_sessions__session_id__conversation_messages_get"];
         put?: never;
         /** Sync Conversation */
         post: operations["sync_conversation_api_v1_kiosk_sessions__session_id__conversation_messages_post"];
@@ -591,6 +599,24 @@ export interface components {
          * @enum {string}
          */
         ConsultationLevel: "GENERAL" | "PERSONALIZADA" | "SENSIBLE";
+        /** ConversationHistoryMessage */
+        ConversationHistoryMessage: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Item Id */
+            item_id: string;
+            role: components["schemas"]["ConversationRole"];
+            /** Text */
+            text: string;
+        };
+        /** ConversationHistoryResponse */
+        ConversationHistoryResponse: {
+            /** Messages */
+            messages: components["schemas"]["ConversationHistoryMessage"][];
+        };
         /** ConversationMessageInput */
         ConversationMessageInput: {
             /** Item Id */
@@ -1802,6 +1828,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FlowResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    conversation_history_api_v1_kiosk_sessions__session_id__conversation_messages_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                "X-Session-Token"?: string | null;
+            };
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConversationHistoryResponse"];
                 };
             };
             /** @description Validation Error */
