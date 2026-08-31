@@ -27,8 +27,8 @@ OPERATIONS_DIR = ROOT / "doc" / "operacion"
 # Bumped on every content revision: `KnowledgeIngestionService._ingest_document` refuses
 # to re-ingest a slug whose bytes changed while its version stayed the same, so an
 # edit here without a bump is a failed corpus bootstrap rather than a silent swap.
-VERSION = "2026.08.1"
-VIGENTE_DESDE = "18/08/2026"
+VERSION = "2026.08.2"
+VIGENTE_DESDE = "31/08/2026"
 
 BLUE = colors.HexColor("#0B4F8A")
 LIGHT_BLUE = colors.HexColor("#EAF4FC")
@@ -131,6 +131,7 @@ def render_document(
     sections: list[tuple[str, str]],
     *,
     sources: list[str] | None = None,
+    compact: bool = False,
 ) -> list[str]:
     """Renders one RAG document and returns the exact heading strings it wrote, in order
     -- including "Fuentes consultadas" when `sources` is given. The chunker in
@@ -141,6 +142,33 @@ def render_document(
     index before."""
     target.parent.mkdir(parents=True, exist_ok=True)
     document_styles = styles()
+    section_style = document_styles["Section"]
+    body_style = document_styles["BodyOperational"]
+    source_style = document_styles["SmallOperational"]
+    source_spacing = 1.5 * mm
+    if compact:
+        section_style = ParagraphStyle(
+            "CompactSection",
+            parent=section_style,
+            fontSize=10.5,
+            leading=12,
+            spaceBefore=2 * mm,
+            spaceAfter=1 * mm,
+        )
+        body_style = ParagraphStyle(
+            "CompactBody",
+            parent=body_style,
+            fontSize=8.5,
+            leading=11.5,
+            spaceAfter=2 * mm,
+        )
+        source_style = ParagraphStyle(
+            "CompactSource",
+            parent=source_style,
+            fontSize=7,
+            leading=9,
+        )
+        source_spacing = 1 * mm
     story = [
         Paragraph(title, document_styles["DocumentTitle"]),
         Paragraph(
@@ -152,15 +180,15 @@ def render_document(
     for heading, content in sections:
         story.extend(
             [
-                Paragraph(heading, document_styles["Section"]),
-                Paragraph(content, document_styles["BodyOperational"]),
+                Paragraph(heading, section_style),
+                Paragraph(content, body_style),
             ]
         )
     if sources:
-        story.append(Paragraph("Fuentes consultadas", document_styles["Section"]))
+        story.append(Paragraph("Fuentes consultadas", section_style))
         for source in sources:
-            story.append(Paragraph(source, document_styles["SmallOperational"]))
-            story.append(Spacer(1, 1.5 * mm))
+            story.append(Paragraph(source, source_style))
+            story.append(Spacer(1, source_spacing))
         headings.append("Fuentes consultadas")
 
     document = SimpleDocTemplate(
@@ -208,17 +236,21 @@ def render_rag_documents() -> dict[str, list[str]]:
                 "retiros, depósitos, giros y solicitudes de crédito.",
             ),
             (
-                "Horarios de agencias",
+                "Horario de la Sucursal Centro",
                 "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados "
-                "de 09:00 a 13:00. En Santa Cruz de la Sierra, las agencias de la Av. "
-                "Cristo Redentor y del Segundo Anillo atienden de lunes a viernes de 08:30 "
+                "de 09:00 a 13:00. Los horarios pueden variar en feriados y fechas "
+                "especiales; se recomienda confirmar antes de una visita en esas fechas.",
+            ),
+            (
+                "Horarios de otras agencias",
+                "En Santa Cruz de la Sierra, las agencias de la Av. Cristo Redentor y del "
+                "Segundo Anillo atienden de lunes a viernes de 08:30 "
                 "a 19:00 y sábados de 09:00 a 13:00; la agencia del Plan 3000 atiende de "
                 "lunes a viernes de 08:30 a 18:00, sin atención sabatina. En La Paz, la "
                 "agencia El Prado atiende de lunes a viernes de 08:30 a 18:30 y sábados de "
                 "09:30 a 13:00. En Cochabamba, la agencia Av. Ballivián atiende de lunes a "
-                "viernes de 08:30 a 18:30 y sábados de 09:00 a 13:00. Los horarios pueden "
-                "variar en feriados y fechas especiales; se recomienda confirmar el "
-                "horario de la agencia específica antes de una visita en esas fechas.",
+                "viernes de 08:30 a 18:30 y sábados de 09:00 a 13:00. Para una consulta "
+                "sobre otra agencia se debe usar el nombre específico del punto de atención.",
             ),
             (
                 "Orientación del kiosco",
@@ -556,9 +588,11 @@ def render_rag_documents() -> dict[str, list[str]]:
             ),
             (
                 "Trazabilidad",
-                "Cada atención genera ticket, categoría, prioridad, ejecutivo, ventanilla, "
-                "espera estimada, estado y eventos. El audio y la transcripción original no se "
-                "guardan. El resumen se enmascara antes de ser visible para el personal.",
+                "Cada atención genera categoría, prioridad, estado y eventos. Una respuesta "
+                "general fundamentada queda registrada sin crear ticket; solo una derivación "
+                "humana genera ticket, ejecutivo, ventanilla y espera estimada. El audio y la "
+                "transcripción original no se guardan. El resumen se enmascara antes de ser "
+                "visible para el personal.",
             ),
         ],
     )
@@ -578,12 +612,10 @@ def render_rag_documents() -> dict[str, list[str]]:
                 "requisitos exactos dependen del producto elegido.",
             ),
             (
-                "¿En qué horarios atienden las agencias?",
+                "¿Cuál es el horario de la Sucursal Centro?",
                 "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados "
-                "de 09:00 a 13:00. Otras agencias en Santa Cruz, La Paz y Cochabamba "
-                "tienen horarios similares, con variaciones puntuales según el punto de "
-                "atención. La Línea Móvil 788-12000 está disponible las 24 horas para "
-                "consultas y gestiones que no requieren presencia física.",
+                "de 09:00 a 13:00. El horario puede variar en feriados y fechas especiales; "
+                "conviene confirmarlo antes de una visita en esas fechas.",
             ),
             (
                 "¿Dónde puedo bloquear una tarjeta?",
@@ -644,6 +676,7 @@ def render_rag_documents() -> dict[str, list[str]]:
             "https://www.bmsc.com.bo/",
             "https://asfi.gob.bo/la/derechos-del-consumidor-financiero",
         ],
+        compact=True,
     )
 
     return sections

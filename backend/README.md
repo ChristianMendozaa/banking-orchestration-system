@@ -47,7 +47,8 @@ no deployment data or backup credentials live in code. Copy `.env.example` only 
 4. `POST .../turns` masks PII and classifies. `turn_id` makes the operation idempotent.
 5. The flow responds `CLARIFY`, `CONFIRM`, `DECLINE`, or `COMPLETE`. `COMPLETE` means a
    confident `GENERAL` request skipped confirmation and finalized inside the same request,
-   with the answer or ticket already in `result` (`turn_nodes.requires_confirmation`).
+   with the answer or human-handoff ticket already in `result`
+   (`turn_nodes.requires_confirmation`). Grounded answers never allocate queue tickets.
    A `REPORTE_FRAUDE` category or a `security_incident` / `distress_detected` flag always
    forces `CONFIRM`, whatever consultation level the model returned.
 6. `POST .../confirmation` allows correction or starts finalization, where priority is
@@ -58,8 +59,9 @@ no deployment data or backup credentials live in code. Copy `.env.example` only 
    protected field.
 8. `GENERAL` inquiries attempt RAG; any evidence gap routes to a person.
 9. A further question after an automatic answer reopens the session
-   (`RESOLVED_AUTOMATIC` -> `LISTENING`, per-need counters reset) and produces a second case
-   and ticket; `cases.session_id` is no longer unique. `ASSIGNED` sessions are excluded --
+   (`RESOLVED_AUTOMATIC` -> `LISTENING`, per-need counters reset) and produces a second
+   auditable case without a ticket; `cases.session_id` is no longer unique. `ASSIGNED`
+   sessions are excluded --
    an executive already holds that case.
 
 `app/services/orchestrator/` is a thin adapter over three LangGraph graphs:

@@ -1,11 +1,11 @@
 {
-  "generated_at": "2026-08-18T00:00:00+00:00",
+  "generated_at": "2026-08-31T00:00:00+00:00",
   "documents": [
     {
       "slug": "canales-atencion-bmsc",
       "file_name": "01_canales_y_atencion_bmsc.pdf",
       "title": "Canales y atención del Banco Mercantil Santa Cruz",
-      "version": "2026.08.1",
+      "version": "2026.08.2",
       "source_type": "OFFICIAL",
       "categories": [
         "CONSULTA_GENERAL"
@@ -14,7 +14,8 @@
         "Canales de atención",
         "Contact Center",
         "Atención en agencias",
-        "Horarios de agencias",
+        "Horario de la Sucursal Centro",
+        "Horarios de otras agencias",
         "Orientación del kiosco",
         "Fuentes consultadas"
       ],
@@ -23,15 +24,15 @@
         "https://www.bmsc.com.bo/help",
         "https://www.bmsc.com.bo/clientBenefitDetails?key=detalle-beneficio-cinco"
       ],
-      "verified_at": "2026-08-18T00:00:00+00:00",
-      "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "cf47e94ed7f4c62977cd0f7393984db635393822b54284e8ac72100c1904badd"
+      "verified_at": "2026-08-31T00:00:00+00:00",
+      "review_after": "2026-11-29T00:00:00+00:00",
+      "sha256": "26b739928cdf2f30fbdc06fdf3b0a0b2b2cf3646512684d038bb90e8db0537e7"
     },
     {
       "slug": "cuentas-requisitos-bmsc",
       "file_name": "02_cuentas_y_requisitos_bmsc.pdf",
       "title": "Cuentas de ahorro y requisitos generales del BMSC",
-      "version": "2026.08.1",
+      "version": "2026.08.2",
       "source_type": "OFFICIAL",
       "categories": [
         "CONSULTA_GENERAL"
@@ -50,15 +51,15 @@
         "https://www.bmsc.com.bo/accountDetails?key=rendimax-plus-detalle",
         "https://www.bmsc.com.bo/"
       ],
-      "verified_at": "2026-08-18T00:00:00+00:00",
-      "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "25f8b1253ae90b5bc3e530bb67e26bdb0d4010a40d9d24eb03816603c15a11f7"
+      "verified_at": "2026-08-31T00:00:00+00:00",
+      "review_after": "2026-11-29T00:00:00+00:00",
+      "sha256": "60154c67ea8cbf1d7937eafacdd313a3e111ff41fcbbb62d422bc038097ad1c3"
     },
     {
       "slug": "creditos-bmsc",
       "file_name": "03_creditos_bmsc.pdf",
       "title": "Orientación sobre créditos del Banco Mercantil Santa Cruz",
-      "version": "2026.08.1",
+      "version": "2026.08.2",
       "source_type": "OFFICIAL",
       "categories": [
         "SOLICITUD_CREDITO",
@@ -76,15 +77,15 @@
         "https://www.bmsc.com.bo/loanDetails?key=prestamo-consumo-detalle",
         "https://asfi.gob.bo/pb/tiempos-maximos-atencion-creditos"
       ],
-      "verified_at": "2026-08-18T00:00:00+00:00",
-      "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "17fd848886bddd9768e08677e3697ba91197bfd894469502062e56329af4fe2f"
+      "verified_at": "2026-08-31T00:00:00+00:00",
+      "review_after": "2026-11-29T00:00:00+00:00",
+      "sha256": "41d4b4a91a859887f73963fc44391393f0a9a640d4991754b67fd422cd1d36c5"
     },
     {
       "slug": "banca-digital-seguridad",
       "file_name": "04_banca_digital_y_seguridad.pdf",
       "title": "Banca digital y seguridad del BMSC",
-      "version": "2026.08.1",
+      "version": "2026.08.2",
       "source_type": "OFFICIAL",
       "categories": [
         "BANCA_DIGITAL",
@@ -104,15 +105,15 @@
         "https://www.bmsc.com.bo/tech",
         "https://www.bmsc.com.bo/"
       ],
-      "verified_at": "2026-08-18T00:00:00+00:00",
-      "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "d2d9081a60732f43d52194cfe40bcc355769930c712538c7cd232d6404d50b9c"
+      "verified_at": "2026-08-31T00:00:00+00:00",
+      "review_after": "2026-11-29T00:00:00+00:00",
+      "sha256": "a6e62042eb42efed1ebf2a005d467ffa5a29b295a01efa83e4f1a9726ff237ad"
     },
     {
       "slug": "tarjetas-bloqueo-fraude",
       "file_name": "05_tarjetas_bloqueo_y_fraude.pdf",
       "title": "Tarjetas, bloqueo y reporte de fraude",
-      "version": "2026.08.1",
+      "version": "2026.08.2",
       "source_type": "HYBRID",
       "categories": [
         "BLOQUEO_TARJETA",
@@ -131,15 +132,15 @@
         "https://www.bmsc.com.bo/",
         "https://www.bmsc.com.bo/insuranceDetails?key=Tarjeta-Debito-detalle"
       ],
-      "verified_at": "2026-08-18T00:00:00+00:00",
-      "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "ccd4b4acc1fcd3691385d3dc250a7a923c8d3b9a96c4153e263c40bd7225a8c5"
+      "verified_at": "2026-08-31T00:00:00+00:00",
+      "review_after": "2026-11-29T00:00:00+00:00",
+      "sha256": "17cf0af254b9f2f9f98a317c9911674557ad3ee9eb1b948260178209fde867f1"
     },
     {
       "slug": "reclamos-derechos",
       "file_name": "06_reclamos_y_derechos.pdf",
       "title": "Reclamos y derechos del consumidor financiero",
-      "version": "2026.08.1",
+      "version": "2026.08.2",
       "source_type": "REGULATORY",
       "categories": [
         "CONSULTA_GENERAL"
@@ -156,15 +157,15 @@
         "https://asfi.gob.bo/la/derechos-del-consumidor-financiero",
         "https://www.asfi.gob.bo/sites/default/files/2025-09/Ley%20N%C2%B0%20393%20de%20Servicios%20Financieros.pdf"
       ],
-      "verified_at": "2026-08-18T00:00:00+00:00",
-      "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "11c494eee4f3e340424b817c054b18f6f6c17f7dc3a47586f381477fb6395acd"
+      "verified_at": "2026-08-31T00:00:00+00:00",
+      "review_after": "2026-11-29T00:00:00+00:00",
+      "sha256": "4c1f15069f48b8fd34f2e9295c5c3a55cb5df4630b7d4f1c865502a63a9c17e2"
     },
     {
       "slug": "manual-operativo-sucursal",
       "file_name": "07_manual_operativo_sucursal.pdf",
       "title": "Manual operativo de atención presencial",
-      "version": "2026.08.1",
+      "version": "2026.08.2",
       "source_type": "INTERNAL",
       "categories": [
         "BLOQUEO_TARJETA",
@@ -182,15 +183,15 @@
         "Trazabilidad"
       ],
       "source_urls": [],
-      "verified_at": "2026-08-18T00:00:00+00:00",
-      "review_after": "2027-08-18T00:00:00+00:00",
-      "sha256": "9cfdf551000f77fcea02fe8186f8a6d87d8f86a8f295815fa54f36e12600e0a1"
+      "verified_at": "2026-08-31T00:00:00+00:00",
+      "review_after": "2027-08-31T00:00:00+00:00",
+      "sha256": "a604c0170d18a879dea91371144460732479afc1cfc27f9ca1be5fd3c3418a42"
     },
     {
       "slug": "preguntas-frecuentes-bmsc",
       "file_name": "08_preguntas_frecuentes_bmsc.pdf",
       "title": "Preguntas frecuentes de atención bancaria",
-      "version": "2026.08.1",
+      "version": "2026.08.2",
       "source_type": "HYBRID",
       "categories": [
         "BLOQUEO_TARJETA",
@@ -201,7 +202,7 @@
       ],
       "sections": [
         "¿Qué necesito para abrir una cuenta?",
-        "¿En qué horarios atienden las agencias?",
+        "¿Cuál es el horario de la Sucursal Centro?",
         "¿Dónde puedo bloquear una tarjeta?",
         "¿Qué hago si no reconozco un movimiento?",
         "¿Cómo recupero el acceso digital?",
@@ -216,9 +217,9 @@
         "https://www.bmsc.com.bo/",
         "https://asfi.gob.bo/la/derechos-del-consumidor-financiero"
       ],
-      "verified_at": "2026-08-18T00:00:00+00:00",
-      "review_after": "2026-11-16T00:00:00+00:00",
-      "sha256": "60674a5eed088ff949490f85617b81eb913c8e7224f433860be02a4b3588b640"
+      "verified_at": "2026-08-31T00:00:00+00:00",
+      "review_after": "2026-11-29T00:00:00+00:00",
+      "sha256": "6d4f559c45d0468c116fdc9ad3dfdd8b878a1764a206603cd1e1ced63bfe4560"
     }
   ]
 }

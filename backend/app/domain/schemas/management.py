@@ -136,3 +136,5 @@ class PublicSystemConfig(BaseModel):
     branch_name: str
     dashboard_refresh_ms: int
     conversation_retention_days: int
+    kiosk_max_turns: int
+    kiosk_follow_up_inactivity_seconds: int

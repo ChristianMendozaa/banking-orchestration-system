@@ -45,7 +45,7 @@ The kiosk and staff applications are built from the same Next.js image but run a
 - **Structured request understanding** across card blocking, fraud reporting, general inquiries, credit requests, and digital banking.
 - **Confirmation where confirmation is worth its cost**: a general question the kiosk is about to answer itself resolves in one turn, while anything personalized, sensitive, or flagged as a risk still has its summary read back before a case exists. Clarification and correction loops are bounded and idempotent per `turn_id`.
 - **Deterministic safety floors over the classifier**, so an intermittently over-confident `GENERAL` label cannot skip identification or escalation on a request about the customer's own money.
-- **Multi-need sessions**: a follow-up question after an automatic answer opens its own case and ticket instead of being rejected, so someone who asks two things gets two answers.
+- **Multi-need sessions**: a follow-up question after an automatic answer opens its own auditable case without a queue ticket, so someone who asks two things gets two answers.
 - **Deterministic prioritization** based on category, urgency, security risk, distress signals, and preferential-attention policy.
 - **Protected identification** for personalized and sensitive cases using an HMAC-derived identifier, masked display value, and a customer-reference registry.
 - **Evidence-grounded answers** for eligible general inquiries using versioned PDF documents, pgvector retrieval, score thresholds, bounded context, and validated citations.
@@ -376,23 +376,23 @@ config:
 ---
 graph TD;
 	__start__([<p>__start__</p>]):::first
-	ticket_guard(ticket_guard)
+	resolution_guard(resolution_guard)
 	assign_priority(assign_priority)
 	attempt_grounding(attempt_grounding)
-	automatic_ticket(automatic_ticket)
+	resolve_automatically(resolve_automatically)
 	route_human(route_human)
 	persist_ticket(persist_ticket)
 	__end__([<p>__end__</p>]):::last
-	__start__ --> ticket_guard;
+	__start__ --> resolution_guard;
 	assign_priority -.-> attempt_grounding;
 	assign_priority -.-> route_human;
-	attempt_grounding -.-> automatic_ticket;
+	attempt_grounding -.-> resolve_automatically;
 	attempt_grounding -.-> route_human;
-	automatic_ticket --> persist_ticket;
+	resolution_guard -.-> __end__;
+	resolution_guard -.-> assign_priority;
 	route_human --> persist_ticket;
-	ticket_guard -.-> __end__;
-	ticket_guard -.-> assign_priority;
 	persist_ticket --> __end__;
+	resolve_automatically --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0
 	classDef last fill:#bfb6fc

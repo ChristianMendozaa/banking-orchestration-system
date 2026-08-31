@@ -10,6 +10,18 @@ from app.domain.enums import ExecutiveStatus, TicketStatus
 
 
 class CaseRepository:
+    async def turn_count(self, db: AsyncSession, session_id: UUID) -> int:
+        """Count accepted customer utterances, excluding sibling needs from one utterance."""
+        return int(
+            await db.scalar(
+                select(func.count(Requirement.id)).where(
+                    Requirement.session_id == session_id,
+                    Requirement.need_index == 0,
+                )
+            )
+            or 0
+        )
+
     async def requirement_by_turn(
         self, db: AsyncSession, session_id: UUID, turn_id: UUID
     ) -> Requirement | None:

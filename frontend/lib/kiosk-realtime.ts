@@ -45,7 +45,7 @@ export function kioskRouteForState(state: {
   if (state.result?.next_action === "IDENTIFY") return "/kiosco/identificacion"
   if (state.result?.next_action === "COMPLETE") {
     return state.result.resolution_type === "AUTOMATIC"
-      ? "/kiosco/respuesta"
+      ? "/kiosco/voz"
       : "/kiosco/ticket"
   }
   if (state.analysis?.next_action === "DECLINE") return "/kiosco/respuesta"
@@ -228,8 +228,12 @@ export function analysisSpeechPlan(response: TurnAnalysis): SpeechPlan {
 export function isTerminalFlowResult(result: {
   next_action: string
   resolution_type?: string | null
+  conversation_can_continue?: boolean
 }): boolean {
   if (result.next_action !== "COMPLETE") return false
+  if (typeof result.conversation_can_continue === "boolean") {
+    return !result.conversation_can_continue
+  }
   return result.resolution_type !== "AUTOMATIC"
 }
 

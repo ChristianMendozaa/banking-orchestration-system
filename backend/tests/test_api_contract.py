@@ -90,6 +90,10 @@ async def test_operational_and_session_endpoints_preserve_contract(client: Async
         "branch_name": settings_for_tests.branch_name,
         "dashboard_refresh_ms": settings_for_tests.dashboard_refresh_ms,
         "conversation_retention_days": settings_for_tests.conversation_retention_days,
+        "kiosk_max_turns": settings_for_tests.kiosk_max_turns,
+        "kiosk_follow_up_inactivity_seconds": (
+            settings_for_tests.kiosk_follow_up_inactivity_seconds
+        ),
     }
     assert all(response.headers.get("x-trace-id") for response in (live, ready, config))
 

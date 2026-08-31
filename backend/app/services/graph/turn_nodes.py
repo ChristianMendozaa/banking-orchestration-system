@@ -102,12 +102,23 @@ async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) 
 
     if kiosk_session.status == SessionStatus.RESOLVED_AUTOMATIC:
         # A follow-up question after an automatic answer. `cases.session_id` is no longer
-        # unique, so this opens a second case and a second ticket instead of 409-ing the
+        # unique, so this opens a second case instead of 409-ing the
         # customer out of the conversation -- someone who asks two things ("el horario, y
         # además un cargo que no reconozco") gets both answered rather than whichever one
         # the classifier ranked first. ASSIGNED is deliberately not in here: a person is
         # already holding that case, and the kiosk must not open a parallel one behind
         # them. The counters are per-need, so the new question gets its own budget.
+        turns = await repository.turn_count(db, kiosk_session.id)
+        if turns >= runtime.context.settings.kiosk_max_turns:
+            raise AppError(
+                "SESSION_TURN_LIMIT_REACHED",
+                (
+                    "Esta atención alcanzó el límite de consultas. "
+                    "Inicia una nueva sesión si necesitas continuar."
+                ),
+                409,
+                {"max_turns": runtime.context.settings.kiosk_max_turns},
+            )
         kiosk_session.status = SessionStatus.LISTENING
         kiosk_session.clarification_count = 0
         kiosk_session.correction_count = 0
@@ -286,7 +297,7 @@ async def accept(state: OrchestrationState) -> dict:
         kiosk_session.status = SessionStatus.AWAITING_CONFIRMATION
         return {"auto_resolve": False}
     # GENERAL and confident: skip the confirmation round-trip entirely. The session status
-    # is set later, inside the shared finalize subgraph (automatic_ticket / route_human),
+    # is set later, inside the shared finalize subgraph (automatic resolution / route_human),
     # exactly as it would be for a confirmed requirement -- see auto_capture below.
     return {"auto_resolve": True}
 

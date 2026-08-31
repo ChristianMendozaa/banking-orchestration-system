@@ -228,7 +228,12 @@ class ConversationSession:
         # any more, so the customer can ask a second, unrelated question and the kiosk opens
         # a second case for it. A human handoff does still end it -- from that point an
         # executive owns the case and the kiosk must not open a parallel one behind them.
-        self.finished = result.get("resolution_type") != "AUTOMATIC"
+        can_continue = result.get("conversation_can_continue")
+        self.finished = (
+            not can_continue
+            if isinstance(can_continue, bool)
+            else result.get("resolution_type") != "AUTOMATIC"
+        )
 
     def _describe(self, response: dict) -> str:
         parts = [f"next_action={response.get('next_action')}"]

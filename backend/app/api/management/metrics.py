@@ -17,12 +17,13 @@ from app.api.management.filters import (
 )
 from app.core.datetime import ensure_aware
 from app.db.models import (
+    CaseRecord,
     Executive,
     Ticket,
     User,
 )
 from app.db.session import get_db
-from app.domain.enums import Category, Priority, TicketStatus, UserRole
+from app.domain.enums import Category, Priority, ResolutionType, TicketStatus, UserRole
 from app.domain.schemas import (
     ExecutiveWorkload,
     HourlyMetric,
@@ -43,7 +44,7 @@ async def metrics(
     _: User = Depends(require_roles(UserRole.MANAGER)),
     db: AsyncSession = Depends(get_db),
 ) -> ManagementMetrics:
-    filters, _, _ = build_filters(date_from, date_to, category, priority, executive_id)
+    filters, start, end = build_filters(date_from, date_to, category, priority, executive_id)
     tickets = list(
         (
             await db.scalars(
@@ -53,6 +54,19 @@ async def metrics(
         .unique()
         .all()
     )
+    case_filters = [
+        CaseRecord.created_at >= start,
+        CaseRecord.created_at < end,
+        CaseRecord.resolution_type.is_not(None),
+    ]
+    if category:
+        case_filters.append(CaseRecord.category == category)
+    if priority:
+        case_filters.append(CaseRecord.priority == priority)
+    case_query = select(CaseRecord).where(*case_filters).order_by(CaseRecord.created_at)
+    if executive_id:
+        case_query = case_query.join(CaseRecord.ticket).where(Ticket.executive_id == executive_id)
+    cases = list((await db.scalars(case_query)).unique().all())
     executives = list((await db.scalars(select(Executive).order_by(Executive.display_name))).all())
     now = datetime.now(UTC)
     waits: list[float] = []
@@ -61,13 +75,14 @@ async def metrics(
     priority_counts: Counter[str] = Counter()
     hourly_counts: Counter[str] = Counter()
     workloads: dict[UUID, Counter[TicketStatus]] = defaultdict(Counter)
-    for ticket in tickets:
-        case_record = ticket.case
+    for case_record in cases:
         category_counts[case_record.category.value] += 1
-        priority_counts[case_record.priority.value] += 1
-        hour = ensure_aware(ticket.created_at).astimezone(LA_PAZ).strftime("%H:00")
+        if case_record.priority:
+            priority_counts[case_record.priority.value] += 1
+        hour = ensure_aware(case_record.created_at).astimezone(LA_PAZ).strftime("%H:00")
         hourly_counts[hour] += 1
-        if not ticket.automatic and ticket.started_at:
+    for ticket in tickets:
+        if ticket.started_at:
             waits.append(
                 max(
                     0,
@@ -77,7 +92,7 @@ async def metrics(
                     / 60,
                 )
             )
-        if ticket.started_at and not ticket.automatic:
+        if ticket.started_at:
             attention_stop = ensure_aware(ticket.closed_at) if ticket.closed_at else now
             attention_times.append(
                 max(0, (attention_stop - ensure_aware(ticket.started_at)).total_seconds() / 60)
@@ -88,8 +103,8 @@ async def metrics(
     pending = sum(ticket.status == TicketStatus.PENDIENTE for ticket in tickets)
     in_attention = sum(ticket.status == TicketStatus.EN_ATENCION for ticket in tickets)
     closed = sum(ticket.status == TicketStatus.CERRADO for ticket in tickets)
-    automatic = sum(ticket.automatic for ticket in tickets)
-    human = len(tickets) - automatic
+    automatic = sum(case.resolution_type is ResolutionType.AUTOMATIC for case in cases)
+    human = sum(case.resolution_type is ResolutionType.HUMAN for case in cases)
     pending_ages = [
         max(
             0,
@@ -99,7 +114,7 @@ async def metrics(
         if ticket.status == TicketStatus.PENDIENTE
     ]
     return ManagementMetrics(
-        total_cases=len(tickets),
+        total_cases=len(cases),
         active_cases=pending + in_attention,
         pending_cases=pending,
         in_attention_cases=in_attention,
@@ -119,7 +134,7 @@ async def metrics(
         ),
         automatic_resolved=automatic,
         human_routed=human,
-        automatic_resolution_rate=round(automatic / len(tickets) * 100, 2) if tickets else 0,
+        automatic_resolution_rate=round(automatic / len(cases) * 100, 2) if cases else 0,
         wait_p50_minutes=percentile_of(waits, 0.5),
         wait_p95_minutes=percentile_of(waits, 0.95),
         oldest_pending_minutes=max(pending_ages, default=0),

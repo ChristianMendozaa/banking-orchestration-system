@@ -204,11 +204,10 @@ async def build_result(
     )
     if not primary_requirement:
         raise AppError("RESULT_NOT_READY", "El resultado aun no esta disponible", 409)
-    tickets = list(
+    cases = list(
         (
             await db.scalars(
-                select(Ticket)
-                .join(CaseRecord, Ticket.case_id == CaseRecord.id)
+                select(CaseRecord)
                 .join(Requirement, CaseRecord.requirement_id == Requirement.id)
                 .where(
                     CaseRecord.session_id == session_id,
@@ -216,13 +215,14 @@ async def build_result(
                 )
                 .order_by(Requirement.need_index)
                 .options(
-                    selectinload(Ticket.case).selectinload(CaseRecord.session),
-                    selectinload(Ticket.executive),
+                    selectinload(CaseRecord.session),
+                    selectinload(CaseRecord.ticket).selectinload(Ticket.executive),
                 )
+                .execution_options(populate_existing=True)
             )
         ).all()
     )
-    if not tickets:
+    if not cases:
         raise AppError("RESULT_NOT_READY", "El resultado aun no esta disponible", 409)
 
     requirements = {
@@ -232,11 +232,11 @@ async def build_result(
         )
     }
     outcomes: list[FlowOutcome] = []
-    for ticket in tickets:
-        case = ticket.case
+    for case in cases:
         requirement = requirements[case.requirement_id]
+        ticket = case.ticket
         assignment = None
-        if ticket.executive:
+        if ticket and ticket.executive:
             assignment = ExecutiveAssignment(
                 id=ticket.executive.id,
                 name=ticket.executive.display_name,
@@ -252,11 +252,15 @@ async def build_result(
                 priority=requirement.proposed_priority,
                 identification_status=case.identification_status,
                 resolution_type=case.resolution_type or ResolutionType.HUMAN,
-                ticket=TicketResult(
-                    id=ticket.public_id,
-                    number=ticket.number,
-                    status=ticket.status,
-                    estimated_wait_minutes=ticket.estimated_wait_minutes,
+                ticket=(
+                    TicketResult(
+                        id=ticket.public_id,
+                        number=ticket.number,
+                        status=ticket.status,
+                        estimated_wait_minutes=ticket.estimated_wait_minutes,
+                    )
+                    if ticket
+                    else None
                 ),
                 executive=assignment,
                 response=case.final_response,
@@ -268,14 +272,21 @@ async def build_result(
             )
         )
 
+    turn_count = await repository.turn_count(db, session_id)
+    remaining_turns = max(0, settings.kiosk_max_turns - turn_count)
+    has_human_outcome = any(outcome.resolution_type is ResolutionType.HUMAN for outcome in outcomes)
+    conversation_can_continue = not has_human_outcome and remaining_turns > 0
+
     primary = outcomes[0]
-    primary_ticket = tickets[0]
-    primary_case = primary_ticket.case
+    primary_case = cases[0]
+    primary_ticket = primary_case.ticket
     primary_assignment = primary.executive
     urgent_case = primary.priority in {Priority.ALTO, Priority.CRITICO}
     if primary.resolution_type == ResolutionType.AUTOMATIC:
-        speech, plan = answer_plan(primary.response)
-    elif primary_assignment:
+        speech, plan = answer_plan(
+            primary.response, conversation_can_continue=conversation_can_continue
+        )
+    elif primary_assignment and primary_ticket:
         speech, plan = handoff_plan(
             category=primary_case.category,
             ticket_number=primary_ticket.number,
@@ -288,8 +299,10 @@ async def build_result(
                 else None
             ),
         )
-    else:
+    elif primary_ticket:
         speech, plan = pending_assignment_plan(primary_ticket.number)
+    else:
+        raise AppError("RESULT_NOT_READY", "La derivación todavía no tiene ticket", 409)
 
     speech, plan = compose_outcomes_plan(speech, plan, outcomes)
 
@@ -325,29 +338,47 @@ async def build_result(
         ]
     }
 
+    human_ticket_numbers = [
+        outcome.ticket.number
+        for outcome in outcomes
+        if outcome.ticket is not None and outcome.resolution_type is ResolutionType.HUMAN
+    ]
+    display_outcome = next(
+        (
+            outcome
+            for outcome in outcomes
+            if outcome.resolution_type is ResolutionType.HUMAN and outcome.ticket is not None
+        ),
+        primary,
+    )
+
     return FlowResult(
         session_id=session_id,
         requirement_id=primary.requirement_id,
         status=primary_case.session.status,
         next_action="COMPLETE",
-        customer_summary=primary.customer_summary,
-        priority=primary.priority,
-        identification_status=primary.identification_status,
-        resolution_type=primary.resolution_type,
-        ticket=primary.ticket,
-        executive=primary.executive,
+        customer_summary=display_outcome.customer_summary,
+        priority=display_outcome.priority,
+        identification_status=display_outcome.identification_status,
+        resolution_type=(ResolutionType.HUMAN if has_human_outcome else primary.resolution_type),
+        ticket=display_outcome.ticket,
+        executive=display_outcome.executive,
         response=primary.response,
         speech_text=speech,
         speech_plan=plan,
         tracking_information=(
             "Conserva "
-            + ("los tickets " if len(outcomes) > 1 else "el ticket ")
-            + ", ".join(str(outcome.ticket.number) for outcome in outcomes)
+            + ("los tickets " if len(human_ticket_numbers) > 1 else "el ticket ")
+            + ", ".join(str(number) for number in human_ticket_numbers)
             + f". {settings.support_tracking_information.strip()}"
+            if human_ticket_numbers
+            else None
         ),
         grounding_status=aggregate_grounding_status,
         grounding_detail=aggregate_grounding_detail,
         intent_status=primary_requirement.intent_status,
         citations=aggregate_citations,
         outcomes=outcomes,
+        conversation_can_continue=conversation_can_continue,
+        remaining_turns=remaining_turns,
     )

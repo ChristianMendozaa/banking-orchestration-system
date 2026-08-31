@@ -718,12 +718,17 @@ export interface components {
             resolution_type: components["schemas"]["ResolutionType"];
             /** Response */
             response?: string | null;
-            ticket: components["schemas"]["TicketResult"];
+            ticket?: components["schemas"]["TicketResult"] | null;
         };
         /** FlowResult */
         FlowResult: {
             /** Citations */
             citations?: components["schemas"]["KnowledgeCitation"][];
+            /**
+             * Conversation Can Continue
+             * @default false
+             */
+            conversation_can_continue: boolean;
             /** Customer Summary */
             customer_summary?: string | null;
             executive?: components["schemas"]["ExecutiveAssignment"] | null;
@@ -744,6 +749,11 @@ export interface components {
             /** Outcomes */
             outcomes?: components["schemas"]["FlowOutcome"][];
             priority?: components["schemas"]["Priority"] | null;
+            /**
+             * Remaining Turns
+             * @default 0
+             */
+            remaining_turns: number;
             /**
              * Requirement Id
              * Format: uuid
@@ -1120,6 +1130,10 @@ export interface components {
             conversation_retention_days: number;
             /** Dashboard Refresh Ms */
             dashboard_refresh_ms: number;
+            /** Kiosk Follow Up Inactivity Seconds */
+            kiosk_follow_up_inactivity_seconds: number;
+            /** Kiosk Max Turns */
+            kiosk_max_turns: number;
         };
         /** RealtimeTokenResponse */
         RealtimeTokenResponse: {

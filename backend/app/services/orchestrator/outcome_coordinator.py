@@ -38,7 +38,10 @@ class OutcomeCoordinator:
             existing = await db.scalar(
                 select(CaseRecord).where(CaseRecord.requirement_id == requirement.id)
             )
-            if existing and await context.repository.ticket_by_case(db, existing.id):
+            if existing and (
+                existing.resolution_type is not None
+                or await context.repository.ticket_by_case(db, existing.id)
+            ):
                 continue
             requirement.confirmation_decision = True
             case = existing or await confirmation_nodes.create_case_for_requirement(

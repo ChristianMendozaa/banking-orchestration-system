@@ -53,8 +53,10 @@ async def test_general_query_is_masked_and_resolved_automatically(client: AsyncC
     assert result["resolution_type"] == "AUTOMATIC"
     assert result["grounding_status"] == "GROUNDED"
     assert result["citations"][0]["title"] == "Horarios de atención"
-    assert result["ticket"]["status"] == "CERRADO"
-    assert result["ticket"]["estimated_wait_minutes"] == 0
+    assert result["ticket"] is None
+    assert result["tracking_information"] is None
+    assert result["conversation_can_continue"] is True
+    assert result["remaining_turns"] == settings_for_tests.kiosk_max_turns - 1
     assert result["response"]
 
     async with TestSession() as db:
@@ -63,6 +65,7 @@ async def test_general_query_is_masked_and_resolved_automatically(client: AsyncC
         assert requirement.confirmation_decision is True
         assert "cliente@example.com" not in requirement.masked_text
         assert "[EMAIL]" in requirement.masked_text
+        assert list(await db.scalars(select(Ticket))) == []
 
 
 async def test_replayed_turn_after_automatic_resolution_returns_the_same_result(
@@ -89,19 +92,19 @@ async def test_replayed_turn_after_automatic_resolution_returns_the_same_result(
     )
     assert replay.status_code == 200, replay.text
     assert replay.json()["requirement_id"] == first.json()["requirement_id"]
-    assert replay.json()["result"]["ticket"]["number"] == first.json()["result"]["ticket"]["number"]
+    assert replay.json()["result"] == first.json()["result"]
 
     async with TestSession() as db:
         tickets = list(await db.scalars(select(Ticket)))
-        assert len(tickets) == 1
+        assert tickets == []
 
 
 async def test_follow_up_turn_after_automatic_resolution_opens_a_second_case(
     client: AsyncClient,
 ) -> None:
-    """A public-information question resolves on its own turn and closes its ticket, but the
+    """A public-information question resolves on its own turn without a ticket, but the
     person is still standing at the kiosk. `cases.session_id` is no longer unique, so a
-    genuinely new question (a different turn_id) opens a second case and a second ticket in
+    genuinely new question (a different turn_id) opens a second case in
     the same session instead of being rejected."""
     session_id, token = await _session(client)
     headers = {"X-Session-Token": token}
@@ -116,7 +119,10 @@ async def test_follow_up_turn_after_automatic_resolution_opens_a_second_case(
     second = await client.post(
         f"/api/v1/kiosk/sessions/{session_id}/turns",
         headers=headers,
-        json={"turn_id": str(uuid4()), "transcript": "Ahora quiero saber sobre creditos"},
+        json={
+            "turn_id": str(uuid4()),
+            "transcript": "Ahora quiero conocer el horario de atención los sábados",
+        },
     )
     assert second.status_code == 200, second.text
 
@@ -127,7 +133,45 @@ async def test_follow_up_turn_after_automatic_resolution_opens_a_second_case(
         assert len(cases) == 2
         assert len({case.requirement_id for case in cases}) == 2
         tickets = list(await db.scalars(select(Ticket)))
-        assert len(tickets) == 2
+        assert tickets == []
+
+
+async def test_automatic_follow_up_budget_is_enforced_before_model_work(
+    client: AsyncClient,
+) -> None:
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+
+    last = None
+    for index in range(settings_for_tests.kiosk_max_turns):
+        last = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={
+                "turn_id": str(uuid4()),
+                "transcript": f"Consulta {index + 1}: quiero conocer el horario de atención",
+            },
+        )
+        assert last.status_code == 200, last.text
+
+    assert last is not None
+    result = last.json()["result"]
+    assert result["remaining_turns"] == 0
+    assert result["conversation_can_continue"] is False
+    assert "límite" in result["speech_plan"]["guidance"]
+
+    blocked = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Quiero hacer una consulta más"},
+    )
+    assert blocked.status_code == 409
+    assert blocked.json()["code"] == "SESSION_TURN_LIMIT_REACHED"
+
+    async with TestSession() as db:
+        requirements = list(await db.scalars(select(Requirement)))
+        assert len(requirements) == settings_for_tests.kiosk_max_turns
+        assert list(await db.scalars(select(Ticket))) == []
 
 
 async def test_follow_up_needing_confirmation_is_not_rejected_as_a_mismatch(
@@ -930,7 +974,9 @@ async def test_one_turn_creates_separate_tickets_for_every_independent_need(
             "REPORTE_FRAUDE",
             "CONSULTA_GENERAL",
         ]
-        assert len({outcome["ticket"]["number"] for outcome in result["outcomes"]}) == 2
+        assert result["outcomes"][0]["ticket"]["number"]
+        assert result["outcomes"][1]["ticket"] is None
+        assert result["conversation_can_continue"] is False
         assert "horario" in result["speech_text"].lower()
         assert "para necesitas" not in result["speech_text"].lower()
         assert result["grounding_status"] == "GROUNDED"

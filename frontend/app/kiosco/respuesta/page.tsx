@@ -125,7 +125,9 @@ export default function AutomaticResponsePage() {
             {outcome.response && (
               <p className="mt-3 whitespace-pre-line text-white/90">{outcome.response}</p>
             )}
-            <p className="mt-3 text-sm font-bold">Ticket #{outcome.ticket.number}</p>
+            {outcome.ticket && (
+              <p className="mt-3 text-sm font-bold">Ticket #{outcome.ticket.number}</p>
+            )}
           </section>
         ))}
         {result.tracking_information && (

@@ -163,7 +163,10 @@ class OpenAIProvider:
                 },
                 {
                     "role": "user",
-                    "content": f"Consulta enmascarada: {summary}\n\nEvidencia:\n{evidence}",
+                    "content": (
+                        f"Sucursal actual del kiosco: {self.settings.branch_name}\n"
+                        f"Consulta enmascarada: {summary}\n\nEvidencia:\n{evidence}"
+                    ),
                 },
             ],
             # Same blocking turn as `classify`, immediately after it -- but held one step

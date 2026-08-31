@@ -55,6 +55,12 @@ async def test_openai_provider_parses_structured_outputs_and_batches_embeddings(
     )
     grounded = await provider.grounded_answer("horarios", [chunk])
     assert grounded.supported is True
+    grounding_call = provider.client.responses.parse.call_args_list[1]
+    grounding_input = grounding_call.kwargs["input"]
+    assert (
+        f"Sucursal actual del kiosco: {settings_for_tests.branch_name}"
+        in grounding_input[1]["content"]
+    )
 
     provider.client.embeddings.create.side_effect = [
         SimpleNamespace(
@@ -126,6 +132,8 @@ async def test_retention_loop_logs_and_stops(monkeypatch: pytest.MonkeyPatch) ->
         ("rag_chunk_tokens", 99),
         ("rag_chunk_overlap", 600),
         ("kiosk_session_minutes", 0),
+        ("kiosk_max_turns", 0),
+        ("kiosk_follow_up_inactivity_seconds", 0),
         ("knowledge_max_upload_mb", 0),
         ("knowledge_max_pages", 0),
         ("dashboard_refresh_ms", 999),

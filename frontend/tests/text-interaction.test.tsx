@@ -15,6 +15,7 @@ const context = vi.hoisted(() => ({
   submitTextTurn: vi.fn(),
   confirmText: vi.fn(),
   selectInteractionMode: vi.fn(),
+  noteUserActivity: vi.fn(),
 }))
 
 vi.mock("../components/providers/kiosk-provider", () => ({
@@ -26,9 +27,11 @@ import { TextInteraction } from "../components/kiosk/text-interaction"
 describe("TextInteraction", () => {
   beforeEach(() => {
     context.analysis = null
+    context.result = null
     context.submitTextTurn.mockReset()
     context.confirmText.mockReset()
     context.selectInteractionMode.mockReset()
+    context.noteUserActivity.mockReset()
   })
 
   it("allows sending a written request and returning to voice", async () => {

@@ -120,8 +120,8 @@ async def load_and_guard(state: OrchestrationState, runtime: Runtime[GraphContex
         # resolved automatically, the customer then reported a stolen card, and confirming it
         # returned REQUIREMENT_MISMATCH and stranded the session at AWAITING_CONFIRMATION with
         # nothing said back. An *unfinished* case for a different requirement is still a real
-        # mismatch and still raises; a ticketed one just means the session moved on.
-        if case.ticket is None:
+        # mismatch and still raises; a finalized one just means the session moved on.
+        if case.ticket is None and case.resolution_type is None:
             raise AppError(
                 "REQUIREMENT_MISMATCH",
                 "La confirmación corresponde a un requerimiento anterior",
@@ -166,7 +166,7 @@ async def handle_replay(state: OrchestrationState) -> Command:
                 409,
             )
         return Command(goto=END, update={"next_action": "CAPTURE"})
-    if case and case.ticket:
+    if case and (case.ticket or case.resolution_type is not None):
         return Command(goto=END, update={"next_action": "BUILD_RESULT"})
     if case and case.identification_status == IdentificationStatus.PENDIENTE:
         kiosk_session.status = SessionStatus.AWAITING_IDENTIFICATION

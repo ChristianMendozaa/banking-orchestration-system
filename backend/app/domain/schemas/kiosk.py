@@ -166,7 +166,7 @@ class FlowOutcome(BaseModel):
     priority: Priority | None = None
     identification_status: IdentificationStatus | None = None
     resolution_type: ResolutionType
-    ticket: TicketResult
+    ticket: TicketResult | None = None
     executive: ExecutiveAssignment | None = None
     response: str | None = None
     grounding_status: GroundingStatus = GroundingStatus.NOT_APPLICABLE
@@ -194,6 +194,8 @@ class FlowResult(BaseModel):
     intent_status: IntentStatus = IntentStatus.CONFIRMED
     citations: list[KnowledgeCitation] = Field(default_factory=list)
     outcomes: list[FlowOutcome] = Field(default_factory=list)
+    conversation_can_continue: bool = False
+    remaining_turns: int = 0
 
 
 class SessionStatusResponse(BaseModel):

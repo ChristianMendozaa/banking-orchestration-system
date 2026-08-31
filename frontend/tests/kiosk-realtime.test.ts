@@ -74,6 +74,8 @@ const completed: FlowResult = {
   grounding_status: "NOT_APPLICABLE",
   intent_status: "CONFIRMED",
   citations: [],
+  conversation_can_continue: false,
+  remaining_turns: 0,
 }
 
 describe("explicitConfirmation", () => {
@@ -545,9 +547,20 @@ describe("tool output", () => {
     // backend now opens a second case for a follow-up question, so closing the session on
     // COMPLETE would hang up on someone mid-conversation.
     expect(isTerminalFlowResult(completed)).toBe(true)
-    expect(isTerminalFlowResult({ ...completed, resolution_type: "AUTOMATIC" })).toBe(
-      false,
-    )
+    expect(
+      isTerminalFlowResult({
+        ...completed,
+        resolution_type: "AUTOMATIC",
+        conversation_can_continue: true,
+      }),
+    ).toBe(false)
+    expect(
+      isTerminalFlowResult({
+        ...completed,
+        resolution_type: "AUTOMATIC",
+        conversation_can_continue: false,
+      }),
+    ).toBe(true)
   })
 })
 
@@ -619,11 +632,16 @@ describe("business response ordering", () => {
     // A different requirement_id normally means a stale response arriving late. After an
     // automatic answer it means the opposite: the customer asked something else, and that
     // second requirement is the current one.
-    const answered = { ...completed, resolution_type: "AUTOMATIC" as const }
+    const answered = {
+      ...completed,
+      resolution_type: "AUTOMATIC" as const,
+      conversation_can_continue: true,
+      ticket: null,
+    }
     const followUp = {
       ...answered,
       requirement_id: "requirement-2",
-      ticket: { ...completed.ticket!, id: "ticket-2", number: 5 },
+      ticket: null,
     }
     expect(
       shouldApplyFlowResponse(

@@ -85,6 +85,8 @@ class Settings(BaseSettings):
     access_token_minutes: int = 30
     refresh_token_hours: int = 8
     kiosk_session_minutes: int = 30
+    kiosk_max_turns: int = 8
+    kiosk_follow_up_inactivity_seconds: int = 20
     seed_executive_password: SecretStr
     seed_manager_password: SecretStr
     seed_data_path: str = "seed/operational_seed.json"
@@ -128,6 +130,10 @@ class Settings(BaseSettings):
             )
         if self.kiosk_session_minutes <= 0:
             raise ValueError("KIOSK_SESSION_MINUTES must be positive")
+        if self.kiosk_max_turns <= 0:
+            raise ValueError("KIOSK_MAX_TURNS must be positive")
+        if self.kiosk_follow_up_inactivity_seconds <= 0:
+            raise ValueError("KIOSK_FOLLOW_UP_INACTIVITY_SECONDS must be positive")
         if self.knowledge_max_upload_mb <= 0:
             raise ValueError("KNOWLEDGE_MAX_UPLOAD_MB must be positive")
         if self.knowledge_max_pages <= 0:

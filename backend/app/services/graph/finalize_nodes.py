@@ -52,10 +52,10 @@ def principal_need(summary: str) -> str | None:
     return summary[: match.start()].strip(" ,;.") or None
 
 
-async def ticket_guard(state: OrchestrationState, runtime: Runtime[GraphContext]) -> Command:
+async def resolution_guard(state: OrchestrationState, runtime: Runtime[GraphContext]) -> Command:
     case = state["case"]
     existing = await runtime.context.repository.ticket_by_case(runtime.context.db, case.id)
-    if existing:
+    if existing or case.resolution_type is not None:
         return Command(goto=END, update={"next_action": "BUILD_RESULT"})
     return Command(goto="assign_priority")
 
@@ -170,27 +170,17 @@ async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphCon
 def verify_grounding(state: OrchestrationState) -> str:
     attempt = state.get("grounding_attempt")
     return (
-        "automatic_ticket"
+        "resolve_automatically"
         if attempt and attempt.outcome is GroundingAttemptOutcome.GROUNDED and attempt.response
         else "route_human"
     )
 
 
-async def automatic_ticket(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
+async def resolve_automatically(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
+    """Resolve a grounded public-information case without allocating a queue ticket."""
     kiosk_session = state["kiosk_session"]
     case = state["case"]
     grounded_response = state["grounding_attempt"].response
-    now = datetime.now(UTC)
-    ticket = Ticket(
-        public_id=uuid4(),
-        case_id=case.id,
-        automatic=True,
-        status=TicketStatus.CERRADO,
-        assigned_at=now,
-        estimated_wait_minutes=0,
-        started_at=now,
-        closed_at=now,
-    )
     case.status = CaseStatus.RESOLVED
     kiosk_session.status = SessionStatus.RESOLVED_AUTOMATIC
     kiosk_session.resolution_type = ResolutionType.AUTOMATIC
@@ -216,7 +206,7 @@ async def automatic_ticket(state: OrchestrationState, runtime: Runtime[GraphCont
             metadata_json={"citations": kiosk_session.citations_json},
         )
     )
-    return {"ticket": ticket}
+    return {"next_action": "BUILD_RESULT"}
 
 
 async def route_human(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:

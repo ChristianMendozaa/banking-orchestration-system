@@ -45,6 +45,8 @@ function result(
     grounding_status: "NOT_APPLICABLE",
     intent_status: "CONFIRMED",
     citations: [],
+    conversation_can_continue: false,
+    remaining_turns: 0,
   }
 }
 
@@ -60,6 +62,6 @@ describe("kioskRouteForState", () => {
     ).toBe("/kiosco/ticket")
     expect(
       kioskRouteForState({ session, result: result("COMPLETE", "AUTOMATIC") }),
-    ).toBe("/kiosco/respuesta")
+    ).toBe("/kiosco/voz")
   })
 })

@@ -101,6 +101,37 @@ async def test_manager_cannot_update_ticket_as_executive(client: AsyncClient) ->
     assert response.status_code == 403
 
 
+async def test_grounded_answer_counts_in_metrics_without_creating_a_queue_ticket(
+    client: AsyncClient,
+) -> None:
+    created = await client.post("/api/v1/kiosk/sessions", json={})
+    session_id = created.json()["session_id"]
+    turn = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers={"X-Session-Token": created.json()["session_token"]},
+        json={"turn_id": str(uuid4()), "transcript": "¿Cuál es el horario de atención?"},
+    )
+    assert turn.status_code == 200, turn.text
+    result = turn.json()["result"]
+    assert result["resolution_type"] == "AUTOMATIC"
+    assert result["ticket"] is None
+
+    manager_token = await _login(
+        client,
+        "gerencia@bmsc.com.bo",
+        settings_for_tests.seed_manager_password.get_secret_value(),
+    )
+    metrics = await client.get(
+        "/api/v1/management/metrics",
+        headers={"Authorization": f"Bearer {manager_token}"},
+    )
+    assert metrics.status_code == 200, metrics.text
+    assert metrics.json()["total_cases"] == 1
+    assert metrics.json()["automatic_resolved"] == 1
+    assert metrics.json()["human_routed"] == 0
+    assert metrics.json()["pending_cases"] == 0
+
+
 async def test_refresh_rotates_session_and_validation_uses_public_error_contract(
     client: AsyncClient,
 ) -> None:

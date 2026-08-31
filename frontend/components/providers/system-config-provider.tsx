@@ -50,3 +50,7 @@ export function useSystemConfig(): SystemConfigContextValue {
   if (!value) throw new Error("useSystemConfig requiere SystemConfigProvider")
   return value
 }
+
+export function useOptionalSystemConfig(): SystemConfigContextValue | null {
+  return useContext(SystemConfigContext)
+}

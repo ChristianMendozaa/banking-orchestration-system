@@ -14,4 +14,6 @@ async def public_config(settings: Settings = Depends(get_settings)) -> PublicSys
         branch_name=settings.branch_name,
         dashboard_refresh_ms=settings.dashboard_refresh_ms,
         conversation_retention_days=settings.conversation_retention_days,
+        kiosk_max_turns=settings.kiosk_max_turns,
+        kiosk_follow_up_inactivity_seconds=settings.kiosk_follow_up_inactivity_seconds,
     )

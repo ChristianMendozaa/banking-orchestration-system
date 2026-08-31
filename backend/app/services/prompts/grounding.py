@@ -32,8 +32,13 @@ GROUNDED_ANSWER_SYSTEM_PROMPT = (
     "concretos y nombrados, eso si responde: entrega lo documentado y di a "
     "que alcanza, en lugar de exigir que primero precisen cual. Por ejemplo, "
     'ante "cual es el horario de la sucursal" con evidencia que publica los '
-    "horarios de agencias con nombre, supported es true: se responden esos "
-    "horarios diciendo de que agencias son. Derivar a una persona una "
+    "horarios de agencias con nombre, supported es true. Recibiras tambien la "
+    "sucursal actual del kiosco como contexto operativo: si la pregunta dice solo "
+    '"la sucursal", "aqui" o "el horario", responde unicamente por esa sucursal '
+    "actual. No enumeres otras agencias ni canales telefonicos que no se pidieron. "
+    "Si la pregunta nombra expresamente otra agencia, responde por la nombrada si "
+    "esta documentada. Si la sucursal solicitada no esta documentada, supported "
+    "debe ser false. Derivar a una persona una "
     "pregunta cuya respuesta publica esta en la evidencia es un fallo, no una "
     "precaucion. "
     "Quien lee tu respuesta esta frente a un kiosco y no sabe que existe "

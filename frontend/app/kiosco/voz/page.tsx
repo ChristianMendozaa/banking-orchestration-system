@@ -2,6 +2,8 @@
 
 import { useKiosk, type VoiceState } from "@/components/providers/kiosk-provider"
 import { TextInteraction } from "@/components/kiosk/text-interaction"
+import { GroundedAnswerCard } from "@/components/kiosk/grounded-answer-card"
+import { CompletionStatus } from "@/components/kiosk/completion-status"
 import { useSystemConfig } from "@/components/providers/system-config-provider"
 import { Button } from "@/components/ui/button"
 import {
@@ -33,6 +35,7 @@ export default function VoicePage() {
     session,
     hydrated,
     analysis,
+    result,
     voiceState,
     voiceError,
     captions,
@@ -41,6 +44,7 @@ export default function VoicePage() {
     reset,
     interactionMode,
     selectInteractionMode,
+    completionSeconds,
   } = useKiosk()
 
   useEffect(() => {
@@ -122,6 +126,16 @@ export default function VoicePage() {
       <p className="text-lg font-medium text-white/70" role="status">
         {statusText[voiceState]}
       </p>
+
+      <GroundedAnswerCard result={result} />
+
+      {completionSeconds !== null && (
+        <CompletionStatus
+          completionSeconds={completionSeconds}
+          readingMessage="La atención está finalizando."
+          voiceError={voiceError}
+        />
+      )}
 
       {voiceError && (
         <section className="w-full max-w-xl rounded-2xl border border-red-400/30 bg-red-400/10 p-5 text-center">

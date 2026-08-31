@@ -469,7 +469,14 @@
             "title": "Response"
           },
           "ticket": {
-            "$ref": "#/components/schemas/TicketResult"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TicketResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -477,8 +484,7 @@
           "need_index",
           "customer_summary",
           "category",
-          "resolution_type",
-          "ticket"
+          "resolution_type"
         ],
         "title": "FlowOutcome",
         "type": "object"
@@ -491,6 +497,11 @@
             },
             "title": "Citations",
             "type": "array"
+          },
+          "conversation_can_continue": {
+            "default": false,
+            "title": "Conversation Can Continue",
+            "type": "boolean"
           },
           "customer_summary": {
             "anyOf": [
@@ -561,6 +572,11 @@
                 "type": "null"
               }
             ]
+          },
+          "remaining_turns": {
+            "default": 0,
+            "title": "Remaining Turns",
+            "type": "integer"
           },
           "requirement_id": {
             "format": "uuid",
@@ -1610,6 +1626,14 @@
           "dashboard_refresh_ms": {
             "title": "Dashboard Refresh Ms",
             "type": "integer"
+          },
+          "kiosk_follow_up_inactivity_seconds": {
+            "title": "Kiosk Follow Up Inactivity Seconds",
+            "type": "integer"
+          },
+          "kiosk_max_turns": {
+            "title": "Kiosk Max Turns",
+            "type": "integer"
           }
         },
         "required": [
@@ -1617,7 +1641,9 @@
           "bank_name",
           "branch_name",
           "dashboard_refresh_ms",
-          "conversation_retention_days"
+          "conversation_retention_days",
+          "kiosk_max_turns",
+          "kiosk_follow_up_inactivity_seconds"
         ],
         "title": "PublicSystemConfig",
         "type": "object"

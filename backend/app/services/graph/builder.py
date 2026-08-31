@@ -73,15 +73,15 @@ def build_turn_graph(finalize_subgraph):
 def build_finalize_subgraph():
     builder = StateGraph(OrchestrationState, context_schema=GraphContext)
     builder.add_node(
-        "ticket_guard", finalize_nodes.ticket_guard, destinations=("assign_priority", END)
+        "resolution_guard", finalize_nodes.resolution_guard, destinations=("assign_priority", END)
     )
     builder.add_node("assign_priority", finalize_nodes.assign_priority)
     builder.add_node("attempt_grounding", finalize_nodes.attempt_grounding)
-    builder.add_node("automatic_ticket", finalize_nodes.automatic_ticket)
+    builder.add_node("resolve_automatically", finalize_nodes.resolve_automatically)
     builder.add_node("route_human", finalize_nodes.route_human)
     builder.add_node("persist_ticket", finalize_nodes.persist_ticket)
 
-    builder.add_edge(START, "ticket_guard")
+    builder.add_edge(START, "resolution_guard")
     builder.add_conditional_edges(
         "assign_priority",
         finalize_nodes.eligibility_gate,
@@ -90,9 +90,9 @@ def build_finalize_subgraph():
     builder.add_conditional_edges(
         "attempt_grounding",
         finalize_nodes.verify_grounding,
-        {"automatic_ticket": "automatic_ticket", "route_human": "route_human"},
+        {"resolve_automatically": "resolve_automatically", "route_human": "route_human"},
     )
-    builder.add_edge("automatic_ticket", "persist_ticket")
+    builder.add_edge("resolve_automatically", END)
     builder.add_edge("route_human", "persist_ticket")
     builder.add_edge("persist_ticket", END)
 

@@ -2,6 +2,7 @@
 
 import { useKiosk } from "@/components/providers/kiosk-provider"
 import { Button } from "@/components/ui/button"
+import { GroundedAnswerCard } from "@/components/kiosk/grounded-answer-card"
 import { errorMessage } from "@/lib/api"
 import { Check, Keyboard, Mic, RotateCcw, Send } from "lucide-react"
 import { FormEvent, useState } from "react"
@@ -13,6 +14,7 @@ export function TextInteraction() {
     submitTextTurn,
     confirmText,
     selectInteractionMode,
+    noteUserActivity,
   } = useKiosk()
   const [message, setMessage] = useState("")
   const [busy, setBusy] = useState(false)
@@ -47,6 +49,8 @@ export function TextInteraction() {
   }
 
   const confirmation = analysis?.next_action === "CONFIRM"
+  const canAcceptInput =
+    result?.resolution_type !== "AUTOMATIC" || result.conversation_can_continue
   const assistantMessage =
     analysis?.speech_text ??
     result?.speech_text ??
@@ -75,22 +79,28 @@ export function TextInteraction() {
           </Button>
         </div>
 
-        <section
-          aria-live="polite"
-          className="mt-8 rounded-3xl rounded-tl-none border border-white/15 bg-white/[.08] px-6 py-5"
-        >
-          <p className="text-xs font-semibold uppercase tracking-widest text-[#38BDF8]">
-            Asistente
-          </p>
-          <p className="mt-3 text-lg leading-relaxed text-white/90">
-            {assistantMessage}
-          </p>
-          {analysis?.customer_summary && (
-            <p className="mt-4 rounded-xl bg-black/20 p-4 text-sm text-white/75">
-              {analysis.customer_summary}
+        {result?.resolution_type === "AUTOMATIC" ? (
+          <div className="mt-8">
+            <GroundedAnswerCard result={result} />
+          </div>
+        ) : (
+          <section
+            aria-live="polite"
+            className="mt-8 rounded-3xl rounded-tl-none border border-white/15 bg-white/[.08] px-6 py-5"
+          >
+            <p className="text-xs font-semibold uppercase tracking-widest text-[#38BDF8]">
+              Asistente
             </p>
-          )}
-        </section>
+            <p className="mt-3 text-lg leading-relaxed text-white/90">
+              {assistantMessage}
+            </p>
+            {analysis?.customer_summary && (
+              <p className="mt-4 rounded-xl bg-black/20 p-4 text-sm text-white/75">
+                {analysis.customer_summary}
+              </p>
+            )}
+          </section>
+        )}
 
         {confirmation ? (
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -112,7 +122,7 @@ export function TextInteraction() {
               No, quiero corregir
             </Button>
           </div>
-        ) : (
+        ) : canAcceptInput ? (
           <form className="mt-6 space-y-3" onSubmit={submit}>
             <label className="block text-sm font-semibold text-white/80" htmlFor="text-request">
               Tu mensaje
@@ -124,7 +134,10 @@ export function TextInteraction() {
               id="text-request"
               maxLength={4000}
               minLength={2}
-              onChange={(event) => setMessage(event.target.value)}
+              onChange={(event) => {
+                setMessage(event.target.value)
+                noteUserActivity()
+              }}
               placeholder="Escribe aquí sin incluir contraseñas, PIN, CVV ni números financieros completos."
               required
               value={message}
@@ -137,7 +150,7 @@ export function TextInteraction() {
               </Button>
             </div>
           </form>
-        )}
+        ) : null}
 
         {error && (
           <p className="mt-5 rounded-xl border border-red-400/30 bg-red-400/10 p-4 text-sm text-red-100" role="alert">

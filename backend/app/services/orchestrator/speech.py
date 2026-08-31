@@ -188,7 +188,9 @@ def identification_plan() -> SpeechPlan:
     )
 
 
-def answer_plan(final_response: str | None) -> tuple[str, SpeechPlan]:
+def answer_plan(
+    final_response: str | None, *, conversation_can_continue: bool = True
+) -> tuple[str, SpeechPlan]:
     """A question the corpus answered. Returns the written rendering and the plan."""
     speech = final_response or "Tu consulta quedó resuelta."
     return speech, SpeechPlan(
@@ -200,7 +202,14 @@ def answer_plan(final_response: str | None) -> tuple[str, SpeechPlan]:
         guidance=(
             "Entrega la respuesta de `verbatim` tal cual, completa y sin resumirla "
             "ni agregarle datos. Puedes presentarla y cerrarla con tus palabras. "
-            "Después pregúntale si necesita algo más y sigue escuchando."
+            + (
+                "Después pregúntale si necesita algo más y sigue escuchando."
+                if conversation_can_continue
+                else (
+                    "Explícale brevemente que esta atención llegó a su límite y despídete; "
+                    "no hagas otra pregunta."
+                )
+            )
         ),
         fallback_text=speech,
     )
@@ -290,7 +299,7 @@ def compose_outcomes_plan(
                 break
         if outcome.resolution_type is ResolutionType.AUTOMATIC:
             additions.append(f"Sobre {need}: {outcome.response}")
-        elif outcome.executive:
+        elif outcome.executive and outcome.ticket:
             additions.append(
                 f"Sobre {need}, tu ticket es {outcome.ticket.number}. Dirígete a "
                 f"{outcome.executive.window_number} con {outcome.executive.name}."
@@ -302,12 +311,14 @@ def compose_outcomes_plan(
                     outcome.executive.name,
                 ]
             )
-        else:
+        elif outcome.ticket:
             additions.append(
                 f"Sobre {need}, conserva también el ticket {outcome.ticket.number}; "
                 "está pendiente de asignación."
             )
             verbatim.append(str(outcome.ticket.number))
+        else:  # Defensive: a human outcome is not actionable until it owns a ticket.
+            continue
 
     speech = " ".join([primary_speech, *additions])
     return speech, SpeechPlan(

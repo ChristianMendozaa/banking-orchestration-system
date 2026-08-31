@@ -38,6 +38,7 @@ import type {
   SpeechPlan,
   TurnAnalysis,
 } from "@/lib/types"
+import { useOptionalSystemConfig } from "@/components/providers/system-config-provider"
 
 const STORAGE_KEY = "orquestacion_kiosk_flow_v4"
 const LEGACY_STORAGE_KEYS = [
@@ -53,7 +54,7 @@ const TERMINAL_AUDIO_TIMEOUT_MS = 30_000
 // finishes the session on its own. Longer than TERMINAL_AUDIO_TIMEOUT_MS: this one is
 // waiting for a person to decide whether they have another question, not for audio to
 // finish playing.
-const FOLLOW_UP_WINDOW_MS = 45_000
+const DEFAULT_FOLLOW_UP_INACTIVITY_SECONDS = 20
 // How long a tool waits for the session's audio transcription of the turn to land. The
 // transcription usually arrives around the same time as the tool call, so this is a settle
 // window, not a poll loop: the common case resolves on the first check. On timeout the tool
@@ -98,6 +99,7 @@ interface KioskContextValue extends KioskState {
   connectVoice: () => Promise<void>
   retryVoice: () => Promise<void>
   selectInteractionMode: (mode: "voice" | "text") => void
+  noteUserActivity: () => void
   submitTextTurn: (transcript: string) => Promise<TurnAnalysis>
   confirmText: (confirmed: boolean) => Promise<FlowResult>
   submitIdentification: (identifier: string) => Promise<FlowResult>
@@ -123,6 +125,12 @@ function toolCallKey(toolCall: unknown, fallback: string): string {
 // APPLICATION_EVENT_PREFIX keeps it off the caption strip.
 function resumeContext(state: KioskState): string | null {
   const { analysis, result } = state
+  if (
+    result?.resolution_type === "AUTOMATIC" &&
+    result.conversation_can_continue
+  ) {
+    return "Se reconectó la voz después de responder una consulta general. Pregunta brevemente si necesita algo más y sigue escuchando."
+  }
   if (result?.next_action === "IDENTIFY") {
     return "Se reconectó la voz. La persona debe escribir su CI en el campo protegido; recuérdaselo brevemente y espera."
   }
@@ -139,6 +147,7 @@ function resumeContext(state: KioskState): string | null {
 }
 
 export function KioskProvider({ children }: { children: React.ReactNode }) {
+  const config = useOptionalSystemConfig()?.config ?? null
   const router = useRouter()
   const pathname = usePathname()
   const [state, setState] = useState<KioskState>(emptyState)
@@ -176,6 +185,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const completionIntervalRef = useRef<number | null>(null)
   const terminalAudioTimeoutRef = useRef<number | null>(null)
   const followUpTimeoutRef = useRef<number | null>(null)
+  const followUpPendingRef = useRef(false)
 
   const updateState = useCallback((updater: (current: KioskState) => KioskState) => {
     const next = updater(stateRef.current)
@@ -230,6 +240,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     confirmationPromisesRef.current.clear()
     identificationPromiseRef.current = null
     reconciliationPromiseRef.current = null
+    followUpPendingRef.current = false
   }, [])
 
   const reset = useCallback(() => {
@@ -293,9 +304,15 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     }
     followUpTimeoutRef.current = window.setTimeout(
       startCompletionCountdown,
-      FOLLOW_UP_WINDOW_MS,
+      (config?.kiosk_follow_up_inactivity_seconds ??
+        DEFAULT_FOLLOW_UP_INACTIVITY_SECONDS) * 1_000,
     )
-  }, [startCompletionCountdown])
+  }, [config?.kiosk_follow_up_inactivity_seconds, startCompletionCountdown])
+
+  const noteUserActivity = useCallback(() => {
+    if (!followUpPendingRef.current) return
+    armFollowUpWindow()
+  }, [armFollowUpWindow])
 
   const armTerminalCompletion = useCallback(() => {
     if (terminalAudioTimeoutRef.current !== null) return
@@ -350,6 +367,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             isClarification,
           }
         })
+        followUpPendingRef.current = Boolean(
+          snapshot.result?.conversation_can_continue,
+        )
         return snapshot
       } catch (reason) {
         if (
@@ -453,6 +473,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     if (
       hydrated &&
       state.result?.next_action === "COMPLETE" &&
+      isTerminalFlowResult(state.result) &&
       completionSeconds === null &&
       realtimeRef.current?.transport.status !== "connected"
     ) {
@@ -632,6 +653,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
 
               try {
                 cancelFollowUpWindow()
+                followUpPendingRef.current = false
                 const response = await kioskSessionRequest<TurnAnalysis>(
                   activeSession,
                   "/turns",
@@ -675,7 +697,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
                     result: completedFlow,
                     isClarification: false,
                   }))
-                  if (!isTerminalFlowResult(completedFlow)) armFollowUpWindow()
+                  followUpPendingRef.current = completedFlow.conversation_can_continue
                   return response
                 }
                 if (
@@ -775,6 +797,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
                   result: response,
                   isClarification: false,
                 }))
+                followUpPendingRef.current = Boolean(
+                  response.conversation_can_continue,
+                )
                 return response
               } catch (reason) {
                 if (
@@ -933,6 +958,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           // The microphone stays live. A backend round-trip takes several seconds, and the
           // customer must be able to interrupt, correct or add something during it.
           activeToolCallsRef.current.add(toolCallKey(details.toolCall, _tool.name))
+          cancelFollowUpWindow()
           setVoiceState("thinking")
         })
         realtime.on("agent_tool_end", (_context, _agent, _tool, _result, details) => {
@@ -956,6 +982,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           // saying is dropped rather than forced through a second time.
           pendingVerbatimRef.current = []
           verbatimBaselineRef.current.clear()
+          cancelFollowUpWindow()
           setVoiceState("listening")
         })
         realtime.on("transport_event", (event) => {
@@ -966,7 +993,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             // so running it at both moments only makes it more likely to see the text at all.
             checkVerbatim()
             settleVoiceState()
+            if (followUpPendingRef.current) armFollowUpWindow()
           } else if (event.type === "input_audio_buffer.speech_started") {
+            cancelFollowUpWindow()
             setVoiceState("listening")
           } else if (event.type === "input_audio_buffer.speech_stopped") {
             if (activeToolCallsRef.current.size === 0) setVoiceState("thinking")
@@ -1103,6 +1132,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       let response: TurnAnalysis
       try {
         cancelFollowUpWindow()
+        followUpPendingRef.current = false
         response = await kioskSessionRequest<TurnAnalysis>(
           activeSession,
           "/turns",
@@ -1140,6 +1170,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           result: completed,
           isClarification: false,
         }))
+        followUpPendingRef.current = completed.conversation_can_continue
+        if (completed.conversation_can_continue) armFollowUpWindow()
         syncTextExchange(activeSession, transcript.trim(), response.speech_text)
         return response
       }
@@ -1158,7 +1190,13 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       syncTextExchange(activeSession, transcript.trim(), response.speech_text)
       return response
     },
-    [cancelFollowUpWindow, handleExpiredSession, syncTextExchange, updateState],
+    [
+      armFollowUpWindow,
+      cancelFollowUpWindow,
+      handleExpiredSession,
+      syncTextExchange,
+      updateState,
+    ],
   )
 
   const confirmText = useCallback(
@@ -1201,6 +1239,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         result: response,
         isClarification: false,
       }))
+      followUpPendingRef.current = Boolean(response.conversation_can_continue)
+      if (response.conversation_can_continue) armFollowUpWindow()
       syncTextExchange(
         activeSession,
         confirmed ? "Sí, confirmo." : "No, quiero corregir.",
@@ -1208,7 +1248,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       )
       return response
     },
-    [handleExpiredSession, syncTextExchange, updateState],
+    [armFollowUpWindow, handleExpiredSession, syncTextExchange, updateState],
   )
 
   const submitIdentification = useCallback(
@@ -1244,6 +1284,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           result: completed,
           isClarification: false,
         }))
+        followUpPendingRef.current = false
 
         const realtime = realtimeRef.current
         if (realtime?.transport.status === "connected") {
@@ -1308,6 +1349,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       connectVoice,
       retryVoice,
       selectInteractionMode,
+      noteUserActivity,
       submitTextTurn,
       confirmText,
       submitIdentification,
@@ -1322,6 +1364,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       reset,
       retryVoice,
       selectInteractionMode,
+      noteUserActivity,
       state,
       submitTextTurn,
       confirmText,

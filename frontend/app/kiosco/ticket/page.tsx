@@ -12,7 +12,7 @@ export default function TicketPage() {
   const priority = result.priority ?? analysis?.priority
   const customerSummary = result.customer_summary ?? analysis?.customer_summary
   const additionalOutcomes = (result.outcomes ?? []).filter(
-    (outcome) => outcome.need_index > 0,
+    (outcome) => outcome.need_index > 0 && outcome.ticket,
   )
 
   return (
@@ -89,7 +89,7 @@ export default function TicketPage() {
                 key={outcome.requirement_id}
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p className="font-semibold">Ticket #{outcome.ticket.number}</p>
+                  <p className="font-semibold">Ticket #{outcome.ticket?.number}</p>
                   {outcome.priority && <Badge variant={outcome.priority} />}
                 </div>
                 <p className="mt-2 text-white/80">{outcome.customer_summary}</p>

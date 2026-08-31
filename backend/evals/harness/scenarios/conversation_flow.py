@@ -259,7 +259,7 @@ SCENARIOS = [
             requires_citations=True,
             identification="NONE",
             policy_notes=(
-                "A public-information question resolves on its own turn and closes its "
+                "A public-information question resolves on its own turn without creating a "
                 "ticket, but the person is still standing at the kiosk. The second question "
                 "must be answered too -- it opens its own case rather than being refused "
                 "because the session already resolved once. Both answers must be grounded "

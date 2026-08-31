@@ -82,14 +82,50 @@ def _answer_is_not_empty(session: ConversationSession, result: dict) -> list[Che
     ]
 
 
+def _current_branch_hours_only(session: ConversationSession, result: dict) -> list[CheckResult]:
+    answer = (result.get("response") or "").casefold()
+    forbidden = [
+        "plan 3000",
+        "cristo redentor",
+        "segundo anillo",
+        "el prado",
+        "ballivián",
+        "788-12000",
+    ]
+    leaked = [value for value in forbidden if value in answer]
+    return [
+        CheckResult(
+            "generic_hours_are_scoped_to_current_branch",
+            "sucursal centro" in answer and not leaked,
+            f"filtraciones={leaked}" if leaked else "solo Sucursal Centro",
+        ),
+        CheckResult(
+            "automatic_answer_has_no_ticket",
+            result.get("ticket") is None,
+            f"ticket={result.get('ticket')}",
+        ),
+    ]
+
+
+def _named_other_branch_is_honored(session: ConversationSession, result: dict) -> list[CheckResult]:
+    answer = (result.get("response") or "").casefold()
+    return [
+        CheckResult(
+            "explicit_other_branch_is_honored",
+            "plan 3000" in answer and "18:00" in answer and "sucursal centro" not in answer,
+            answer,
+        )
+    ]
+
+
 SCENARIOS = [
     Scenario(
         name="horarios_directo",
         tags=("general_inquiry", "rag"),
-        description="Direct question about branch and contact-centre opening hours.",
+        description="Direct question about the current branch's opening hours.",
         goal=(
-            "Quieres saber en que horarios atienden las agencias y si hay alguna linea "
-            "telefonica disponible las 24 horas. Preguntalo de forma directa y clara."
+            "Estas parado frente al kiosco de la Sucursal Centro y quieres saber su "
+            "horario de atencion. Pregunta solamente: 'cual es el horario de atencion'."
         ),
         style=CALMADO,
         expected=ExpectedOutcome(
@@ -101,12 +137,16 @@ SCENARIOS = [
             identification="NONE",
             clarifications=(0, 0),
             policy_notes=(
-                "The corpus documents agency hours and the 24-hour mobile line, so this "
-                "must resolve automatically, on the first turn, with a citation. Asking for "
-                "clarification here would be a needless extra step for a clear question."
+                "The configured kiosk branch is Sucursal Centro, so this vague location "
+                "question must return only Centro's hours, automatically and with a "
+                "citation. Asking for clarification would be a needless extra step."
             ),
         ),
-        expectation_checks=_combine(_answer_is_not_empty, _resolved_without_confirmation),
+        expectation_checks=_combine(
+            _answer_is_not_empty,
+            _resolved_without_confirmation,
+            _current_branch_hours_only,
+        ),
     ),
     Scenario(
         name="horarios_ambiguo",
@@ -133,6 +173,34 @@ SCENARIOS = [
             ),
         ),
         expectation_checks=_resolved_without_confirmation,
+    ),
+    Scenario(
+        name="horario_otra_agencia_explicita",
+        tags=("general_inquiry", "rag", "branch_context"),
+        description="Explicit opening-hours question for a branch other than the kiosk branch.",
+        goal=(
+            "Aunque estas en la Sucursal Centro, quieres saber especificamente el horario "
+            "de la agencia Plan 3000. Nombra Plan 3000 claramente en tu pregunta."
+        ),
+        style=CALMADO,
+        expected=ExpectedOutcome(
+            category=("CONSULTA_GENERAL",),
+            consultation_level=("GENERAL",),
+            resolution_type="AUTOMATIC",
+            grounding_status=("GROUNDED",),
+            requires_citations=True,
+            identification="NONE",
+            clarifications=(0, 0),
+            policy_notes=(
+                "An explicitly named other branch overrides the kiosk-location default. "
+                "Answer only Plan 3000's documented hours; do not substitute Centro."
+            ),
+        ),
+        expectation_checks=_combine(
+            _answer_is_not_empty,
+            _resolved_without_confirmation,
+            _named_other_branch_is_honored,
+        ),
     ),
     Scenario(
         name="requisitos_abrir_cuenta",
