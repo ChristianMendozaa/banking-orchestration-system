@@ -1,5 +1,6 @@
 import type { RealtimeItem } from "@openai/agents/realtime"
 
+import { ApiError } from "@/lib/api"
 import type { RealtimeAudioInput } from "@/lib/kiosk-api"
 import type { FlowResult, KioskSession, SpeechPlan, TurnAnalysis } from "@/lib/types"
 
@@ -24,7 +25,49 @@ export interface SpokenTurn {
   commit: () => void
 }
 
+// Backend codes that mean "this client and the session disagree about where the
+// conversation is", not "the bank is unreachable". `POST /turns` is rejected with
+// INVALID_SESSION_STATE for the whole time the credential window is open, and every one of
+// these used to reach the customer as an apology about not being able to consult the
+// system. They are races this client resolves by reconciling, silently.
+const SESSION_STATE_CONFLICT_CODES = new Set([
+  "INVALID_SESSION_STATE",
+  "INVALID_CLARIFICATION",
+  "TURN_ALREADY_COMPLETED",
+])
+
+export function isSessionStateConflict(reason: unknown): boolean {
+  return reason instanceof ApiError && SESSION_STATE_CONFLICT_CODES.has(reason.code)
+}
+
+export function isSessionExhausted(reason: unknown): boolean {
+  return reason instanceof ApiError && reason.code === "SESSION_TURN_LIMIT_REACHED"
+}
+
+// Realtime `error` events that describe a lost race for the response slot rather than a
+// broken session. The transport queues a `response.create` behind whatever is speaking and
+// cancels the current response on barge-in; both can be answered with one of these, and
+// showing the customer a "reconnect the conversation" banner over it is wrong.
+const BENIGN_REALTIME_ERROR_CODES = new Set([
+  "conversation_already_has_active_response",
+  "response_cancel_not_active",
+])
+
+export function isBenignRealtimeError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+  const payload = error as { code?: unknown; error?: { code?: unknown } }
+  const code = payload.error?.code ?? payload.code
+  return typeof code === "string" && BENIGN_REALTIME_ERROR_CODES.has(code)
+}
+
 export interface KioskRealtimeCallbacks {
+  // A business result the application already has and the model has not been told about.
+  // The only one today is the outcome of submitting the identity-card number: that happens
+  // on a form, not in speech, so there is no turn to process and the tool would otherwise
+  // answer "nothing to do" -- leaving the ticket number, the window and the executive's
+  // name in `facts` that never reached the model. Returning it here delivers the backend's
+  // own SpeechPlan through the one channel business data is allowed to travel in.
+  takePendingResult: () => KioskTurnProcessingResult | null
   // Supplies the voice session's own transcription of the turn the model is calling about.
   // The model never types the transcript itself: it was observed corrupting it outright
   // ("reportar el robo" -> "portar el juego") and the backend classified the corruption.
@@ -42,6 +85,14 @@ export type KioskTurnProcessingResult =
   | { kind: "flow"; response: FlowResult }
   | { kind: "retry"; guidance: string }
   | { kind: "close" }
+  // The session is holding the credential window open. There is nothing to process and
+  // nothing went wrong: the person is typing.
+  | { kind: "awaiting_identification" }
+  // The flow already finished. A tool call here is the model checking in, not a new turn.
+  | { kind: "settled" }
+  // No unspent turn to act on. Distinct from `retry`, which is a real failure to resolve
+  // something the person did say.
+  | { kind: "noop" }
 
 export function kioskRouteForState(state: {
   session: KioskSession | null
@@ -177,20 +228,39 @@ export function isConversationClose(value: string): boolean {
   )
 }
 
-export type RealtimeTurnPhase = "greeting" | "customer_turn" | "tool_result"
+export type RealtimeToolChoice = "none" | "auto" | "required"
 
-export function realtimeToolChoiceForPhase(
-  phase: RealtimeTurnPhase,
-): "none" | "auto" | "required" {
-  if (phase === "greeting") return "none"
-  if (phase === "customer_turn") return "required"
+// Tool choice used to be driven by raw VAD events: `required` on every
+// `input_audio_buffer.speech_started`, `auto` again once a tool started. Any cough, any
+// "aja" while a backend call was in flight, and any of the kiosk's own audio leaking back
+// into the microphone armed `required` for the *next* response -- which was frequently the
+// response that was supposed to speak the tool result. Forced to call `procesar_turno`
+// again instead, the model found no unspent transcript and apologised to the customer for
+// a failure that never happened.
+//
+// It is now derived from the two facts that actually decide it: whether the greeting has
+// happened, and whether an unspent customer transcript is sitting there. `required` is
+// exactly as strong a guarantee as before -- every turn the person actually spoke still
+// has to go through the tool -- without being armed by noise.
+export function realtimeToolChoiceForTurn(state: {
+  greeted: boolean
+  hasUnspentTranscript: boolean
+  // A result waiting to be handed over is as binding as an unspoken turn: without it the
+  // model is free to narrate the outcome of a form submission it was never shown.
+  hasPendingResult?: boolean
+}): RealtimeToolChoice {
+  // There is no customer turn during the greeting, so tools are forbidden. With `auto`
+  // here the model called `procesar_turno` before any transcription existed, producing a
+  // false "repiteme tu pedido" immediately after session startup.
+  if (!state.greeted) return "none"
+  if (state.hasUnspentTranscript || state.hasPendingResult) return "required"
   return "auto"
 }
 
 export function realtimeVoiceSessionConfig(
   audioInput: RealtimeAudioInput,
   voice: string,
-  toolChoice: "none" | "auto" | "required",
+  toolChoice: RealtimeToolChoice,
 ) {
   return {
     outputModalities: ["audio"] as const,
@@ -225,7 +295,10 @@ export interface TranscriptSelection {
 // conversation items when the customer pauses mid-sentence.
 export function selectAuthoritativeTranscript(
   captions: ConversationCaption[],
-  consumed: ReadonlySet<string>,
+  // Widened from `ReadonlySet` so callers can pass a union of two sets without building a
+  // third: tool choice asks "was this offered to the tool?" while the tool itself asks
+  // "was this acted on?", and those are deliberately different questions.
+  consumed: { has: (itemId: string) => boolean },
 ): TranscriptSelection | null {
   const pending = captions.filter(
     (caption) => caption.role === "user" && caption.completed && !consumed.has(caption.id),
@@ -293,12 +366,43 @@ export function errorToolOutput(guidance: string): Record<string, unknown> {
   }
 }
 
+// A successful "there is nothing for you to do here" result. It has to be `ok: true`: the
+// persona reads `ok: false` as a failure it must apologise for, and none of these are
+// failures. Every one of them used to fall through to `errorToolOutput`, which is why a
+// customer who had just been handed the CI field heard the kiosk say it could not reach the
+// system and ask them to try again.
+function idleToolOutput(intent: string, guidance: string): Record<string, unknown> {
+  return { ok: true, next_action: "NONE", intent, guidance, facts: {}, verbatim: [] }
+}
+
 export function turnProcessingToolOutput(
   result: KioskTurnProcessingResult,
 ): Record<string, unknown> {
   if (result.kind === "analysis") return analysisToolOutput(result.response)
   if (result.kind === "flow") return flowToolOutput(result.response)
   if (result.kind === "retry") return errorToolOutput(result.guidance)
+  if (result.kind === "noop") {
+    return idleToolOutput(
+      "NOOP",
+      "No hay nada nuevo que procesar en este momento. Sigue la conversación con " +
+        "naturalidad: no te disculpes, no digas que tuviste un problema y no le pidas " +
+        "que repita lo que ya dijo.",
+    )
+  }
+  if (result.kind === "awaiting_identification") {
+    return idleToolOutput(
+      "IDENTIFY",
+      "Está escribiendo su CI en el campo protegido de la pantalla. Espera en silencio: " +
+        "no preguntes nada, no repitas la instrucción y no te disculpes.",
+    )
+  }
+  if (result.kind === "settled") {
+    return idleToolOutput(
+      "SETTLED",
+      "Esta atención ya quedó resuelta y se lo dijiste. No agregues nada nuevo ni " +
+        "vuelvas a preguntar.",
+    )
+  }
   return {
     ok: true,
     next_action: "CLOSE",
@@ -309,25 +413,30 @@ export function turnProcessingToolOutput(
   }
 }
 
-// The one guard kept from the old controlled-speech machine, at a fraction of its size. It
-// checks only what it can honestly check: text. Numbers deliberately never reach `verbatim`
-// (see the note in orchestrator.py) because a model that says "el cuarenta y dos" instead of
-// "42" has done nothing wrong, and a substring check would force a pointless re-read.
+// The one guard kept from the old controlled-speech machine, at a fraction of its size, and
+// now purely an observation: a miss puts a note on screen, it never sends the model back to
+// re-read anything. Correcting speech by injecting a new message was how the kiosk ended up
+// emitting stray fragments after the ticket number.
+//
+// It measures only what a text comparison can settle. Speech renders digits as words --
+// "Ventanilla 3" is heard as "ventanilla tres" and "42" as "cuarenta y dos" -- so an entry
+// carrying a digit would fail on a perfectly correct reading. Those are skipped rather than
+// flagged; the backend keeps operational numbers out of `verbatim` in the first place
+// (see the module docstring in backend/app/services/orchestrator/speech.py), and the one
+// long digit-bearing entry that remains by design is the grounded answer, whose full text
+// is on screen either way.
+export function isMeasurableVerbatim(entry: string): boolean {
+  return entry.length > 0 && !/\d/.test(entry)
+}
+
 export function missingVerbatim(spoken: string, verbatim: readonly string[]): string[] {
+  const measurable = verbatim.filter(isMeasurableVerbatim)
   const haystack = foldForComparison(spoken)
-  if (!haystack) return [...verbatim]
-  return verbatim.filter((entry) => {
+  if (!haystack) return [...measurable]
+  return measurable.filter((entry) => {
     const needle = foldForComparison(entry)
     return needle.length > 0 && !haystack.includes(needle)
   })
-}
-
-export function shouldRetryMissingVerbatim(plan: SpeechPlan | undefined): boolean {
-  // Automatic answers are the only non-terminal kiosk result. Retrying one by injecting a
-  // new model message can race the customer's next question and append the old answer to
-  // the new one. Keep the full answer visible on screen and report a voice error instead;
-  // short safety warnings and terminal handoff details may still use the one retry.
-  return plan?.intent !== "ANSWER" && Boolean(plan?.verbatim?.length)
 }
 
 export function analysisSpeechPlan(response: TurnAnalysis): SpeechPlan {
@@ -354,6 +463,18 @@ export function isTerminalFlowResult(result: {
 interface BusinessState {
   analysis: TurnAnalysis | null
   result: FlowResult | null
+}
+
+// The only three states that close the microphone. IDENTIFY is a credential window --
+// nothing should be captured while someone types their CI -- and a terminal or declined
+// result means the kiosk has said its last word on this case. Everywhere else, including
+// while a tool runs, the mic stays live so the customer can interrupt, correct or add
+// something.
+export function microphoneShouldBeOpen(state: BusinessState): boolean {
+  if (state.result?.next_action === "IDENTIFY") return false
+  if (state.result && isTerminalFlowResult(state.result)) return false
+  if (state.analysis?.next_action === "DECLINE") return false
+  return true
 }
 
 export function shouldApplyAnalysisResponse(
@@ -404,4 +525,151 @@ export function shouldApplyFlowResponse(
     return state.analysis.requirement_id === startingRequirementId
   }
   return true
+}
+
+// The kiosk has two things that can decide to speak: the realtime model, whose server-side
+// VAD creates a response the moment the customer stops talking, and this application, which
+// occasionally has to tell the model something happened on screen. Nothing used to arbitrate
+// between them. The Agents SDK's own sequencer *queues* a `response.create` that arrives
+// during an active response rather than dropping it, so every extra injection eventually
+// came out of the speaker as a stray sentence trailing the previous one -- which is exactly
+// what "it says several things at once" was.
+//
+// `SpeechFloor` is that arbiter. The floor is busy while a response is being generated or a
+// tool call is running; an injection made while it is busy is held, coalesced last-wins per
+// kind, and re-derived at the moment it is released so a request whose business state has
+// moved on is dropped instead of spoken late.
+export type SpeechFloorKind = "resume" | "identification_close"
+
+export interface SpeechFloorTransport {
+  // Adds a context item and lets the model reply to it under the full session persona.
+  sendMessage: (text: string) => void
+  // Cancels whatever is being said and clears the audio already buffered for playback.
+  interrupt: () => void
+}
+
+// Re-derived at flush time, not at request time. Returning null withdraws the request.
+export type SpeechFloorMessage = () => string | null
+
+export class SpeechFloor {
+  #transport: SpeechFloorTransport
+  #responseActive = false
+  // Generation finishing is not the same as the kiosk falling silent: `response.done`
+  // arrives while the audio it produced is still coming out of the buffer. Both have to be
+  // over before anything else takes the floor, or the session gets torn down -- or spoken
+  // over -- mid-sentence.
+  #playbackActive = false
+  #activeTools = 0
+  #pending = new Map<SpeechFloorKind, SpeechFloorMessage>()
+  #waiters: (() => void)[] = []
+
+  constructor(transport: SpeechFloorTransport) {
+    this.#transport = transport
+  }
+
+  get busy(): boolean {
+    return this.#responseActive || this.#playbackActive || this.#activeTools > 0
+  }
+
+  noteResponseStarted(): void {
+    this.#responseActive = true
+  }
+
+  noteResponseDone(): void {
+    this.#responseActive = false
+    this.#release()
+  }
+
+  noteAudioStarted(): void {
+    this.#playbackActive = true
+  }
+
+  /**
+   * Playback ended -- finished, cleared, or cut short by the customer talking over it.
+   * Every one of those has to land here: a floor left believing audio is still playing
+   * would hold a pending message, and the session open, forever.
+   */
+  noteAudioFinished(): void {
+    this.#playbackActive = false
+    this.#release()
+  }
+
+  noteToolStarted(): void {
+    this.#activeTools += 1
+  }
+
+  noteToolFinished(): void {
+    this.#activeTools = Math.max(0, this.#activeTools - 1)
+    this.#release()
+  }
+
+  /** Speak this as soon as the floor is free, or drop it if it has gone stale by then. */
+  request(kind: SpeechFloorKind, message: SpeechFloorMessage): void {
+    this.#pending.set(kind, message)
+    if (!this.busy) this.#release()
+  }
+
+  /**
+   * Take the floor for something that supersedes what is being said. Used when the customer
+   * finishes typing their CI while the kiosk is still reading out the instruction to type
+   * it: that sentence is now obsolete, and letting it run to completion before the closing
+   * is what made a fast typist hear two unrelated turns back to back.
+   */
+  preempt(kind: SpeechFloorKind, message: SpeechFloorMessage): void {
+    if (this.#responseActive || this.#playbackActive) {
+      try {
+        this.#transport.interrupt()
+      } catch {
+        // Nothing was playing, or the transport is already gone. Either way the message
+        // below is still the right thing to say next.
+      }
+      // `response.done` and the cleared audio buffer follow a cancellation and would clear
+      // these anyway; doing it here lets the message go out on this tick rather than
+      // waiting for the round trip.
+      this.#responseActive = false
+      this.#playbackActive = false
+    }
+    this.request(kind, message)
+  }
+
+  /** Run once the model has finished speaking -- or immediately, if it is not. */
+  whenFree(callback: () => void): void {
+    if (!this.busy && this.#pending.size === 0) {
+      callback()
+      return
+    }
+    this.#waiters.push(callback)
+  }
+
+  /** A closed session owes nobody a turn; release every waiter so timers still fire. */
+  reset(): void {
+    this.#responseActive = false
+    this.#playbackActive = false
+    this.#activeTools = 0
+    this.#pending.clear()
+    const waiters = this.#waiters
+    this.#waiters = []
+    waiters.forEach((waiter) => waiter())
+  }
+
+  #release(): void {
+    if (this.busy) return
+    for (const [kind, message] of [...this.#pending]) {
+      this.#pending.delete(kind)
+      const text = message()
+      if (!text) continue
+      try {
+        this.#transport.sendMessage(text)
+        // One injection at a time: it has just started a response, and whatever is still
+        // queued gets its turn when that one is done.
+        this.#responseActive = true
+        return
+      } catch {
+        // The transport went away mid-flush. Remaining requests are dropped with it.
+      }
+    }
+    const waiters = this.#waiters
+    this.#waiters = []
+    waiters.forEach((waiter) => waiter())
+  }
 }

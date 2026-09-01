@@ -5,13 +5,16 @@ A `SpeechPlan` is not a script. It carries `facts` (data the model may reword),
 and `fallback_text` (the written rendering, for the text channel -- never read aloud).
 
 What belongs in `verbatim` and what belongs in `facts`: `verbatim` is checked by the
-client against what was actually spoken, so it can only hold strings that survive that
-comparison as text -- the grounded answer, the credential warning, an executive's name,
-a window label. Numbers cannot go in it. A model that says "tu ticket es el cuarenta y
-dos" has done nothing wrong, and a substring check on "42" would flag it and force a
-pointless re-read. The ticket number and the wait estimate therefore travel in `facts`
-with guidance to state them exactly, and the ticket screen stays the authoritative copy
-of both.
+client against what was actually spoken, so it can only be *measured* on strings that
+survive that comparison as text -- the credential warning, an executive's name. Anything
+carrying a digit cannot: a model that says "tu ticket es el cuarenta y dos" has done
+nothing wrong, and a substring check on "42" would flag a correct reading. The client
+therefore skips digit-bearing entries outright (`missingVerbatim`), and this module keeps
+them out in the first place: the ticket number, the wait estimate and the window label
+travel in `facts` with guidance to state them exactly, and the ticket screen stays the
+authoritative copy. The one long entry that does carry digits is the grounded answer,
+which is bound to its evidence and must not be reworded -- it stays in `verbatim` for the
+model, and simply is not measured.
 
 This module is pure: it takes values and returns `SpeechPlan`s. It touches no session,
 no database and no agent.
@@ -58,15 +61,9 @@ KIOSK_SCOPE = (
     "consultas generales del banco"
 )
 
-# What belongs in `verbatim` and what belongs in `facts`.
-#
-# `verbatim` is checked by the client against what was actually spoken, so it can only hold
-# strings that survive that comparison as text: the grounded answer, the credential warning,
-# an executive's name, a window label. Numbers cannot go in it -- a model that says "tu
-# ticket es el cuarenta y dos" has done nothing wrong, and a substring check on "42" would
-# flag it and force a pointless re-read. The ticket number and the wait estimate therefore
-# travel in `facts` with guidance to state them exactly, and the ticket screen stays the
-# authoritative copy of both.
+# What belongs in `verbatim` and what belongs in `facts` -- see the module docstring. The
+# short version: operational tokens that carry a digit (ticket number, wait estimate,
+# window label) go in `facts`, because the client's text comparison cannot settle them.
 
 
 # Split so the warning half can travel in `verbatim` on its own: the instruction to use the
@@ -182,7 +179,8 @@ def identification_plan() -> SpeechPlan:
         guidance=(
             "Pídele que haga lo que dice `accion` y repite la advertencia de "
             "`verbatim` palabra por palabra. Nunca le pidas que dicte el CI en voz "
-            "alta. Luego deja de hacer preguntas mientras escribe."
+            "alta. Después cállate: no hagas ninguna pregunta, ni siquiera si está "
+            "lista o si quiere seguir. Espera en silencio a que termine de escribir."
         ),
         fallback_text=IDENTIFICATION_SPEECH_TEXT,
     )
@@ -258,7 +256,9 @@ def handoff_plan(
     return speech, SpeechPlan(
         intent="HANDOFF",
         facts=facts,
-        verbatim=[assignment.window_number, assignment.name],
+        # The window travels in `facts` only: the seed calls it "Ventanilla 3", and a model
+        # that says "ventanilla tres" is right while the substring check is not.
+        verbatim=[assignment.name],
         guidance=(
             "Explícale con tus palabras por qué lo derivas, usando `motivo`, y "
             "dale el número de ticket, la ventanilla y el nombre del ejecutivo "
@@ -309,19 +309,14 @@ def compose_outcomes_plan(
                 f"Sobre {need}, tu ticket es {outcome.ticket.number}. Dirígete a "
                 f"{outcome.executive.window_number} con {outcome.executive.name}."
             )
-            verbatim.extend(
-                [
-                    str(outcome.ticket.number),
-                    outcome.executive.window_number,
-                    outcome.executive.name,
-                ]
-            )
+            # Only the name is verifiable as spoken text; the ticket number and the window
+            # carry digits and stay in the composed narrative and on the ticket screen.
+            verbatim.append(outcome.executive.name)
         elif outcome.ticket:
             additions.append(
                 f"Sobre {need}, conserva también el ticket {outcome.ticket.number}; "
                 "está pendiente de asignación."
             )
-            verbatim.append(str(outcome.ticket.number))
         else:  # Defensive: a human outcome is not actionable until it owns a ticket.
             continue
 

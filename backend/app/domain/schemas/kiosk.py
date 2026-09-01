@@ -74,9 +74,12 @@ class SpeechPlan(BaseModel):
 
     intent: Literal["CLARIFY", "CONFIRM", "DECLINE", "CAPTURE", "IDENTIFY", "ANSWER", "HANDOFF"]
     facts: dict[str, str] = Field(default_factory=dict)
-    # Strings the model must reproduce word for word: a ticket number, a window, an
-    # executive's name, the grounded answer, the credential-entry warning. The client
-    # verifies these against what was actually spoken.
+    # Strings the model must reproduce word for word: an executive's name, the grounded
+    # answer, the credential-entry warning. The client verifies these against a text
+    # transcript of what was actually spoken, and deliberately only verifies the entries
+    # a text comparison can settle -- Spanish speech renders "Ventanilla 3" as "ventanilla
+    # tres", so anything carrying a digit is stated here and measured nowhere. See
+    # `missingVerbatim` in `frontend/lib/kiosk-realtime.ts`.
     verbatim: list[str] = Field(default_factory=list)
     guidance: str
     fallback_text: str

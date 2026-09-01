@@ -164,6 +164,16 @@ async def test_realtime_secret_returns_the_persona_the_browser_must_apply(
     assert "`grounded_answer` es la respuesta aprobada" in KIOSK_VOICE_INSTRUCTIONS
     assert "no agregues respuestas, correcciones ni datos" in KIOSK_VOICE_INSTRUCTIONS
     assert "Cada turno nuevo" in KIOSK_VOICE_INSTRUCTIONS
+    # An idle tool result is not a failure. Without this the model treated "nothing to
+    # process" as an outage and apologised to whoever was standing at the kiosk -- most
+    # visibly the moment the CI field appeared, when the session stops accepting turns.
+    assert "no hay nada nuevo que procesar" in KIOSK_VOICE_INSTRUCTIONS
+    # Acknowledging a lookup keeps the customer from hearing dead air; announcing a check
+    # nobody asked for is just a stray sentence. On 2026-09-01 an idle check-in produced
+    # "Un momento, voy a verificar cómo quedó el estado del trámite" with no question in
+    # front of it.
+    assert "hazlo callada" in KIOSK_VOICE_INSTRUCTIONS
+    assert "no te" in KIOSK_VOICE_INSTRUCTIONS and "disculpes" in KIOSK_VOICE_INSTRUCTIONS
     assert data["session"]["model"] == "gpt-realtime-2.1-mini"
     assert data["session"]["voice"] == "marin"
 

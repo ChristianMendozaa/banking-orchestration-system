@@ -23,11 +23,20 @@ export function createKioskRealtimeAgent(
     parameters: z.object({}),
     timeoutMs: 25_000,
     async execute(_args, _context, details) {
+      // A result the application is holding outweighs anything that was said: the identity
+      // card is typed on a form, so the turn that produced this outcome never passed
+      // through speech and there is nothing to transcribe.
+      const pending = callbacks.takePendingResult()
+      if (pending) return turnProcessingToolOutput(pending)
+
       const turn = await callbacks.resolveSpokenText()
       if (!turn) {
-        return errorToolOutput(
-          "Todavía no tienes lo que dijo. Pídele que te lo repita, con tus palabras.",
-        )
+        // Not a failure. The model calls this tool once per customer turn, but it also
+        // calls it when it is simply checking in -- after a barge-in that produced no
+        // words, while the person is typing their CI, right after a flow already closed.
+        // Answering "you do not have what they said, ask them to repeat" turned every one
+        // of those into the kiosk apologising for a problem that did not exist.
+        return turnProcessingToolOutput({ kind: "noop" })
       }
       try {
         const result = await callbacks.processSpokenTurn(
@@ -39,6 +48,9 @@ export function createKioskRealtimeAgent(
         turn.commit()
         return turnProcessingToolOutput(result)
       } catch {
+        // Only a genuine outage reaches here: `processSpokenTurn` resolves the kiosk's own
+        // state disagreements itself and returns an idle result rather than throwing, so
+        // this apology is no longer the catch-all it used to be.
         return errorToolOutput(
           "No pudiste consultar el sistema. Discúlpate brevemente y dile que lo intente " +
             "otra vez o que pida ayuda a un ejecutivo.",

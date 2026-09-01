@@ -1,4 +1,5 @@
 from collections import defaultdict
+from uuid import uuid4
 
 import pytest
 
@@ -7,9 +8,19 @@ from app.domain.enums import (
     Category,
     ConsultationLevel,
     ExecutiveStatus,
+    IdentificationStatus,
     Priority,
+    ResolutionType,
+    TicketStatus,
 )
-from app.domain.schemas import ClassificationDecision, ClassifiedNeed, SpeechPlan
+from app.domain.schemas import (
+    ClassificationDecision,
+    ClassifiedNeed,
+    ExecutiveAssignment,
+    FlowOutcome,
+    SpeechPlan,
+    TicketResult,
+)
 from app.services.agents import (
     ClassificationAgent,
     DerivationAgent,
@@ -23,7 +34,13 @@ from app.services.agents.rules.language import (
     comprehension_repair_question,
 )
 from app.services.intake import IntakePlanner
-from app.services.orchestrator.speech import VOICE_PRIVACY_NOTICE, with_privacy_notice
+from app.services.orchestrator.speech import (
+    VOICE_PRIVACY_NOTICE,
+    compose_outcomes_plan,
+    handoff_plan,
+    identification_plan,
+    with_privacy_notice,
+)
 from app.services.pii import PIIMaskingService
 
 pytestmark = [pytest.mark.unit]
@@ -357,3 +374,107 @@ def test_financial_pii_adds_an_immediate_voice_privacy_notice() -> None:
     assert speech.startswith(VOICE_PRIVACY_NOTICE)
     assert warned.verbatim[0] == VOICE_PRIVACY_NOTICE
     assert "4532" not in speech
+
+
+@pytest.mark.regression
+def test_identification_plan_forbids_a_follow_up_question() -> None:
+    """Nothing is asked while the credential field is open.
+
+    Recorded 2026-09-01: the kiosk delivered the instruction and then added "¿Todo listo?
+    ¿Seguimos con el siguiente paso?" -- two questions, at the one moment the customer is
+    looking at a keyboard and the microphone is deliberately shut, so nothing they say can
+    be heard anyway.
+    """
+    plan = identification_plan()
+
+    assert plan.intent == "IDENTIFY"
+    assert "no hagas ninguna pregunta" in plan.guidance.casefold()
+    assert "silencio" in plan.guidance.casefold()
+
+
+def _assignment() -> ExecutiveAssignment:
+    return ExecutiveAssignment(
+        id=uuid4(),
+        name="María Torres",
+        title="Ejecutiva de fraude",
+        window_number="Ventanilla 3",
+    )
+
+
+@pytest.mark.regression
+def test_handoff_plan_keeps_digits_out_of_verbatim() -> None:
+    """The window label is stated, not measured.
+
+    `verbatim` is verified client-side by looking for each entry inside a transcript of
+    what was said. Spanish speech renders "Ventanilla 3" as "ventanilla tres", so keeping
+    the label there made a correct reading look like a failure -- and the kiosk answered
+    that by sending the model back to recite the fragment, which is what customers heard
+    trailing their ticket number.
+    """
+    assignment = _assignment()
+    speech, plan = handoff_plan(
+        category=Category.REPORTE_FRAUDE,
+        ticket_number=42,
+        estimated_wait_minutes=5,
+        assignment=assignment,
+        urgent_case=False,
+    )
+
+    assert plan.verbatim == [assignment.name]
+    assert not any(char.isdigit() for entry in plan.verbatim for char in entry)
+    # Still said, still on screen: the facts carry what the guidance asks for exactly.
+    assert plan.facts["ticket"] == "42"
+    assert plan.facts["ventanilla"] == "Ventanilla 3"
+    assert "Ventanilla 3" in speech
+
+
+@pytest.mark.regression
+def test_composed_outcomes_keep_digits_out_of_verbatim() -> None:
+    assignment = _assignment()
+    primary_speech, primary_plan = handoff_plan(
+        category=Category.REPORTE_FRAUDE,
+        ticket_number=42,
+        estimated_wait_minutes=None,
+        assignment=assignment,
+        urgent_case=False,
+    )
+    outcomes = [
+        FlowOutcome(
+            requirement_id=uuid4(),
+            need_index=0,
+            customer_summary="Necesitas reportar un fraude.",
+            category=Category.REPORTE_FRAUDE,
+            priority=Priority.CRITICO,
+            identification_status=IdentificationStatus.IDENTIFICADO,
+            resolution_type=ResolutionType.HUMAN,
+            ticket=TicketResult(
+                id=uuid4(),
+                number=42,
+                status=TicketStatus.PENDIENTE,
+                estimated_wait_minutes=None,
+            ),
+            executive=assignment,
+        ),
+        FlowOutcome(
+            requirement_id=uuid4(),
+            need_index=1,
+            customer_summary="Necesitas renovar tu tarjeta.",
+            category=Category.BLOQUEO_TARJETA,
+            priority=Priority.ALTO,
+            identification_status=IdentificationStatus.IDENTIFICADO,
+            resolution_type=ResolutionType.HUMAN,
+            ticket=TicketResult(
+                id=uuid4(),
+                number=43,
+                status=TicketStatus.PENDIENTE,
+                estimated_wait_minutes=None,
+            ),
+            executive=assignment,
+        ),
+    ]
+
+    speech, plan = compose_outcomes_plan(primary_speech, primary_plan, outcomes)
+
+    assert not any(char.isdigit() for entry in plan.verbatim for char in entry)
+    # Both tickets are still announced; they simply are not what gets measured.
+    assert "42" in speech and "43" in speech
