@@ -12,9 +12,10 @@ nothing wrong, and a substring check on "42" would flag a correct reading. The c
 therefore skips digit-bearing entries outright (`missingVerbatim`), and this module keeps
 them out in the first place: the ticket number, the wait estimate and the window label
 travel in `facts` with guidance to state them exactly, and the ticket screen stays the
-authoritative copy. The one long entry that does carry digits is the grounded answer,
-which is bound to its evidence and must not be reworded -- it stays in `verbatim` for the
-model, and simply is not measured.
+authoritative copy. The grounded answer used to be the one long digit-bearing entry here;
+since 2026-09-05 `verbatim` carries only its short spoken rendering (see `answer_plan`),
+which is both what a kiosk should say out loud and something the client's check can
+actually settle.
 
 This module is pure: it takes values and returns `SpeechPlan`s. It touches no session,
 no database and no agent.
@@ -137,6 +138,37 @@ def confirm_plan(customer_summary: str, fallback_text: str) -> SpeechPlan:
     )
 
 
+def reconfirm_plan(customer_summary: str, *, asked_a_question: bool) -> tuple[str, SpeechPlan]:
+    """The reply was neither a yes nor a no, so nothing has moved.
+
+    Two shapes, one state. Someone who asked what the kiosk understood gets the summary
+    explained; someone whose answer could not be read gets asked again plainly. Neither
+    spends a correction, and neither advances the flow -- which is the whole point: the
+    browser used to answer "no quedó claro" by re-asking, and answer a question with a yes.
+    """
+    speech = (
+        f"Entendí esto: {customer_summary}"
+        if asked_a_question
+        else f"¿Me confirmas que {customer_summary[0].lower()}{customer_summary[1:]}?"
+        if customer_summary
+        else "¿Me lo confirmas?"
+    )
+    guidance = (
+        "Explícale con tus palabras lo que entendiste, tomándolo de `entendido`, y espera "
+        "a que te diga si es correcto. No agregues nada que no esté ahí y no des el "
+        "trámite por confirmado."
+        if asked_a_question
+        else "No quedó claro si te dijo que sí o que no. Vuelve a preguntárselo con tus "
+        "palabras, apoyándote en `entendido`, y pídele una respuesta clara."
+    )
+    return speech, SpeechPlan(
+        intent="CONFIRM",
+        facts={"entendido": customer_summary},
+        guidance=guidance,
+        fallback_text=speech,
+    )
+
+
 HANDOFF_CONFIRMATION_TEXT = (
     "No pude precisar exactamente qué necesitas. ¿Quieres que te atienda una persona?"
 )
@@ -187,24 +219,36 @@ def identification_plan() -> SpeechPlan:
 
 
 def answer_plan(
-    final_response: str | None, *, conversation_can_continue: bool = True
+    final_response: str | None,
+    *,
+    spoken_response: str | None = None,
+    conversation_can_continue: bool = True,
 ) -> tuple[str, SpeechPlan]:
-    """A question the corpus answered. Returns the written rendering and the plan."""
+    """A question the corpus answered. Returns the written rendering and the plan.
+
+    Two renderings of one answer. `final_response` is the full grounded text -- it goes on
+    screen, into the case record and into `fallback_text` for the text channel.
+    `spoken_response` is the one- or two-sentence version the same grounding call produced,
+    and it is the only one the voice model is asked to keep intact.
+
+    Forcing the full answer through `verbatim` made a conversational model read a paragraph
+    aloud, and made the client's verbatim check fail on every reasonable rendering of it.
+    Shortening it here rather than letting the model summarise keeps the spoken words bound
+    to the evidence they were checked against (`GroundedAnswerDecision.supported`).
+    """
     speech = final_response or "Tu consulta quedó resuelta."
+    spoken = (spoken_response or "").strip() or speech
     return speech, SpeechPlan(
         intent="ANSWER",
         # Put the approved answer in `facts` as well as `verbatim`. The compact Realtime
         # model reliably treats `facts` as tool data, while `verbatim` preserves the exact
         # grounded wording. Keeping both prevents it from claiming that the tool supplied
         # no hours or requirements even though the approved answer was present.
-        facts={"respuesta_fundamentada": speech},
-        # The answer is bound to the retrieved evidence and was already checked
-        # against it (`GroundedAnswerDecision.supported`). Rewording it would break
-        # that binding, so it is the one long string the model must reproduce.
-        verbatim=[speech],
+        facts={"respuesta_fundamentada": spoken},
+        verbatim=[spoken],
         guidance=(
-            "Entrega la respuesta de `verbatim` tal cual, completa y sin resumirla "
-            "ni agregarle datos. Puedes presentarla y cerrarla con tus palabras. "
+            "Di la respuesta de `verbatim` tal cual, sin alargarla ni agregarle datos. "
+            "Es corta a propósito: no la amplíes. "
             + (
                 "Después pregúntale si necesita algo más y sigue escuchando."
                 if conversation_can_continue
@@ -303,7 +347,11 @@ def compose_outcomes_plan(
                 need = need[len(opening) :]
                 break
         if outcome.resolution_type is ResolutionType.AUTOMATIC:
-            additions.append(f"Sobre {need}: {outcome.response}")
+            # Same rule as `answer_plan`: what gets said is the short rendering, what gets
+            # shown is the full one. A composed narrative that pastes several full grounded
+            # answers together is the longest thing the kiosk can possibly say.
+            spoken = (outcome.grounding_detail or {}).get("spoken") or outcome.response
+            additions.append(f"Sobre {need}: {spoken}")
         elif outcome.executive and outcome.ticket:
             additions.append(
                 f"Sobre {need}, tu ticket es {outcome.ticket.number}. Dirígete a "

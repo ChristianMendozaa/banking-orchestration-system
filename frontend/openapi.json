@@ -139,18 +139,36 @@
       "ConfirmationRequest": {
         "properties": {
           "confirmed": {
-            "title": "Confirmed",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confirmed"
           },
           "requirement_id": {
             "format": "uuid",
             "title": "Requirement Id",
             "type": "string"
+          },
+          "transcript": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Transcript"
           }
         },
         "required": [
-          "requirement_id",
-          "confirmed"
+          "requirement_id"
         ],
         "title": "ConfirmationRequest",
         "type": "object"
@@ -547,6 +565,17 @@
             "title": "Conversation Can Continue",
             "type": "boolean"
           },
+          "corrected_request": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected Request"
+          },
           "customer_summary": {
             "anyOf": [
               {
@@ -595,7 +624,8 @@
             "enum": [
               "CAPTURE",
               "IDENTIFY",
-              "COMPLETE"
+              "COMPLETE",
+              "CONFIRM"
             ],
             "title": "Next Action",
             "type": "string"

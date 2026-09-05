@@ -91,6 +91,7 @@ class FakeKnowledgeProvider:
     async def grounded_answer(self, _: str, chunks):
         return GroundedAnswerDecision(
             answer="La línea gratuita atiende de lunes a sábado de 09:00 a 18:00.",
+            spoken="La línea gratuita atiende de lunes a sábado, de 09:00 a 18:00.",
             supported=True,
             cited_evidence_refs=[1],
         )

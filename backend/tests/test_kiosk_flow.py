@@ -7,8 +7,13 @@ from sqlalchemy import select
 
 from app.api.deps import get_orchestrator
 from app.db.models import CaseRecord, Identification, KioskSession, Requirement, Ticket, TraceEvent
-from app.domain.enums import Category, ClarificationOutcome, ConsultationLevel
-from app.domain.schemas import ClassificationDecision, ClassifiedNeed
+from app.domain.enums import (
+    Category,
+    ClarificationOutcome,
+    ConfirmationIntent,
+    ConsultationLevel,
+)
+from app.domain.schemas import ClassificationDecision, ClassifiedNeed, ConfirmationReading
 from app.knowledge.service import KnowledgeService
 from app.main import app
 from app.services.agents import (
@@ -58,8 +63,15 @@ async def test_general_query_is_masked_and_resolved_automatically(client: AsyncC
     assert result["conversation_can_continue"] is True
     assert result["remaining_turns"] == settings_for_tests.kiosk_max_turns - 1
     assert result["response"]
-    assert result["speech_plan"]["facts"]["respuesta_fundamentada"] == result["response"]
-    assert result["speech_plan"]["verbatim"] == [result["response"]]
+    # Two renderings of one answer. The screen and the record keep the full grounded text;
+    # what the voice model is asked to keep intact is the short one the same grounding call
+    # produced. Forcing the paragraph through `verbatim` is what made the kiosk read a
+    # document aloud and what made the client's verbatim check fail on a fair rendering.
+    spoken = result["outcomes"][0]["grounding_detail"]["spoken"]
+    assert spoken != result["response"]
+    assert result["speech_plan"]["fallback_text"] == result["response"]
+    assert result["speech_plan"]["facts"]["respuesta_fundamentada"] == spoken
+    assert result["speech_plan"]["verbatim"] == [spoken]
 
     async with TestSession() as db:
         requirement = await db.scalar(select(Requirement))
@@ -1190,7 +1202,9 @@ async def test_repeated_comprehension_failure_routes_an_anonymous_truthful_hando
 ) -> None:
     class ComprehensionProvider:
         async def classify(self, payload: str) -> ClassificationDecision:
-            if "latest_customer_reply" not in payload:
+            # Every turn carries a `dialogue` envelope now, not just a clarification, so
+            # the flag is what separates the two -- `latest_customer_reply` is always there.
+            if '"is_clarification": true' not in payload:
                 return ClassificationDecision(
                     summary="Tiene un problema con una tarjeta que necesita precisar",
                     customer_summary="Tienes un problema con una tarjeta.",
@@ -1273,3 +1287,433 @@ async def test_repeated_comprehension_failure_routes_an_anonymous_truthful_hando
         assert result["executive"]["title"] == "Tarjetas y Seguridad"
     finally:
         app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+async def test_a_follow_up_question_reaches_the_classifier_with_its_context(
+    client: AsyncClient,
+) -> None:
+    """ "¿Y los sábados?" is three words and a reference. It has to arrive as both.
+
+    Until 2026-09-05 the dialogue envelope was built only for a clarification the kiosk had
+    itself asked for. Every voluntary follow-up reached the classifier as an isolated
+    fragment, was embedded as one, and retrieved whatever the corpus had that looked like
+    it -- which is what a person experiences as a kiosk with no memory. The realtime model
+    keeps the whole exchange in its own conversation; the amnesia was in the backend.
+    """
+    seen: list[str] = []
+
+    class RecordingProvider:
+        async def classify(self, payload: str) -> ClassificationDecision:
+            seen.append(payload)
+            return ClassificationDecision(
+                summary="Consulta el horario de atencion de la sucursal",
+                customer_summary="Quieres conocer el horario de atención.",
+                category=Category.CONSULTA_GENERAL,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.95,
+                ambiguous=False,
+                standalone_question="¿Cuál es el horario de atención los sábados?",
+            )
+
+        async def embedding(self, text: str):
+            return await fake_provider.embedding(text)
+
+        async def embeddings(self, texts: list[str]):
+            return await fake_provider.embeddings(texts)
+
+        async def grounded_answer(self, query, chunks):
+            return await fake_provider.grounded_answer(query, chunks)
+
+    provider = RecordingProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        session_id, token = await _session(client)
+        headers = {"X-Session-Token": token}
+
+        first = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={"turn_id": str(uuid4()), "transcript": "¿Cuáles son los horarios de atención?"},
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["next_action"] == "COMPLETE"
+
+        # What the browser syncs for the caption strip is also what the backend reads back.
+        await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/conversation/messages",
+            headers=headers,
+            json={
+                "messages": [
+                    {
+                        "item_id": "item-1",
+                        "role": "CUSTOMER",
+                        "text": "¿Cuáles son los horarios de atención?",
+                    },
+                    {
+                        "item_id": "item-2",
+                        "role": "ASSISTANT",
+                        "text": "Atendemos de lunes a viernes de 08:30 a 16:30.",
+                    },
+                ]
+            },
+        )
+
+        follow_up = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={"turn_id": str(uuid4()), "transcript": "¿Y los sábados?"},
+        )
+        assert follow_up.status_code == 200, follow_up.text
+
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+    payload = seen[-1]
+    assert "recent_exchanges" in payload
+    assert "horarios de atención" in payload
+    assert "08:30" in payload
+    # The answered question is context, never a pending errand: turning it into an active
+    # need is how a resolved FAQ ends up on someone's credit ticket.
+    assert "resolved_topics" in payload
+
+
+async def test_the_resolved_restatement_is_what_retrieval_searches_with(
+    client: AsyncClient,
+) -> None:
+    """The classifier already runs every turn, so resolving the reference costs nothing."""
+    queries: list[list[str]] = []
+
+    class TrackingProvider:
+        async def classify(self, payload: str) -> ClassificationDecision:
+            return ClassificationDecision(
+                summary="Consulta el horario de la sucursal",
+                customer_summary="Quieres conocer el horario de atención.",
+                category=Category.CONSULTA_GENERAL,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.95,
+                ambiguous=False,
+                standalone_question="¿Cuál es el horario de atención los sábados?",
+            )
+
+        async def embedding(self, text: str):
+            return await fake_provider.embedding(text)
+
+        async def embeddings(self, texts: list[str]):
+            queries.append(list(texts))
+            return await fake_provider.embeddings(texts)
+
+        async def grounded_answer(self, query, chunks):
+            queries.append([f"GROUNDING:{query}"])
+            return await fake_provider.grounded_answer(query, chunks)
+
+    provider = TrackingProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        session_id, token = await _session(client)
+        response = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers={"X-Session-Token": token},
+            json={"turn_id": str(uuid4()), "transcript": "¿Y los sábados?"},
+        )
+        assert response.status_code == 200, response.text
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+    embedded = [text for batch in queries for text in batch if not text.startswith("GROUNDING:")]
+    # Three words reach retrieval as the question they referred to.
+    assert any("sábados" in text and "horario" in text for text in embedded)
+    # And it is the question the grounder is asked to answer. Asking it to answer "¿y los
+    # sábados?" against branch-hours evidence is how a question the corpus does answer came
+    # back unsupported.
+    grounding = [text for batch in queries for text in batch if text.startswith("GROUNDING:")]
+    assert grounding and "sábados" in grounding[0]
+
+
+class _SensitiveClassifier:
+    """Classifies anything as a card block, which is what forces a confirmation round."""
+
+    def __init__(self, summary: str = "Necesitas bloquear tu tarjeta.") -> None:
+        self.summary = summary
+
+    async def classify(self, payload: str) -> ClassificationDecision:
+        return ClassificationDecision(
+            summary="Solicita el bloqueo de una tarjeta",
+            customer_summary=self.summary,
+            category=Category.BLOQUEO_TARJETA,
+            consultation_level=ConsultationLevel.SENSIBLE,
+            confidence=0.93,
+            ambiguous=False,
+        )
+
+    async def embedding(self, text: str):
+        return await fake_provider.embedding(text)
+
+    async def embeddings(self, texts: list[str]):
+        return await fake_provider.embeddings(texts)
+
+    async def grounded_answer(self, query, chunks):
+        return await fake_provider.grounded_answer(query, chunks)
+
+
+def _orchestrator_with(provider) -> OrchestratorService:
+    return OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+    )
+
+
+async def _pending_confirmation(client: AsyncClient, provider) -> tuple[str, dict, str]:
+    app.dependency_overrides[get_orchestrator] = lambda: _orchestrator_with(provider)
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    turn = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers=headers,
+        json={"turn_id": str(uuid4()), "transcript": "Necesito bloquear mi tarjeta"},
+    )
+    assert turn.status_code == 200, turn.text
+    assert turn.json()["next_action"] == "CONFIRM"
+    return session_id, headers, turn.json()["requirement_id"]
+
+
+async def test_a_conditional_yes_does_not_confirm_the_procedure(client: AsyncClient) -> None:
+    """ "Sí, pero quiero consultar primero" is a yes to a different question.
+
+    The decision used to be a regular expression in the browser reduced to one boolean, and
+    this sentence carried a positive cue and no negative one -- so it opened the identity
+    field for someone who had just said they were not ready.
+    """
+
+    class Provider(_SensitiveClassifier):
+        async def read_confirmation(self, summary: str, transcript: str):
+            assert "bloquear" in summary
+            assert "consultar primero" in transcript
+            return ConfirmationReading(intent=ConfirmationIntent.QUESTION)
+
+    provider = Provider()
+    try:
+        session_id, headers, requirement_id = await _pending_confirmation(client, provider)
+        response = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={
+                "requirement_id": requirement_id,
+                "confirmed": True,
+                "transcript": "Sí, pero quiero consultar primero los horarios",
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        # Nothing moved: no identity field, and the session is still waiting for an answer.
+        assert body["next_action"] == "CONFIRM"
+        assert body["status"] == "AWAITING_CONFIRMATION"
+
+        async with TestSession() as db:
+            kiosk_session = await db.get(KioskSession, UUID(session_id))
+            assert kiosk_session is not None
+            # A question is not a correction and must not spend the correction budget.
+            assert kiosk_session.correction_count == 0
+            requirement = await db.get(Requirement, UUID(requirement_id))
+            assert requirement is not None
+            assert requirement.confirmation_decision is None
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+async def test_a_correction_travels_with_the_result_instead_of_being_repeated(
+    client: AsyncClient,
+) -> None:
+    """ "No, quería consultar los requisitos" already said what it wanted instead."""
+
+    class Provider(_SensitiveClassifier):
+        async def read_confirmation(self, summary: str, transcript: str):
+            return ConfirmationReading(
+                intent=ConfirmationIntent.CORRECT,
+                corrected_request="Quiero conocer los requisitos para un crédito",
+            )
+
+    provider = Provider()
+    try:
+        session_id, headers, requirement_id = await _pending_confirmation(client, provider)
+        response = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={
+                "requirement_id": requirement_id,
+                "confirmed": False,
+                "transcript": "No, quería consultar los requisitos de un crédito",
+            },
+        )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["next_action"] == "CAPTURE"
+        # The client sends this straight through `POST /turns`; the person says nothing
+        # twice. It is their own request as the backend read it, never an invented one.
+        assert body["corrected_request"] == "Quiero conocer los requisitos para un crédito"
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+async def test_a_plain_yes_still_costs_no_model_call(client: AsyncClient) -> None:
+    """The cue tables exist so an ordinary confirmation stays free.
+
+    Reading every reply with a model would put a round trip in the middle of the shortest
+    exchange the kiosk has.
+    """
+
+    class Provider(_SensitiveClassifier):
+        async def read_confirmation(self, summary: str, transcript: str):
+            raise AssertionError("un sí llano no debe costar una llamada al modelo")
+
+    provider = Provider()
+    try:
+        session_id, headers, requirement_id = await _pending_confirmation(client, provider)
+        response = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={
+                "requirement_id": requirement_id,
+                "confirmed": True,
+                "transcript": "Sí, es correcto",
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["next_action"] == "IDENTIFY"
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+async def test_the_text_channel_keeps_confirming_with_a_button(client: AsyncClient) -> None:
+    """No transcript, no reading: the buttons are unambiguous by construction."""
+
+    class Provider(_SensitiveClassifier):
+        async def read_confirmation(self, summary: str, transcript: str):
+            raise AssertionError("el canal texto no envía transcripción que leer")
+
+    provider = Provider()
+    try:
+        session_id, headers, requirement_id = await _pending_confirmation(client, provider)
+        response = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={"requirement_id": requirement_id, "confirmed": True},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["next_action"] == "IDENTIFY"
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+async def test_a_retry_of_the_same_confirmation_replays_instead_of_conflicting(
+    client: AsyncClient,
+) -> None:
+    """A dropped response is retried without the client re-asserting a boolean.
+
+    `confirmed` is a hint now, not the decision, so a retry that carries only the words must
+    replay the recorded outcome rather than come back as CONFIRMATION_ALREADY_RECORDED.
+    """
+    provider = _SensitiveClassifier()
+    try:
+        session_id, headers, requirement_id = await _pending_confirmation(client, provider)
+        body = {
+            "requirement_id": requirement_id,
+            "transcript": "Sí, es correcto",
+        }
+        first = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation", headers=headers, json=body
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["next_action"] == "IDENTIFY"
+
+        retry = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation", headers=headers, json=body
+        )
+        assert retry.status_code == 200, retry.text
+        assert retry.json()["next_action"] == "IDENTIFY"
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+async def test_a_reply_that_contradicts_the_recorded_answer_is_still_refused(
+    client: AsyncClient,
+) -> None:
+    """The replay guard survives the hint becoming optional."""
+    provider = _SensitiveClassifier()
+    try:
+        session_id, headers, requirement_id = await _pending_confirmation(client, provider)
+        first = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={"requirement_id": requirement_id, "transcript": "Sí, es correcto"},
+        )
+        assert first.status_code == 200, first.text
+
+        contradiction = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={"requirement_id": requirement_id, "transcript": "No"},
+        )
+        assert contradiction.status_code == 409, contradiction.text
+        assert "CONFIRMATION_ALREADY_RECORDED" in contradiction.text
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+async def test_a_yes_that_raises_something_else_does_not_swallow_it(client: AsyncClient) -> None:
+    """ "Sí, y además no reconozco un cargo" is a confirmation carrying a second concern.
+
+    The boolean the browser used to send had nowhere to put the second half, so it was lost
+    between the cue table and the endpoint. This turn stays committed to the request that
+    was confirmed -- manufacturing a second case out of one clause would be worse -- but the
+    concern reaches the trail, where an executive picking the case up can see it.
+    """
+
+    class Provider(_SensitiveClassifier):
+        async def read_confirmation(self, summary: str, transcript: str):
+            return ConfirmationReading(
+                intent=ConfirmationIntent.CONFIRM,
+                added_need="No reconozco un cargo en mi estado de cuenta",
+            )
+
+    provider = Provider()
+    try:
+        session_id, headers, requirement_id = await _pending_confirmation(client, provider)
+        response = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={
+                "requirement_id": requirement_id,
+                "confirmed": True,
+                "transcript": "Sí, y además no reconozco un cargo en mi estado de cuenta",
+            },
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["next_action"] == "IDENTIFY"
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+    async with TestSession() as db:
+        events = list(await db.scalars(select(TraceEvent)))
+    raised = [event for event in events if event.event_type == "ADDITIONAL_NEED_RAISED"]
+    assert len(raised) == 1
+    assert "cargo" in raised[0].metadata_json["need"]

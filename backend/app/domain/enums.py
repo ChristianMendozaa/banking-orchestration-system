@@ -101,6 +101,22 @@ class ClarificationOutcome(StrEnum):
     NOT_APPLICABLE = "NOT_APPLICABLE"
 
 
+class ConfirmationIntent(StrEnum):
+    """What a spoken reply to "¿me confirmas que...?" actually meant.
+
+    A boolean could only say yes or no, and the browser was the one deciding which. Three of
+    these five have no boolean spelling at all: a correction carries the request that should
+    replace the one on the table, a question is not an answer, and an ambiguous reply must
+    not spend a correction the person never made.
+    """
+
+    CONFIRM = "CONFIRM"
+    REJECT = "REJECT"
+    CORRECT = "CORRECT"
+    QUESTION = "QUESTION"
+    AMBIGUOUS = "AMBIGUOUS"
+
+
 class IntentStatus(StrEnum):
     CONFIRMED = "CONFIRMED"
     UNRESOLVED = "UNRESOLVED"

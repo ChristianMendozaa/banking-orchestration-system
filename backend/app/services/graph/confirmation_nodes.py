@@ -8,6 +8,7 @@ routes to `next_action = "BUILD_RESULT"`; `OrchestratorService._dispatch_result`
 adapter) resolves that marker into the actual response after `ainvoke()` returns.
 """
 
+import structlog
 from langgraph.graph import END
 from langgraph.runtime import Runtime
 from langgraph.types import Command
@@ -15,17 +16,23 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import AppError
+from app.core.metrics import STAGE_DURATION
 from app.db.models import CaseRecord, KioskSession, Requirement, TraceEvent
 from app.domain.enums import (
     CaseStatus,
+    ConfirmationIntent,
     ConfirmationKind,
     ConsultationLevel,
     IdentificationStatus,
     IntentStatus,
     SessionStatus,
 )
+from app.domain.schemas import ConfirmationReading
+from app.services.agents.rules.confirmation import unambiguous_confirmation
 from app.services.agents.rules.language import unresolved_customer_summary
 from app.services.graph.state import GraphContext, OrchestrationState
+
+logger = structlog.get_logger()
 
 
 async def create_case_for_requirement(
@@ -152,13 +159,20 @@ async def handle_replay(state: OrchestrationState) -> Command:
     case = state.get("case")
     payload = state["confirmation_payload"]
 
-    if requirement.confirmation_decision != payload.confirmed:
+    # `confirmed` is a hint now and may be absent, so a retry of the same spoken turn must
+    # not 409 simply because the client stopped asserting a boolean. The guard still fires
+    # for a claim that genuinely contradicts what was recorded -- read from the words when
+    # the cue tables can settle them, and never from a model on a replay.
+    claimed = payload.confirmed
+    if claimed is None and payload.transcript:
+        claimed = unambiguous_confirmation(payload.transcript)
+    if claimed is not None and requirement.confirmation_decision != claimed:
         raise AppError(
             "CONFIRMATION_ALREADY_RECORDED",
             "La confirmación ya fue registrada con otra respuesta",
             409,
         )
-    if not payload.confirmed:
+    if not requirement.confirmation_decision:
         if kiosk_session.status != SessionStatus.LISTENING:
             raise AppError(
                 "REQUIREMENT_MISMATCH",
@@ -178,6 +192,45 @@ async def handle_replay(state: OrchestrationState) -> Command:
     # only ever becomes True alongside case creation in the same request -- kept for
     # exact fidelity with the pre-graph method rather than dropped as dead code.
     return Command(goto="validate_fresh_confirmation")  # pragma: no cover
+
+
+async def interpret_confirmation(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
+    """Decide what the reply meant, here rather than in the browser.
+
+    Cue matching settles the replies that cannot mean anything else, so a plain "sí" costs
+    no round trip. Everything it cannot settle is read by the model against the summary the
+    kiosk actually said -- which is the only way "sí, pero quiero consultar primero" stops
+    being a yes, "claro, ¿qué entendiste?" stops being a yes, and "no, quería consultar los
+    requisitos" keeps the request that should replace the one on the table.
+    """
+    payload = state["confirmation_payload"]
+    requirement = state["requirement"]
+    transcript = (payload.transcript or "").strip()
+
+    if not transcript:
+        # The text channel confirms with explicit buttons; there is nothing to read.
+        intent = ConfirmationIntent.CONFIRM if payload.confirmed else ConfirmationIntent.REJECT
+        return {"confirmation_reading": ConfirmationReading(intent=intent)}
+
+    settled = unambiguous_confirmation(transcript)
+    if settled is not None:
+        intent = ConfirmationIntent.CONFIRM if settled else ConfirmationIntent.REJECT
+        return {"confirmation_reading": ConfirmationReading(intent=intent)}
+
+    provider = runtime.context.classifier.provider
+    if provider is None:
+        # No provider, and the cue tables abstained. Asking again is the only honest move:
+        # guessing here spends a correction the person never made.
+        return {"confirmation_reading": ConfirmationReading(intent=ConfirmationIntent.AMBIGUOUS)}
+    try:
+        with STAGE_DURATION.labels(stage="read_confirmation").time():
+            reading = await provider.read_confirmation(
+                requirement.customer_summary or requirement.summary, transcript
+            )
+    except Exception as exc:
+        logger.warning("confirmation_reading_fallback", error_type=type(exc).__name__)
+        return {"confirmation_reading": ConfirmationReading(intent=ConfirmationIntent.AMBIGUOUS)}
+    return {"confirmation_reading": reading}
 
 
 async def validate_fresh_confirmation(
@@ -211,23 +264,40 @@ async def validate_fresh_confirmation(
             "Primero responde la pregunta de aclaración",
             409,
         )
-    return Command(goto="apply_confirmation")
+    return Command(goto="interpret_confirmation")
 
 
 async def apply_confirmation(state: OrchestrationState, runtime: Runtime[GraphContext]) -> Command:
     db = runtime.context.db
     kiosk_session = state["kiosk_session"]
     requirement = state["requirement"]
-    payload = state["confirmation_payload"]
     case = state.get("case")
+    reading = state["confirmation_reading"]
 
-    requirement.confirmation_decision = payload.confirmed
-    if not payload.confirmed:
+    # Neither an answer nor a rejection. Nothing moves: the session stays where it is, the
+    # correction budget is not spent on a correction that was never made, and the kiosk
+    # answers or re-asks. Spending a correction here is how someone who asked what the kiosk
+    # had understood ended up two rounds closer to being handed to a person.
+    if reading.intent in {ConfirmationIntent.QUESTION, ConfirmationIntent.AMBIGUOUS}:
+        return Command(
+            goto=END,
+            update={"next_action": "RECONFIRM", "confirmation_reading": reading},
+        )
+
+    confirmed = reading.intent is ConfirmationIntent.CONFIRM
+    requirement.confirmation_decision = confirmed
+    if not confirmed:
         kiosk_session.correction_count += 1
         if kiosk_session.correction_count < runtime.context.settings.max_corrections:
             requirement.active = False
             kiosk_session.status = SessionStatus.LISTENING
-            return Command(goto=END, update={"next_action": "CAPTURE"})
+            # A correction that named what the person wanted instead carries it out of here
+            # (`OrchestratorService.confirm` feeds it straight back through the turn
+            # pipeline), so they are not asked to say the whole thing over again.
+            return Command(
+                goto=END,
+                update={"next_action": "CAPTURE", "confirmation_reading": reading},
+            )
         # Out of corrections. Re-asking someone who has already rejected the summary this
         # many times is how a session ends in LISTENING with no ticket at all -- a person at
         # the counter can untangle in ten seconds what the kiosk has now failed to capture
@@ -257,6 +327,21 @@ async def apply_confirmation(state: OrchestrationState, runtime: Runtime[GraphCo
 
     if not case:
         case = await create_case_for_requirement(db, kiosk_session, requirement)
+
+    if reading.added_need:
+        # A yes that also raised something else -- "sí, y además no reconozco un cargo".
+        # Recorded against the case rather than swallowed by the yes: this turn is already
+        # committed to the request that was confirmed, and manufacturing a second case out
+        # of one clause of a confirmation would be worse than naming it in the trail. The
+        # trace event needs a case, which is why it is written here and not above.
+        db.add(
+            TraceEvent(
+                case_id=case.id,
+                event_type="ADDITIONAL_NEED_RAISED",
+                description="La persona planteo otra necesidad al confirmar",
+                metadata_json={"need": reading.added_need},
+            )
+        )
 
     if requirement.confirmation_kind is ConfirmationKind.HUMAN_HANDOFF:
         case.force_human = True

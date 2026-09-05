@@ -587,12 +587,14 @@ export interface components {
         /** ConfirmationRequest */
         ConfirmationRequest: {
             /** Confirmed */
-            confirmed: boolean;
+            confirmed?: boolean | null;
             /**
              * Requirement Id
              * Format: uuid
              */
             requirement_id: string;
+            /** Transcript */
+            transcript?: string | null;
         };
         /**
          * ConsultationLevel
@@ -755,6 +757,8 @@ export interface components {
              * @default false
              */
             conversation_can_continue: boolean;
+            /** Corrected Request */
+            corrected_request?: string | null;
             /** Customer Summary */
             customer_summary?: string | null;
             executive?: components["schemas"]["ExecutiveAssignment"] | null;
@@ -771,7 +775,7 @@ export interface components {
              * Next Action
              * @enum {string}
              */
-            next_action: "CAPTURE" | "IDENTIFY" | "COMPLETE";
+            next_action: "CAPTURE" | "IDENTIFY" | "COMPLETE" | "CONFIRM";
             /** Outcomes */
             outcomes?: components["schemas"]["FlowOutcome"][];
             priority?: components["schemas"]["Priority"] | null;

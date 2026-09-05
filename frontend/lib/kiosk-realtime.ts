@@ -23,6 +23,10 @@ export interface ConversationCaption {
 export interface SpokenTurn {
   text: string
   commit: () => void
+  // Hands the words back unspent. Reading reserves them so a second, concurrent tool call
+  // cannot claim the same turn; whichever branch declines to act on them has to say so, or
+  // the reservation outlives the turn and the person is never answered.
+  release: () => void
 }
 
 // Backend codes that mean "this client and the session disagree about where the
@@ -77,7 +81,29 @@ export interface KioskRealtimeCallbacks {
   processSpokenTurn: (
     transcript: string,
     callId?: string,
+    signal?: AbortSignal,
   ) => Promise<KioskTurnProcessingResult>
+  // Called with the result the tool is about to hand back, while `execute` is still on the
+  // stack. Two things depend on that timing. `tool_choice` must drop from `required` before
+  // the response that speaks this result exists, and the SDK puts `response.create` on the
+  // wire the instant `execute` resolves (`sendFunctionCallOutput(..., true)` inside
+  // `#handleFunctionCallImpl`, which emits `agent_tool_end` only afterwards) -- so releasing
+  // it from that event, as this used to, always lost the race. And a result with nothing to
+  // say has to arm the cancellation of that response before it is created, because the SDK
+  // offers no way to hand back an output without one.
+  settleTurn: (result: KioskTurnProcessingResult) => void
+}
+
+// Results the kiosk has nothing to add to. Silence here is not a preference: the person is
+// typing their identity card, or the case is closed, or the answer that came back is stale.
+// `noop` is deliberately absent -- it is also what a turn whose transcription arrived late
+// looks like, and the model talking its way through that is how the turn gets picked up.
+export function turnResultIsSilent(result: KioskTurnProcessingResult): boolean {
+  return (
+    result.kind === "awaiting_identification" ||
+    result.kind === "settled" ||
+    result.kind === "superseded"
+  )
 }
 
 export type KioskTurnProcessingResult =
@@ -93,6 +119,11 @@ export type KioskTurnProcessingResult =
   // No unspent turn to act on. Distinct from `retry`, which is a real failure to resolve
   // something the person did say.
   | { kind: "noop" }
+  // The backend answered, but the conversation moved on while it was answering. The answer
+  // is real and simply no longer current; it is kept for reconciliation and must not be
+  // spoken. Returning the response itself here is what let obsolete answers reach the
+  // speaker even after the client had refused to show them.
+  | { kind: "superseded" }
 
 export function kioskRouteForState(state: {
   session: KioskSession | null
@@ -131,28 +162,52 @@ function normalizeConfirmation(value: string): string {
 // already answered -- which reads as the kiosk not listening.
 const NEGATIVE_CONFIRMATION =
   /\b(no|incorrecto|incorrecta|corregir|correccion|cambiar|equivocado|equivocada|negativo|tampoco|para nada|nada que ver|mas bien)\b/
+// Deliberately without a bare `si`. Stripping diacritics collapses the affirmation "sí" onto
+// the conditional conjunction "si", and "si no es correcto, corrígelo" then matched positive
+// at index 0 and negative at index 3 -- a banking requirement confirmed by a sentence
+// questioning it. The accent is the distinction, so it is read before folding.
 const POSITIVE_CONFIRMATION =
-  /\b(si|sip|correcto|correcta|confirmo|confirmar|de acuerdo|esta bien|es correcto|es correcta|claro|exacto|exactamente|asi es|asi mismo|eso es|por supuesto|obvio|dale|afirmativo|ya pues)\b/
+  /\b(sip|correcto|correcta|confirmo|confirmar|de acuerdo|esta bien|es correcto|es correcta|claro|exacto|exactamente|asi es|asi mismo|eso es|por supuesto|obvio|dale|afirmativo|ya pues)\b/
+// The accented affirmation on text that has not been folded. `\b` is ASCII-only in JavaScript
+// and does not see a boundary after "í", so the edges are spelled out as "not a letter".
+const ACCENTED_YES = /(?<!\p{L})sí(?!\p{L})/u
+// A transcription that dropped the accent is only unambiguous when the reply is nothing else.
+const BARE_YES = /^(?:si|sip)$/
 
 const ADVERSATIVE_CONNECTOR = /\b(pero|aunque|sin embargo|en realidad|mejor dicho|espera)\b/
+// A reply short enough that the cue is the whole of it. "Sí", "no, es incorrecto" and "así
+// es" carry nothing but the answer; past that the extra words are usually the interesting
+// part -- "no, quería consultar los requisitos" is a rejection that already said what it
+// wanted instead, and settling it here would throw that away. Mirrors
+// `MAX_SETTLED_WORDS` in backend/app/services/agents/rules/confirmation.py.
+const MAX_SETTLED_WORDS = 4
 
+/**
+ * A shortcut for replies that cannot mean anything else -- not the decision itself. What it
+ * returns travels to the backend alongside the words that produced it, because "sí, pero
+ * quiero consultar primero" and "claro, ¿qué entendiste?" are not questions a cue list in a
+ * browser can answer.
+ */
 export function explicitConfirmation(value: string): boolean | null {
+  const spoken = compactText(value).toLocaleLowerCase("es")
   const normalized = normalizeConfirmation(value)
+  // Someone answering a yes/no question with a question of their own has not answered it.
+  // "Claro, ¿qué entendiste?" matched `claro` and confirmed a banking requirement.
+  if (/[?¿]/.test(spoken)) return null
+  // "Sí, pero quiero consultar primero" is a yes to a different question: an adversative
+  // connector qualifies whatever cue precedes it, and a cue table cannot tell how.
+  if (ADVERSATIVE_CONNECTOR.test(normalized)) return null
+  if (normalized.split(" ").filter(Boolean).length > MAX_SETTLED_WORDS) return null
+
+  const accentedYes = ACCENTED_YES.test(spoken) || BARE_YES.test(normalized)
   const negative = NEGATIVE_CONFIRMATION.test(normalized)
-  const positive = POSITIVE_CONFIRMATION.test(normalized)
+  const positive = accentedYes || POSITIVE_CONFIRMATION.test(normalized)
 
   if (positive !== negative) return positive
-  if (!positive) return null
-
-  // Both cues matched. "Si, pero no" really is a retraction and must keep re-asking, so an
-  // adversative connector still means ambiguous. Without one, "Si, y ademas no reconozco un
-  // cargo" is a confirmation followed by more detail, and the cue that comes first is the
-  // answer -- re-asking there is the kiosk failing to hear a yes it was given.
-  if (ADVERSATIVE_CONNECTOR.test(normalized)) return null
-  const positiveIndex = normalized.search(POSITIVE_CONFIRMATION)
-  const negativeIndex = normalized.search(NEGATIVE_CONFIRMATION)
-  if (positiveIndex === negativeIndex) return null
-  return positiveIndex < negativeIndex
+  // Neither cue fired, or both did -- "sí, y además no reconozco un cargo" is a yes carrying
+  // a second, unrelated concern that must not be swallowed by the yes. Both are exactly the
+  // shapes the backend reads rather than matches.
+  return null
 }
 
 export function captionsFromHistory(history: RealtimeItem[]): ConversationCaption[] {
@@ -226,6 +281,18 @@ export function isConversationClose(value: string): boolean {
   return /^(?:no\s*,?\s*)?(?:gracias|nada mas|eso es todo|seria todo|no necesito nada mas|listo)(?:\s*,?\s*gracias)?$/.test(
     normalized,
   )
+}
+
+// Realtime server events name the response they belong to in one of two places depending on
+// the event: `response.created`/`response.done` nest it under `response`, the output audio
+// buffer events carry a flat `response_id`. Reading it is what lets the floor tell a late
+// event from a current one -- see `SpeechFloor`.
+export function realtimeResponseId(event: unknown): string | undefined {
+  if (!event || typeof event !== "object") return undefined
+  const payload = event as { response_id?: unknown; response?: { id?: unknown } }
+  if (typeof payload.response_id === "string") return payload.response_id
+  if (typeof payload.response?.id === "string") return payload.response.id
+  return undefined
 }
 
 export type RealtimeToolChoice = "none" | "auto" | "required"
@@ -396,6 +463,13 @@ export function turnProcessingToolOutput(
         "no preguntes nada, no repitas la instrucción y no te disculpes.",
     )
   }
+  if (result.kind === "superseded") {
+    return idleToolOutput(
+      "SUPERSEDED",
+      "Ese resultado dejó de corresponder a lo que te está pidiendo ahora. No lo menciones " +
+        "ni lo mezcles con lo actual: espera en silencio a lo que te diga.",
+    )
+  }
   if (result.kind === "settled") {
     return idleToolOutput(
       "SETTLED",
@@ -437,6 +511,18 @@ export function missingVerbatim(spoken: string, verbatim: readonly string[]): st
     const needle = foldForComparison(entry)
     return needle.length > 0 && !haystack.includes(needle)
   })
+}
+
+/**
+ * The request a rejection named in place of the one it rejected, when there was one.
+ *
+ * Read defensively rather than off the generated type so a client running against an older
+ * backend simply sees no correction instead of failing.
+ */
+export function correctedRequest(response: FlowResult): string | null {
+  if (response.next_action !== "CAPTURE") return null
+  const value = (response as { corrected_request?: unknown }).corrected_request
+  return typeof value === "string" && value.trim() ? value.trim() : null
 }
 
 export function analysisSpeechPlan(response: TurnAnalysis): SpeechPlan {
@@ -551,46 +637,120 @@ export interface SpeechFloorTransport {
 // Re-derived at flush time, not at request time. Returning null withdraws the request.
 export type SpeechFloorMessage = () => string | null
 
+// Responses are identified because the events that end one arrive *after* the event that
+// starts the next. A floor that only counted "is something speaking" freed the replacement
+// response the moment the cancelled one reported `response.done`.
+const UNCORRELATED_RESPONSE = "__uncorrelated__"
+
+// How long the floor waits for the server to acknowledge a `response.create` it asked for.
+// Without a ceiling, a rejected injection (`conversation_already_has_active_response`, which
+// the provider deliberately swallows) would leave the floor busy for the rest of the session.
+const RESPONSE_CREATE_GRACE_MS = 4_000
+
+interface FloorResponse {
+  generating: boolean
+  playing: boolean
+  // Cancelled responses still emit `response.done` and `output_audio_buffer.cleared`. They
+  // are tracked to completion so the bookkeeping stays balanced, but nothing waits on them.
+  cancelled: boolean
+}
+
 export class SpeechFloor {
   #transport: SpeechFloorTransport
-  #responseActive = false
   // Generation finishing is not the same as the kiosk falling silent: `response.done`
-  // arrives while the audio it produced is still coming out of the buffer. Both have to be
-  // over before anything else takes the floor, or the session gets torn down -- or spoken
-  // over -- mid-sentence.
-  #playbackActive = false
+  // arrives while the audio it produced is still coming out of the buffer. An entry lives
+  // until both are over.
+  #responses = new Map<string, FloorResponse>()
+  // A `response.create` this floor put on the wire whose `response.created` has not come
+  // back yet. The floor must look busy in that window or the next request overtakes it.
+  #awaitingCreate = 0
+  #createGraceTimers = new Set<ReturnType<typeof setTimeout>>()
   #activeTools = 0
   #pending = new Map<SpeechFloorKind, SpeechFloorMessage>()
   #waiters: (() => void)[] = []
+  // Set when the application knows the next response the SDK is about to create carries
+  // nothing worth hearing -- an idle tool result, a superseded one. The Agents SDK always
+  // requests a response after a function-call output (`sendFunctionCallOutput(..., true)`),
+  // so guidance alone cannot buy silence; cancelling the response can.
+  #suppressNextResponse = false
 
   constructor(transport: SpeechFloorTransport) {
     this.#transport = transport
   }
 
   get busy(): boolean {
-    return this.#responseActive || this.#playbackActive || this.#activeTools > 0
+    if (this.#activeTools > 0 || this.#awaitingCreate > 0) return true
+    for (const response of this.#responses.values()) {
+      if (!response.cancelled && (response.generating || response.playing)) return true
+    }
+    return false
   }
 
-  noteResponseStarted(): void {
-    this.#responseActive = true
+  #entry(responseId: string | undefined): [string, FloorResponse] {
+    const key = responseId ?? UNCORRELATED_RESPONSE
+    let response = this.#responses.get(key)
+    if (!response) {
+      response = { generating: false, playing: false, cancelled: false }
+      this.#responses.set(key, response)
+    }
+    return [key, response]
   }
 
-  noteResponseDone(): void {
-    this.#responseActive = false
+  #forget(key: string, response: FloorResponse): void {
+    if (!response.generating && !response.playing) this.#responses.delete(key)
+  }
+
+  noteResponseStarted(responseId?: string): void {
+    this.#settleAwaitingCreate()
+    const [key, response] = this.#entry(responseId)
+    response.generating = true
+    if (this.#suppressNextResponse) {
+      this.#suppressNextResponse = false
+      response.cancelled = true
+      this.#cancel()
+    }
+    this.#responses.set(key, response)
+  }
+
+  noteResponseDone(responseId?: string): void {
+    const key = responseId ?? UNCORRELATED_RESPONSE
+    const response = this.#responses.get(key)
+    // A `done` for a response this floor never saw start belongs to a connection or a turn
+    // that is already over. Ignoring it is the whole point of correlating.
+    if (!response) return
+    response.generating = false
+    this.#forget(key, response)
     this.#release()
   }
 
-  noteAudioStarted(): void {
-    this.#playbackActive = true
+  noteAudioStarted(responseId?: string): void {
+    const [key, response] = this.#entry(responseId)
+    response.playing = true
+    this.#responses.set(key, response)
   }
 
   /**
    * Playback ended -- finished, cleared, or cut short by the customer talking over it.
    * Every one of those has to land here: a floor left believing audio is still playing
    * would hold a pending message, and the session open, forever.
+   *
+   * Called without an id by the barge-in path, which reports that the speaker stopped
+   * without saying whose audio it was. That silences every tracked response, which is
+   * correct: the speaker is one device.
    */
-  noteAudioFinished(): void {
-    this.#playbackActive = false
+  noteAudioFinished(responseId?: string): void {
+    if (responseId === undefined) {
+      for (const [key, response] of [...this.#responses]) {
+        response.playing = false
+        this.#forget(key, response)
+      }
+      this.#release()
+      return
+    }
+    const response = this.#responses.get(responseId)
+    if (!response) return
+    response.playing = false
+    this.#forget(responseId, response)
     this.#release()
   }
 
@@ -614,22 +774,52 @@ export class SpeechFloor {
    * finishes typing their CI while the kiosk is still reading out the instruction to type
    * it: that sentence is now obsolete, and letting it run to completion before the closing
    * is what made a fast typist hear two unrelated turns back to back.
+   *
+   * Unlike the version this replaced, it does not assume the cancellation took effect. The
+   * cancelled response is marked and its real `response.done` is awaited, which is what
+   * stops its late events from freeing the message queued behind it.
    */
   preempt(kind: SpeechFloorKind, message: SpeechFloorMessage): void {
-    if (this.#responseActive || this.#playbackActive) {
-      try {
-        this.#transport.interrupt()
-      } catch {
-        // Nothing was playing, or the transport is already gone. Either way the message
-        // below is still the right thing to say next.
-      }
-      // `response.done` and the cleared audio buffer follow a cancellation and would clear
-      // these anyway; doing it here lets the message go out on this tick rather than
-      // waiting for the round trip.
-      this.#responseActive = false
-      this.#playbackActive = false
-    }
+    this.silenceNow()
     this.request(kind, message)
+  }
+
+  /**
+   * Cancel whatever is being said and queue nothing. Separate from `preempt` because the
+   * identity-card submission has to silence the instruction it invalidates *before* the
+   * HTTP round trip, and only knows what to say afterwards.
+   */
+  silenceNow(): void {
+    let speaking = false
+    for (const response of this.#responses.values()) {
+      if (response.cancelled) continue
+      if (response.generating || response.playing) {
+        response.cancelled = true
+        speaking = true
+      }
+    }
+    // Whatever the transport is about to say about the state just invalidated must not be
+    // heard either. The instruction to type the identity card is usually still a
+    // `response.create` on the wire when the card arrives -- the SDK sends one the instant a
+    // tool result resolves -- so cancelling only what is already playing lets the obsolete
+    // sentence start *after* the thing that obsoleted it. The flag is cleared by
+    // `#release`, so an injection the application deliberately makes is never caught by it.
+    this.#suppressNextResponse = true
+    if (speaking) this.#cancel()
+  }
+
+  /** Cancel a standing suppression, for a path that decided it has something to say. */
+  allowNextResponse(): void {
+    this.#suppressNextResponse = false
+  }
+
+  /**
+   * Cancel the next response the SDK creates, before its audio starts. The only silence the
+   * transport can actually guarantee: `guidance` telling the model to say nothing is a
+   * request, `response.cancel` is not.
+   */
+  suppressNextResponse(): void {
+    this.#suppressNextResponse = true
   }
 
   /** Run once the model has finished speaking -- or immediately, if it is not. */
@@ -643,13 +833,29 @@ export class SpeechFloor {
 
   /** A closed session owes nobody a turn; release every waiter so timers still fire. */
   reset(): void {
-    this.#responseActive = false
-    this.#playbackActive = false
+    this.#responses.clear()
     this.#activeTools = 0
+    this.#suppressNextResponse = false
+    this.#settleAwaitingCreate()
     this.#pending.clear()
     const waiters = this.#waiters
     this.#waiters = []
     waiters.forEach((waiter) => waiter())
+  }
+
+  #cancel(): void {
+    try {
+      this.#transport.interrupt()
+    } catch {
+      // Nothing was playing, or the transport is already gone. Either way the caller's
+      // intent -- that this must not be heard -- is unchanged.
+    }
+  }
+
+  #settleAwaitingCreate(): void {
+    this.#awaitingCreate = 0
+    this.#createGraceTimers.forEach((timer) => clearTimeout(timer))
+    this.#createGraceTimers.clear()
   }
 
   #release(): void {
@@ -659,10 +865,20 @@ export class SpeechFloor {
       const text = message()
       if (!text) continue
       try {
+        // The application is asking for this one on purpose; a suppression left standing
+        // from an earlier `silenceNow` is about the sentence that was cancelled, not this.
+        this.#suppressNextResponse = false
         this.#transport.sendMessage(text)
-        // One injection at a time: it has just started a response, and whatever is still
-        // queued gets its turn when that one is done.
-        this.#responseActive = true
+        // One injection at a time. The floor is busy until the server acknowledges with
+        // `response.created`; if it never does -- a rejected slot request -- the grace timer
+        // frees it rather than wedging the session.
+        this.#awaitingCreate += 1
+        const timer = setTimeout(() => {
+          this.#createGraceTimers.delete(timer)
+          this.#awaitingCreate = Math.max(0, this.#awaitingCreate - 1)
+          this.#release()
+        }, RESPONSE_CREATE_GRACE_MS)
+        this.#createGraceTimers.add(timer)
         return
       } catch {
         // The transport went away mid-flush. Remaining requests are dropped with it.

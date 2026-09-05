@@ -5,9 +5,14 @@ from openai import AsyncOpenAI
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.domain.schemas import ClassificationDecision, GroundedAnswerDecision
+from app.domain.schemas import (
+    ClassificationDecision,
+    ConfirmationReading,
+    GroundedAnswerDecision,
+)
 from app.services.prompts import (
     CLASSIFICATION_SYSTEM_PROMPT,
+    CONFIRMATION_READING_SYSTEM_PROMPT,
     GROUNDED_ANSWER_SYSTEM_PROMPT,
     KIOSK_VOICE_INSTRUCTIONS,
 )
@@ -126,6 +131,38 @@ class OpenAIProvider:
         parsed = response.output_parsed
         if parsed is None:
             raise ValueError("OpenAI no devolvio una clasificacion estructurada")
+        return parsed
+
+    async def read_confirmation(
+        self, customer_summary: str, transcript: str
+    ) -> ConfirmationReading:
+        """What a reply to "¿me confirmas que...?" meant, when cue matching cannot say.
+
+        Deliberately not on the hot path: `apply_confirmation` calls this only after
+        `unambiguous_confirmation` returns None, so a plain "sí" still costs zero round
+        trips and only the sentences that were being read wrong pay for a model.
+        """
+        response = await self.client.responses.parse(
+            model=self.settings.orchestration_model,
+            input=[
+                {"role": "system", "content": CONFIRMATION_READING_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        f"Resumen que el kiosco leyo: {customer_summary}\n"
+                        f"Respuesta de la persona: {transcript}"
+                    ),
+                },
+            ],
+            # A short reading of one sentence against one summary. It sits in the same
+            # blocking turn as everything else, and there is no judgement here that a step
+            # of effort buys -- see `classification_reasoning_effort` in core/config.py.
+            reasoning={"effort": self.settings.classification_reasoning_effort},
+            text_format=ConfirmationReading,
+        )
+        parsed = response.output_parsed
+        if parsed is None:
+            raise ValueError("OpenAI no devolvio una lectura de confirmacion estructurada")
         return parsed
 
     async def embedding(self, text: str) -> list[float]:

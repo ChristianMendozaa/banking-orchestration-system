@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.domain.enums import (
     Category,
@@ -108,7 +108,21 @@ class TurnAnalysisResponse(BaseModel):
 
 class ConfirmationRequest(BaseModel):
     requirement_id: UUID
-    confirmed: bool
+    # A hint, no longer the decision. The voice channel derives it from a cue table and the
+    # text channel from an explicit button; either way the backend re-reads `transcript`
+    # when there is one, because "sí, pero quiero consultar primero" and "claro, ¿qué
+    # entendiste?" are not answers a boolean can carry -- and neither is a correction that
+    # names what the person wanted instead.
+    confirmed: bool | None = None
+    # What the person actually said. Absent for the text channel's buttons, which are
+    # unambiguous by construction.
+    transcript: str | None = Field(default=None, max_length=4000)
+
+    @model_validator(mode="after")
+    def require_a_reading(self) -> "ConfirmationRequest":
+        if self.confirmed is None and not (self.transcript or "").strip():
+            raise ValueError("Se requiere `confirmed` o `transcript` para leer la respuesta")
+        return self
 
 
 class IdentificationRequest(BaseModel):
@@ -192,7 +206,10 @@ class FlowResult(BaseModel):
     session_id: UUID
     requirement_id: UUID
     status: SessionStatus
-    next_action: Literal["CAPTURE", "IDENTIFY", "COMPLETE"]
+    # CONFIRM means nothing moved: the reply to the confirmation question was a question
+    # of their own, or could not be read. The session is still AWAITING_CONFIRMATION and the
+    # next reply belongs to `/confirmation`, not `/turns`.
+    next_action: Literal["CAPTURE", "IDENTIFY", "COMPLETE", "CONFIRM"]
     customer_summary: str | None = None
     priority: Priority | None = None
     identification_status: IdentificationStatus | None = None
@@ -210,6 +227,11 @@ class FlowResult(BaseModel):
     outcomes: list[FlowOutcome] = Field(default_factory=list)
     conversation_can_continue: bool = False
     remaining_turns: int = 0
+    # Set only on a CAPTURE that came from a rejection which named what the person wanted
+    # instead ("no, quería consultar los requisitos"). The client sends it straight through
+    # `POST /turns` as the next turn, so the correction is used without being repeated. It
+    # is the person's own words as the backend read them, never an invented request.
+    corrected_request: str | None = None
 
 
 class SessionStatusResponse(BaseModel):

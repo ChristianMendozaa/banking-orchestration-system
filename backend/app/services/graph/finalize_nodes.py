@@ -111,6 +111,14 @@ async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphCon
     # if it is empty.
     primary = requirement.summary.strip() or requirement.masked_text
     retrieval_queries = [primary, requirement.masked_text]
+    # The classifier's context-resolved restatement of the turn. "¿Y los sábados?" reaches
+    # retrieval as three words that match nothing in particular; this is the same turn with
+    # the reference to the branch and to hours put back in. It is a search key like the
+    # others -- merged by score, never trusted on its own -- and it is absent whenever the
+    # keyword fallback classified the turn or finalize was reached from another graph.
+    standalone = (state.get("standalone_question") or "").strip()
+    if standalone:
+        retrieval_queries.append(standalone)
     if CLARIFICATION_JOINER in requirement.masked_text:
         # `horarios_ambiguo` asked a clean question about branch hours on turn 2 and came
         # back NO_EVIDENCE while `horarios_directo`, the same question in one turn, grounded
@@ -127,7 +135,11 @@ async def attempt_grounding(state: OrchestrationState, runtime: Runtime[GraphCon
     principal = principal_need(primary)
     if principal:
         retrieval_queries.append(principal)
-    question = principal or primary
+    # What the grounder is asked to answer. The resolved restatement wins when there is one:
+    # it is the only phrasing that carries what a follow-up was actually about, and asking
+    # the grounder to answer "¿y los sábados?" is what produced an unsupported verdict on a
+    # question the corpus answers.
+    question = standalone or principal or primary
 
     if len(retrieval_queries) > 1:
         runtime.context.db.add(
@@ -191,6 +203,10 @@ async def resolve_automatically(state: OrchestrationState, runtime: Runtime[Grap
     case.grounding_status = GroundingStatus.GROUNDED
     kiosk_session.grounding_detail_json = {
         "outcome": GroundingAttemptOutcome.GROUNDED.value,
+        # The spoken rendering rides in the grounding detail rather than its own column:
+        # it is derived from the same call, it is only ever read back beside the answer it
+        # shortens, and there is nothing here a migration would buy.
+        "spoken": grounded_response.spoken or grounded_response.answer,
         **state["grounding_attempt"].diagnostics,
     }
     kiosk_session.citations_json = [
