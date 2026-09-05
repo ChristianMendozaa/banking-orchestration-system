@@ -6,7 +6,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
-from app.core.metrics import GROUNDING_ATTEMPTS
+from app.core.metrics import GROUNDING_ATTEMPTS, STAGE_DURATION
 from app.db.models import RAGInteraction
 from app.domain.enums import Category, GroundingAttemptOutcome
 from app.domain.schemas import GroundedResponse, GroundingAttempt
@@ -49,8 +49,10 @@ class KnowledgeService:
                 base_diagnostics,
             )
         try:
-            query_embeddings = await self.provider.embeddings(queries)
-            chunks = await self._retrieve_merged(db, query_embeddings, queries, category)
+            with STAGE_DURATION.labels(stage="embed").time():
+                query_embeddings = await self.provider.embeddings(queries)
+            with STAGE_DURATION.labels(stage="retrieve").time():
+                chunks = await self._retrieve_merged(db, query_embeddings, queries, category)
             bounded_chunks: list[RetrievedChunk] = []
             context_tokens = 0
             for item in chunks:
@@ -77,7 +79,8 @@ class KnowledgeService:
                     diagnostics,
                 )
 
-            decision = await self.provider.grounded_answer(masked_query, chunks)
+            with STAGE_DURATION.labels(stage="ground").time():
+                decision = await self.provider.grounded_answer(masked_query, chunks)
             allowed = {index: item for index, item in enumerate(chunks, start=1)}
             cited = list(dict.fromkeys(decision.cited_evidence_refs))
             diagnostics["supported"] = decision.supported
@@ -106,6 +109,10 @@ class KnowledgeService:
 
             response = GroundedResponse(
                 answer=decision.answer.strip(),
+                # A model that returns an empty or whitespace `spoken` has not made the
+                # answer shorter, it has made it silent. Falling back to the full answer
+                # keeps the old behaviour rather than dropping the reply.
+                spoken=decision.spoken.strip() or decision.answer.strip(),
                 citations=[allowed[ref].citation() for ref in cited],
             )
             if answer_validator and not answer_validator(response.answer):

@@ -30,6 +30,7 @@ from app.db.repositories import CaseRepository
 from app.domain.enums import Category, ConfirmationKind, IdentificationStatus, IntentStatus
 from app.domain.schemas import (
     ClassificationDecision,
+    ConfirmationReading,
     ConfirmationRequest,
     GroundingAttempt,
     IdentificationRequest,
@@ -79,11 +80,21 @@ class OrchestrationState(TypedDict, total=False):
     pii_metadata: dict
     decision: ClassificationDecision
     classification_source: str
+    # The turn with its references to the conversation resolved, from the classification
+    # call. Retrieval embeds it instead of the fragment the person actually said, which is
+    # what makes "¿y los sábados?" find branch hours. Absent when finalize is reached from
+    # the confirmation or identification graph, where retrieval falls back to the summary.
+    standalone_question: str
     force_human: bool
     intent_status: IntentStatus
     confirmation_kind: ConfirmationKind
     handoff_summary: str
     auto_resolve: bool
+
+    # confirmation_graph working state: what the reply to the confirmation question meant.
+    # Set by `interpret_confirmation`, read by `apply_confirmation` and by the adapter,
+    # which needs the correction the person gave so they are not asked to repeat it.
+    confirmation_reading: ConfirmationReading
 
     # Shared across graphs once known.
     requirement: Requirement

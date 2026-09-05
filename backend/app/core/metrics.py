@@ -29,3 +29,18 @@ UNRESOLVED_HANDOFFS = Counter(
     "orchestration_unresolved_handoffs_total",
     "Derivaciones donde la accion bancaria quedo sin precisar",
 )
+
+# Per-stage latency inside the turn a customer is standing there waiting through. The
+# acknowledgement the persona used to be ordered to say ("déjame revisar eso") was covering
+# for a number nobody had measured: a general question is a classification call, an
+# embedding batch, retrieval and a grounding call, all serial, all inside one HTTP request
+# and one Postgres row lock. Removing the filler only helps if the wait behind it is known,
+# so it is measured per stage rather than as one opaque total.
+#
+# Labels stay low-cardinality on purpose: a session id here would create a new time series
+# per customer.
+STAGE_DURATION = Histogram(
+    "orchestration_stage_duration_seconds",
+    "Duracion de cada etapa del turno del kiosco",
+    ("stage",),
+)

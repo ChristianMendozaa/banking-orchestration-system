@@ -18,7 +18,7 @@ from app.core.config import Settings
 from app.core.errors import AppError
 from app.db.models import KioskSession, Requirement
 from app.db.repositories import CaseRepository
-from app.domain.enums import SessionStatus
+from app.domain.enums import ConfirmationIntent, SessionStatus
 from app.domain.schemas import (
     ConfirmationRequest,
     FlowResult,
@@ -46,6 +46,7 @@ from app.services.orchestrator.responses import (
     capture_result,
     completed_analysis_response,
     identification_result,
+    reconfirm_result,
 )
 from app.services.pii import PIIMaskingService
 
@@ -131,7 +132,17 @@ class OrchestratorService:
             {"kiosk_session": kiosk_session, "confirmation_payload": payload},
             context=self._graph_context(db),
         )
-        return await self._dispatch_result(db, final_state)
+        result = await self._dispatch_result(db, final_state)
+        # "No, quería consultar los requisitos" is a rejection that already said what it
+        # wanted instead. The session is back in LISTENING and the request is right there,
+        # so it travels on the result: the client sends it through `POST /turns` like any
+        # other turn -- same classification, same sensitivity floors, same state guards --
+        # instead of asking the person to say the whole thing over again.
+        reading = final_state.get("confirmation_reading")
+        correction = (reading.corrected_request or "").strip() if reading else ""
+        if result.next_action == "CAPTURE" and correction:
+            return result.model_copy(update={"corrected_request": correction})
+        return result
 
     async def identify(
         self, db: AsyncSession, kiosk_session: KioskSession, payload: IdentificationRequest
@@ -156,6 +167,13 @@ class OrchestratorService:
         always ended in that same call."""
         next_action = final_state["next_action"]
         kiosk_session = final_state["kiosk_session"]
+        if next_action == "RECONFIRM":
+            reading = final_state["confirmation_reading"]
+            return reconfirm_result(
+                kiosk_session,
+                final_state["requirement"],
+                asked_a_question=reading.intent is ConfirmationIntent.QUESTION,
+            )
         if next_action == "CAPTURE":
             return capture_result(kiosk_session, final_state["requirement"])
         if next_action == "IDENTIFY":

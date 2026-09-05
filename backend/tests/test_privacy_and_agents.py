@@ -264,6 +264,11 @@ async def test_derivation_uses_semantic_similarity_before_experience() -> None:
         async def embedding(self, text: str) -> list[float]:
             return [1.0, 0.0] if "movimiento" in text else [0.0, 1.0]
 
+        async def embeddings(self, texts: list[str]) -> list[list[float]]:
+            # Skill embeddings that are missing are computed in one batched call rather than
+            # one serial call per candidate inside the identification request.
+            return [await self.embedding(text) for text in texts]
+
     selected = await DerivationAgent(Provider(), Repository()).run(
         None,
         Category.REPORTE_FRAUDE,

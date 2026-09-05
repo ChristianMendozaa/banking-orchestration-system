@@ -7,14 +7,16 @@ control flow was made declarative. `PrioritizationAgent.run` stays a direct call
 scoring function, so promoting it to a node would only add indirection.
 """
 
-import json
-
 from langgraph.graph import END
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
 from app.core.errors import AppError
-from app.core.metrics import CLARIFICATION_OUTCOMES, UNRESOLVED_HANDOFFS
+from app.core.metrics import (
+    CLARIFICATION_OUTCOMES,
+    STAGE_DURATION,
+    UNRESOLVED_HANDOFFS,
+)
 from app.db.models import Requirement
 from app.domain.enums import (
     Category,
@@ -31,6 +33,7 @@ from app.services.agents.rules.language import (
     unresolved_customer_summary,
 )
 from app.services.graph import confirmation_nodes
+from app.services.graph.conversation_context import as_classification_input, build_dialogue
 from app.services.graph.state import CLARIFICATION_JOINER, GraphContext, OrchestrationState
 
 
@@ -146,44 +149,59 @@ async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) 
 
 
 async def mask_pii(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
+    """Mask the turn, and give the classifier the conversation it is part of.
+
+    Until 2026-09-05 the dialogue envelope was built only for a clarification -- a turn the
+    kiosk itself had asked for. Every voluntary follow-up ("¿y los sábados?", "¿y si trabajo
+    por mi cuenta?") arrived as an isolated fragment, was classified as one, and was embedded
+    as one. It is built for every turn now, from the session's own stored conversation, and
+    the classifier resolves the reference into `standalone_question` -- which costs no extra
+    round trip, because that call was already happening.
+    """
     kiosk_session = state["kiosk_session"]
     payload = state["turn_payload"]
+    db = runtime.context.db
     masked = runtime.context.pii.mask(payload.transcript)
     context = masked.masked_text
-    classification_input = masked.masked_text
     previous_routing_category = None
     previous_clarification_question = None
-    if payload.is_clarification:
-        previous = await runtime.context.repository.latest_requirement(
-            runtime.context.db, kiosk_session.id
-        )
-        if previous:
-            previous_routing_category = previous.routing_category
-            previous_clarification_question = previous.clarification_question
-            context = f"{previous.masked_text}{CLARIFICATION_JOINER}{masked.masked_text}"
-            classification_input = json.dumps(
-                {
-                    "dialogue": {
-                        "original_unresolved_need": previous.masked_text.split(
-                            CLARIFICATION_JOINER, 1
-                        )[0],
-                        "previous_kiosk_question": previous.clarification_question,
-                        "previous_customer_summary": previous.customer_summary,
-                        "accumulated_masked_context": previous.masked_text,
-                        "latest_customer_reply": masked.masked_text,
-                        "is_clarification": True,
-                        "clarification_count": kiosk_session.clarification_count,
-                        "routing_category": previous.routing_category.value,
-                        "security_incident": previous.security_incident,
-                        "urgency_detected": previous.urgency_detected,
-                    }
-                },
-                ensure_ascii=False,
-            )
-            previous.active = False
+    clarification: dict | None = None
+    active_topic = None
+    active_category = None
+
+    previous = await runtime.context.repository.latest_requirement(db, kiosk_session.id)
+    if previous:
+        active_topic = previous.customer_summary
+        active_category = previous.routing_category.value
+
+    if payload.is_clarification and previous:
+        previous_routing_category = previous.routing_category
+        previous_clarification_question = previous.clarification_question
+        context = f"{previous.masked_text}{CLARIFICATION_JOINER}{masked.masked_text}"
+        clarification = {
+            "original_unresolved_need": previous.masked_text.split(CLARIFICATION_JOINER, 1)[0],
+            "previous_kiosk_question": previous.clarification_question,
+            "previous_customer_summary": previous.customer_summary,
+            "accumulated_masked_context": previous.masked_text,
+            "is_clarification": True,
+            "clarification_count": kiosk_session.clarification_count,
+            "routing_category": previous.routing_category.value,
+            "security_incident": previous.security_incident,
+            "urgency_detected": previous.urgency_detected,
+        }
+        previous.active = False
+
+    dialogue = await build_dialogue(
+        db,
+        kiosk_session.id,
+        latest_customer_reply=masked.masked_text,
+        active_topic=active_topic,
+        active_category=active_category,
+        clarification=clarification,
+    )
     return {
         "masked_context": context,
-        "classification_input": classification_input,
+        "classification_input": as_classification_input(dialogue),
         "previous_routing_category": previous_routing_category,
         "previous_clarification_question": previous_clarification_question,
         "pii_metadata": {"types": masked.pii_types, "counts": masked.counts},
@@ -191,9 +209,10 @@ async def mask_pii(state: OrchestrationState, runtime: Runtime[GraphContext]) ->
 
 
 async def classify(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
-    decision, source = await runtime.context.classifier.run_with_source(
-        state["masked_context"], state["classification_input"]
-    )
+    with STAGE_DURATION.labels(stage="classify").time():
+        decision, source = await runtime.context.classifier.run_with_source(
+            state["masked_context"], state["classification_input"]
+        )
     if (
         decision.clarification_outcome
         in {ClarificationOutcome.DID_NOT_UNDERSTAND, ClarificationOutcome.NO_USEFUL_DETAIL}
@@ -212,7 +231,15 @@ async def classify(state: OrchestrationState, runtime: Runtime[GraphContext]) ->
         )
     if state["turn_payload"].is_clarification:
         CLARIFICATION_OUTCOMES.labels(outcome=decision.clarification_outcome.value).inc()
-    return {"decision": decision, "classification_source": source}
+    # Carried separately from `decision` because it is a retrieval key, not a decision: the
+    # backend still owns category, level, state and whether the turn resolves at all. The
+    # keyword fallback classifier leaves it empty, and retrieval falls back to the summary.
+    standalone = (decision.standalone_question or "").strip()
+    return {
+        "decision": decision,
+        "classification_source": source,
+        "standalone_question": standalone,
+    }
 
 
 def route_ambiguity(state: OrchestrationState, runtime: Runtime[GraphContext]) -> str:

@@ -113,6 +113,7 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
         async def grounded_answer(self, _query, _chunks):
             return GroundedAnswerDecision(
                 answer="Respuesta no verificable",
+                spoken="Respuesta no verificable",
                 supported=True,
                 cited_evidence_refs=[999],
             )
@@ -142,6 +143,7 @@ async def test_model_evidence_references_are_resolved_to_real_chunk_ids() -> Non
         async def grounded_answer(self, _query, _chunks):
             return GroundedAnswerDecision(
                 answer="Respuesta respaldada por dos fragmentos.",
+                spoken="Respuesta respaldada por dos fragmentos.",
                 supported=True,
                 cited_evidence_refs=[1, 1],
             )

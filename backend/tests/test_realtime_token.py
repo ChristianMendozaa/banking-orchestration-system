@@ -112,9 +112,14 @@ async def test_realtime_session_enables_conversation_and_interruptions(
     assert session["audio"]["output"]["voice"] == "marin"
     assert "Trátala de tú" in session["instructions"]
     # The model composes around authoritative tool data. A grounded answer is the exception:
-    # it must reproduce the approved wording instead of improvising or claiming no access.
+    # it must reproduce the approved wording instead of improvising or claiming no access --
+    # now the short spoken rendering of it, not the whole thing.
     assert "no un guión" in session["instructions"]
-    assert "`grounded_answer` es la respuesta aprobada" in session["instructions"]
+    assert "`verbatim` trae la respuesta aprobada" in session["instructions"]
+    # The mandatory acknowledgement is gone. It announced a wait before every consultation,
+    # and the next rule in the same block told the model to stay silent for a case it could
+    # not tell apart until the tool had already returned.
+    assert "déjame revisar eso" not in session["instructions"]
     assert "Cada turno nuevo" in session["instructions"]
     assert "`procesar_turno`" in session["instructions"]
     assert "nunca niegues esa capacidad" in session["instructions"]
@@ -161,18 +166,19 @@ async def test_realtime_secret_returns_the_persona_the_browser_must_apply(
     data = await OpenAIProvider(configured).create_realtime_client_secret("session-test")
 
     assert data["session"]["instructions"] == KIOSK_VOICE_INSTRUCTIONS
-    assert "`grounded_answer` es la respuesta aprobada" in KIOSK_VOICE_INSTRUCTIONS
+    assert "`verbatim` trae la respuesta aprobada" in KIOSK_VOICE_INSTRUCTIONS
     assert "no agregues respuestas, correcciones ni datos" in KIOSK_VOICE_INSTRUCTIONS
     assert "Cada turno nuevo" in KIOSK_VOICE_INSTRUCTIONS
     # An idle tool result is not a failure. Without this the model treated "nothing to
     # process" as an outage and apologised to whoever was standing at the kiosk -- most
     # visibly the moment the CI field appeared, when the session stops accepting turns.
     assert "no hay nada nuevo que procesar" in KIOSK_VOICE_INSTRUCTIONS
-    # Acknowledging a lookup keeps the customer from hearing dead air; announcing a check
-    # nobody asked for is just a stray sentence. On 2026-09-01 an idle check-in produced
-    # "Un momento, voy a verificar cómo quedó el estado del trámite" with no question in
-    # front of it.
-    assert "hazlo callada" in KIOSK_VOICE_INSTRUCTIONS
+    # Neither half of the old acknowledgement rule survives. It ordered a "déjame revisar
+    # eso" before every consultation and, one line later, silence for a check nobody asked
+    # for -- a distinction the model cannot make until the tool has already returned. What
+    # replaced it is one rule: look it up quietly and answer when there is an answer.
+    assert "Consulta callada y responde cuando" in KIOSK_VOICE_INSTRUCTIONS
+    assert "hazlo callada" not in KIOSK_VOICE_INSTRUCTIONS
     assert "no te" in KIOSK_VOICE_INSTRUCTIONS and "disculpes" in KIOSK_VOICE_INSTRUCTIONS
     assert data["session"]["model"] == "gpt-realtime-2.1-mini"
     assert data["session"]["voice"] == "marin"

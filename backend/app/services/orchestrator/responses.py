@@ -49,6 +49,7 @@ from app.services.orchestrator.speech import (
     handoff_plan,
     identification_plan,
     pending_assignment_plan,
+    reconfirm_plan,
     with_privacy_notice,
 )
 
@@ -153,6 +154,37 @@ def analysis_response(
         next_action="CLARIFY" if clarify else "CONFIRM",
         speech_text=speech,
         speech_plan=plan,
+    )
+
+
+def reconfirm_result(
+    kiosk_session: KioskSession,
+    requirement: Requirement,
+    *,
+    asked_a_question: bool,
+) -> FlowResult:
+    """The reply to the confirmation question was a question, or unreadable.
+
+    Nothing moves: the session stays AWAITING_CONFIRMATION, no correction is spent, and
+    `next_action` stays CONFIRM so the client keeps routing the next reply to
+    `/confirmation` rather than to `/turns` -- which, in this state, would hand back the
+    same summary the person was already questioning.
+    """
+    speech, plan = reconfirm_plan(
+        requirement.customer_summary or requirement.summary,
+        asked_a_question=asked_a_question,
+    )
+    return FlowResult(
+        session_id=kiosk_session.id,
+        requirement_id=requirement.id,
+        status=SessionStatus.AWAITING_CONFIRMATION,
+        next_action="CONFIRM",
+        customer_summary=requirement.customer_summary,
+        priority=requirement.proposed_priority,
+        intent_status=requirement.intent_status,
+        speech_text=speech,
+        speech_plan=plan,
+        conversation_can_continue=True,
     )
 
 
@@ -284,7 +316,9 @@ async def build_result(
     urgent_case = primary.priority in {Priority.ALTO, Priority.CRITICO}
     if primary.resolution_type == ResolutionType.AUTOMATIC:
         speech, plan = answer_plan(
-            primary.response, conversation_can_continue=conversation_can_continue
+            primary.response,
+            spoken_response=(primary.grounding_detail or {}).get("spoken"),
+            conversation_can_continue=conversation_can_continue,
         )
     elif primary_assignment and primary_ticket:
         speech, plan = handoff_plan(

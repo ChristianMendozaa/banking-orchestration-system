@@ -318,6 +318,7 @@ graph TD;
 	heal_decision(heal_decision)
 	handle_replay(handle_replay)
 	validate_fresh_confirmation(validate_fresh_confirmation)
+	interpret_confirmation(interpret_confirmation)
 	apply_confirmation(apply_confirmation)
 	finalize(finalize)
 	__end__([<p>__end__</p>]):::last
@@ -329,9 +330,10 @@ graph TD;
 	handle_replay -.-> validate_fresh_confirmation;
 	heal_decision -. &nbsp;replay&nbsp; .-> handle_replay;
 	heal_decision -. &nbsp;fresh&nbsp; .-> validate_fresh_confirmation;
+	interpret_confirmation --> apply_confirmation;
 	load_and_guard --> heal_decision;
 	validate_fresh_confirmation -.-> __end__;
-	validate_fresh_confirmation -.-> apply_confirmation;
+	validate_fresh_confirmation -.-> interpret_confirmation;
 	finalize --> __end__;
 	classDef default fill:#f2f0ff,line-height:1.2
 	classDef first fill-opacity:0

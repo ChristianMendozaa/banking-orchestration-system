@@ -111,8 +111,9 @@ def build_confirmation_graph(finalize_subgraph):
     builder.add_node(
         "validate_fresh_confirmation",
         confirmation_nodes.validate_fresh_confirmation,
-        destinations=(END, "apply_confirmation"),
+        destinations=(END, "interpret_confirmation"),
     )
+    builder.add_node("interpret_confirmation", confirmation_nodes.interpret_confirmation)
     builder.add_node(
         "apply_confirmation",
         confirmation_nodes.apply_confirmation,
@@ -122,6 +123,7 @@ def build_confirmation_graph(finalize_subgraph):
 
     builder.add_edge(START, "load_and_guard")
     builder.add_edge("load_and_guard", "heal_decision")
+    builder.add_edge("interpret_confirmation", "apply_confirmation")
     builder.add_conditional_edges(
         "heal_decision",
         confirmation_nodes.route_replay,

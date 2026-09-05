@@ -13,7 +13,8 @@ from datetime import UTC, datetime
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Executive
+from app.core.metrics import STAGE_DURATION
+from app.db.models import Executive, ExecutiveSkill
 from app.db.repositories import ExecutiveRepository
 from app.domain.enums import Category
 from app.services.openai_provider import OpenAIProvider
@@ -51,7 +52,8 @@ class DerivationAgent:
     async def run(
         self, db: AsyncSession, category: Category, summary: str
     ) -> DerivationDecision | None:
-        ranked = await self._rank(db, category, summary)
+        with STAGE_DURATION.labels(stage="derive").time():
+            ranked = await self._rank(db, category, summary)
         return ranked[0][3] if ranked else None
 
     async def explain(
@@ -86,28 +88,41 @@ class DerivationAgent:
                 )
                 case_embedding = None
 
-        ranked: list[tuple[float, datetime, str, DerivationDecision]] = []
+        candidates: list[tuple[Executive, ExecutiveSkill]] = []
         for executive in executives:
             matching = [skill for skill in executive.skills if skill.category == category]
-            if not matching:
-                continue
-            best_skill = max(matching, key=lambda skill: skill.experience_level)
+            if matching:
+                candidates.append(
+                    (executive, max(matching, key=lambda skill: skill.experience_level))
+                )
+
+        # Skill embeddings are backfilled when a profile is ingested (see
+        # `knowledge/ingestion.py`), but `db/seed.py` nulls them whenever a description
+        # changes. Computing them here, one serial call per candidate, put N model round
+        # trips inside the identification request -- the one the person is standing at the
+        # screen waiting for after typing their identity card. They are batched into a
+        # single call now, and a failure falls back the same way a missing provider does
+        # rather than blocking the ticket.
+        missing = [
+            skill for _, skill in candidates if skill.embedding is None and skill.description
+        ]
+        if case_embedding is not None and missing and self.provider:
+            try:
+                vectors = await self.provider.embeddings([skill.description for skill in missing])
+                for skill, vector in zip(missing, vectors, strict=True):
+                    skill.embedding = vector
+            except Exception as exc:
+                logger.warning(
+                    "routing_skill_embedding_fallback",
+                    missing=len(missing),
+                    error_type=type(exc).__name__,
+                )
+
+        ranked: list[tuple[float, datetime, str, DerivationDecision]] = []
+        for executive, best_skill in candidates:
             semantic = 1.0 if case_embedding is None else 0.0
-            if case_embedding is not None:
-                try:
-                    if best_skill.embedding is None and self.provider:
-                        best_skill.embedding = await self.provider.embedding(best_skill.description)
-                    if best_skill.embedding is not None:
-                        semantic = max(
-                            0.0,
-                            _cosine(case_embedding, list(best_skill.embedding)),
-                        )
-                except Exception as exc:
-                    logger.warning(
-                        "routing_skill_embedding_fallback",
-                        executive_id=str(executive.id),
-                        error_type=type(exc).__name__,
-                    )
+            if case_embedding is not None and best_skill.embedding is not None:
+                semantic = max(0.0, _cosine(case_embedding, list(best_skill.embedding)))
             experience = min(max(best_skill.experience_level, 1), 5) / 5
             load_score = 1 - (loads[executive.id] / max_load)
             score = 0.70 * semantic + 0.20 * experience + 0.10 * load_score

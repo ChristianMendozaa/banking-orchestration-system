@@ -24,7 +24,9 @@ import {
   shouldApplyAnalysisResponse,
   shouldApplyFlowResponse,
   speechPlanToolOutput,
+  correctedRequest,
   turnProcessingToolOutput,
+  turnResultIsSilent,
   SpeechFloor,
 } from "../lib/kiosk-realtime"
 import { ApiError } from "../lib/api"
@@ -104,12 +106,48 @@ describe("explicitConfirmation", () => {
     },
   )
 
-  it.each(["quizás", "puede ser", "continúe", "sí, pero no"])(
-    "rechaza respuestas ambiguas: %s",
-    (value) => {
-      expect(explicitConfirmation(value)).toBeNull()
-    },
-  )
+  it.each([
+    "quizás",
+    "puede ser",
+    "continúe",
+    "sí, pero no",
+    // Folding diacritics collapsed the affirmation "sí" onto the conditional conjunction
+    // "si", so this matched positive at index 0 and negative at index 3 -- a banking
+    // requirement confirmed by the sentence questioning it.
+    "si no es correcto, corrígelo",
+    // Answering a yes/no question with a question of your own is not answering it. This
+    // matched `claro` and confirmed the requirement.
+    "Claro, ¿qué entendiste?",
+    // A yes to something else entirely. It carried a positive cue and no negative one.
+    "sí, pero quiero consultar primero",
+  ])("rechaza respuestas ambiguas: %s", (value) => {
+    expect(explicitConfirmation(value)).toBeNull()
+  })
+})
+
+describe("correctedRequest", () => {
+  const captured = {
+    ...completed,
+    next_action: "CAPTURE",
+  } as unknown as FlowResult
+
+  it("carries the request a rejection named in place of the one it rejected", () => {
+    expect(
+      correctedRequest({
+        ...captured,
+        corrected_request: "Quiero conocer los requisitos para un crédito",
+      } as FlowResult),
+    ).toBe("Quiero conocer los requisitos para un crédito")
+  })
+
+  it("has nothing to carry when the rejection did not say what it wanted instead", () => {
+    expect(correctedRequest(captured)).toBeNull()
+  })
+
+  it("is read defensively, so an older backend simply has no correction", () => {
+    // The field is additive; a client talking to a deployment without it must not fail.
+    expect(correctedRequest({ ...captured, corrected_request: undefined } as FlowResult)).toBeNull()
+  })
 })
 
 describe("captionsFromHistory", () => {
@@ -402,6 +440,7 @@ describe("createKioskRealtimeAgent", () => {
         takePendingResult: () => null,
         resolveSpokenText: async () => null,
         processSpokenTurn: vi.fn(),
+        settleTurn: vi.fn(),
       },
       agentOptions,
     )
@@ -421,8 +460,9 @@ describe("createKioskRealtimeAgent", () => {
     const agent = createKioskRealtimeAgent(
       {
         takePendingResult: () => null,
-        resolveSpokenText: async () => ({ text: "Me robaron la tarjeta.", commit: vi.fn() }),
+        resolveSpokenText: async () => ({ text: "Me robaron la tarjeta.", commit: vi.fn(), release: vi.fn() }),
         processSpokenTurn,
+        settleTurn: vi.fn(),
       },
       agentOptions,
     )
@@ -433,7 +473,12 @@ describe("createKioskRealtimeAgent", () => {
       { toolCall: { callId: "call-1" } } as never,
     )
 
-    expect(processSpokenTurn).toHaveBeenCalledWith("Me robaron la tarjeta.", "call-1")
+    // The third argument is the SDK's own abort signal, merged with the tool timeout, and
+    // handed straight to `fetch` so an abandoned turn stops mutating state behind the
+    // conversation.
+    const [spokenText, spokenCallId, spokenSignal] = processSpokenTurn.mock.calls[0]
+    expect([spokenText, spokenCallId]).toEqual(["Me robaron la tarjeta.", "call-1"])
+    expect(spokenSignal).toBeInstanceOf(AbortSignal)
     const parsed = output
     expect(parsed).toMatchObject({
       ok: true,
@@ -453,7 +498,12 @@ describe("createKioskRealtimeAgent", () => {
     const agent = createKioskRealtimeAgent(
       {
         takePendingResult: () => null,
-        resolveSpokenText: async () => ({ text: "Quiero reportar el robo de mi tarjeta de débito.", commit: vi.fn() }),
+        resolveSpokenText: async () => ({
+          text: "Quiero reportar el robo de mi tarjeta de débito.",
+          commit: vi.fn(),
+          release: vi.fn(),
+        }),
+        settleTurn: vi.fn(),
         processSpokenTurn: vi.fn().mockResolvedValue({
           kind: "analysis",
           response: analysis,
@@ -481,6 +531,7 @@ describe("createKioskRealtimeAgent", () => {
         takePendingResult: () => null,
         resolveSpokenText: async () => null,
         processSpokenTurn,
+        settleTurn: vi.fn(),
       },
       agentOptions,
     )
@@ -505,8 +556,9 @@ describe("createKioskRealtimeAgent", () => {
     const agent = createKioskRealtimeAgent(
       {
         takePendingResult: () => null,
-        resolveSpokenText: async () => ({ text: "Sí, es correcto", commit: vi.fn() }),
+        resolveSpokenText: async () => ({ text: "Sí, es correcto", commit: vi.fn(), release: vi.fn() }),
         processSpokenTurn,
+        settleTurn: vi.fn(),
       },
       agentOptions,
     )
@@ -517,7 +569,7 @@ describe("createKioskRealtimeAgent", () => {
       { toolCall: { callId: "call-3" } } as never,
     )
 
-    expect(processSpokenTurn).toHaveBeenCalledWith("Sí, es correcto", "call-3")
+    expect(processSpokenTurn.mock.calls[0].slice(0, 2)).toEqual(["Sí, es correcto", "call-3"])
     expect(output).toMatchObject({
       next_action: "COMPLETE",
       intent: "HANDOFF",
@@ -534,8 +586,9 @@ describe("createKioskRealtimeAgent", () => {
     const agent = createKioskRealtimeAgent(
       {
         takePendingResult: () => null,
-        resolveSpokenText: async () => ({ text: "Me robaron la tarjeta.", commit }),
+        resolveSpokenText: async () => ({ text: "Me robaron la tarjeta.", commit, release: vi.fn() }),
         processSpokenTurn,
+        settleTurn: vi.fn(),
       },
       agentOptions,
     )
@@ -558,7 +611,8 @@ describe("createKioskRealtimeAgent", () => {
     const agent = createKioskRealtimeAgent(
       {
         takePendingResult: () => null,
-        resolveSpokenText: async () => ({ text: "No sé", commit }),
+        resolveSpokenText: async () => ({ text: "No sé", commit, release: vi.fn() }),
+        settleTurn: vi.fn(),
         processSpokenTurn: vi.fn().mockResolvedValue({
           kind: "retry",
           guidance: "Pide una respuesta clara.",
@@ -966,6 +1020,126 @@ describe("SpeechFloor", () => {
     floor.reset()
     expect(close).toHaveBeenCalledTimes(1)
   })
+
+  it("ignores the cancelled response's own farewell events", () => {
+    // The defect this identification exists for. `response.cancel` does not stop the
+    // response it cancels from reporting `response.done` and a cleared audio buffer, and
+    // those arrive *after* the replacement response has started. A floor that only counted
+    // "is something speaking" freed the replacement mid-sentence -- and with it every
+    // `whenFree` waiter, one of which tears the session down.
+    const wire = transport()
+    const floor = new SpeechFloor(wire)
+    const close = vi.fn()
+    floor.noteResponseStarted("resp_A")
+    floor.noteAudioStarted("resp_A")
+
+    floor.preempt("identification_close", () => "ya quedó resuelto")
+    expect(wire.interrupt).toHaveBeenCalledTimes(1)
+    expect(wire.sendMessage).toHaveBeenCalledWith("ya quedó resuelto")
+
+    // The injection is on the wire; the server acknowledges it, and only then does the
+    // cancelled response finish winding down.
+    floor.noteResponseStarted("resp_B")
+    floor.noteAudioStarted("resp_B")
+    floor.whenFree(close)
+    floor.noteResponseDone("resp_A")
+    floor.noteAudioFinished("resp_A")
+
+    expect(floor.busy).toBe(true)
+    expect(close).not.toHaveBeenCalled()
+
+    floor.noteResponseDone("resp_B")
+    floor.noteAudioFinished("resp_B")
+    expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not stay busy forever when an injection is never acknowledged", () => {
+    // `conversation_already_has_active_response` is swallowed as benign, so a rejected
+    // `response.create` produces no `response.created` and no `response.done`. The floor
+    // used to mark itself speaking on send and wait for an event that never came.
+    vi.useFakeTimers()
+    try {
+      const wire = transport()
+      const floor = new SpeechFloor(wire)
+      floor.request("resume", () => "hola")
+      expect(floor.busy).toBe(true)
+
+      vi.advanceTimersByTime(5_000)
+      expect(floor.busy).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("silences without queueing anything to say", () => {
+    // What the identity-card submission needs: the instruction it invalidates has to stop
+    // before the HTTP round trip, and what to say is only known afterwards.
+    const wire = transport()
+    const floor = new SpeechFloor(wire)
+    floor.noteResponseStarted("resp_A")
+    floor.noteAudioStarted("resp_A")
+
+    floor.silenceNow()
+    expect(wire.interrupt).toHaveBeenCalledTimes(1)
+    expect(wire.sendMessage).not.toHaveBeenCalled()
+  })
+
+  it("cancels a response that had not started yet when it is silenced", () => {
+    // Submitting the identity card before the instruction's audio began. The SDK puts a
+    // `response.create` on the wire the instant a tool result resolves, so at that moment
+    // there is frequently nothing playing to cancel -- and without this the invalidated
+    // sentence simply starts after the thing that invalidated it.
+    const wire = transport()
+    const floor = new SpeechFloor(wire)
+
+    floor.silenceNow()
+    floor.noteResponseStarted("resp_late")
+    expect(wire.interrupt).toHaveBeenCalledTimes(1)
+  })
+
+  it("does not swallow the message the application went silent in order to say", () => {
+    // `silenceNow` then, once the backend answers, `preempt`. The standing suppression is
+    // about the sentence that was cancelled, not about the handover queued behind it.
+    const wire = transport()
+    const floor = new SpeechFloor(wire)
+    floor.noteResponseStarted("resp_ci")
+    floor.noteAudioStarted("resp_ci")
+
+    floor.silenceNow()
+    floor.noteResponseDone("resp_ci")
+    floor.noteAudioFinished("resp_ci")
+    floor.preempt("identification_close", () => "ya escribió su CI")
+
+    expect(wire.sendMessage).toHaveBeenCalledWith("ya escribió su CI")
+    const interruptsBefore = wire.interrupt.mock.calls.length
+    floor.noteResponseStarted("resp_handover")
+    expect(wire.interrupt).toHaveBeenCalledTimes(interruptsBefore)
+  })
+
+  it("cancels a response the application knows carries nothing to say", () => {
+    // The SDK always requests a response after a function-call output, so a `guidance`
+    // asking for silence is a request. `response.cancel` is not.
+    const wire = transport()
+    const floor = new SpeechFloor(wire)
+    floor.suppressNextResponse()
+    floor.noteResponseStarted("resp_idle")
+    expect(wire.interrupt).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("turnResultIsSilent", () => {
+  it.each(["awaiting_identification", "settled", "superseded"] as const)(
+    "has nothing to add to a %s result",
+    (kind) => {
+      expect(turnResultIsSilent({ kind })).toBe(true)
+    },
+  )
+
+  it("lets the model talk its way through a turn whose words arrived late", () => {
+    // `noop` is also what a transcription that missed the settle window looks like. Silencing
+    // that leaves the turn stranded until the person speaks again.
+    expect(turnResultIsSilent({ kind: "noop" })).toBe(false)
+  })
 })
 
 describe("isBenignRealtimeError", () => {
@@ -1041,7 +1215,7 @@ describe("results the model was never shown", () => {
       .mockReturnValueOnce({ kind: "flow", response: handoff })
       .mockReturnValue(null)
     const agent = createKioskRealtimeAgent(
-      { takePendingResult, resolveSpokenText, processSpokenTurn },
+      { takePendingResult, resolveSpokenText, processSpokenTurn, settleTurn: vi.fn() },
       agentOptions,
     )
 
@@ -1073,6 +1247,7 @@ describe("results the model was never shown", () => {
         takePendingResult,
         resolveSpokenText: async () => null,
         processSpokenTurn: vi.fn(),
+        settleTurn: vi.fn(),
       },
       agentOptions,
     )

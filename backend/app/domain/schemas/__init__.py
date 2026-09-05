@@ -17,6 +17,7 @@ import from here are unchanged.
 from app.domain.schemas.ai import (
     ClassificationDecision,
     ClassifiedNeed,
+    ConfirmationReading,
     GroundedAnswerDecision,
     GroundedResponse,
     GroundingAttempt,
@@ -79,6 +80,7 @@ from app.domain.schemas.staff import (
 __all__ = [
     "ClassificationDecision",
     "ClassifiedNeed",
+    "ConfirmationReading",
     "ConfirmationRequest",
     "ConversationHistoryMessage",
     "ConversationHistoryResponse",

@@ -145,8 +145,15 @@ describe("KioskProvider voice turn arbitration", () => {
     }
 
     /** Raw server events reach the provider through the `transport_event` listener. */
-    emitTransportEvent(type: string) {
-      this.emit("transport_event", { type })
+    emitTransportEvent(type: string, responseId?: string) {
+      // Real server events name the response they belong to. The floor needs that: the
+      // events that end a cancelled response arrive after the replacement has started.
+      const payload: Record<string, unknown> = { type }
+      if (responseId) {
+        if (type.startsWith("response.")) payload.response = { id: responseId }
+        else payload.response_id = responseId
+      }
+      this.emit("transport_event", payload)
     }
   }
 
@@ -196,13 +203,22 @@ describe("KioskProvider voice turn arbitration", () => {
 
   let realtime: FakeRealtimeSession
 
-  async function connectedKiosk() {
+  async function connectedKiosk(options: { listening?: boolean } = {}) {
+    const listening = options.listening ?? false
+    const storedSession = listening
+      ? { ...session, status: "LISTENING" }
+      : session
+    const storedResult = listening ? null : identifyResult
     realtime = new FakeRealtimeSession()
     mocks.newRealtimeSession.mockImplementation(() => realtime)
     mocks.createAgent.mockImplementation(() => ({}))
     mocks.sessionRequest.mockImplementation(async (_session: unknown, suffix: string) => {
       if (suffix === "") {
-        return { session_id: session.session_id, status: session.status, result: identifyResult }
+        return {
+          session_id: storedSession.session_id,
+          status: storedSession.status,
+          result: storedResult,
+        }
       }
       if (suffix === "/conversation/messages") return { messages: [], accepted: 0 }
       if (suffix === "/realtime-token") {
@@ -232,9 +248,9 @@ describe("KioskProvider voice turn arbitration", () => {
     sessionStorage.setItem(
       "orquestacion_kiosk_flow_v4",
       JSON.stringify({
-        session,
+        session: storedSession,
         analysis: null,
-        result: identifyResult,
+        result: storedResult,
         isClarification: false,
         interactionMode: "voice",
       }),
@@ -317,5 +333,63 @@ describe("KioskProvider voice turn arbitration", () => {
     // The microphone stays shut: the result is terminal, and the only thing the old
     // `mute(false)` bought was a path from the kiosk's speaker back into its own VAD.
     expect(realtime.mute).not.toHaveBeenCalledWith(false)
+  })
+
+  it("silences the CI prompt before the request, not after it comes back", async () => {
+    // The reported symptom, and the reason the cut "does not always work": the interrupt
+    // used to happen after `await`, so "escribe tu CI en el campo protegido" kept playing
+    // for the whole round trip -- which creates the ticket and assigns an executive.
+    const kiosk = await connectedKiosk()
+    realtime.interrupt.mockClear()
+
+    let releaseIdentification: (value: unknown) => void = () => {}
+    mocks.sessionRequest.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseIdentification = resolve)),
+    )
+
+    act(() => realtime.emitTransportEvent("response.created", "resp_ci"))
+    act(() => realtime.emitTransportEvent("output_audio_buffer.started", "resp_ci"))
+
+    let submitted: Promise<unknown> = Promise.resolve()
+    act(() => {
+      submitted = kiosk.submitIdentification("6735666")
+    })
+
+    // Nothing has come back yet, and the speaker is already quiet.
+    expect(realtime.interrupt).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      releaseIdentification(handoffResult)
+      await submitted
+    })
+  })
+
+  it("does not let a stale answer reach the model after the conversation moved on", async () => {
+    // The client already refused to *show* a superseded answer. It handed the same
+    // response back to the tool anyway, so the model read out an answer to a question the
+    // person had already replaced.
+    const kiosk = await connectedKiosk({ listening: true })
+    const callbacks = mocks.createAgent.mock.calls[0][0] as KioskRealtimeCallbacks
+
+    let releaseTurn: (value: unknown) => void = () => {}
+    mocks.sessionRequest.mockImplementationOnce(
+      () => new Promise((resolve) => (releaseTurn = resolve)),
+    )
+
+    let routed: Promise<unknown> = Promise.resolve()
+    act(() => {
+      routed = callbacks.processSpokenTurn("¿Cuáles son los horarios?", "call-stale")
+    })
+
+    // The conversation moves on while the backend is still answering.
+    await act(async () => {
+      await kiosk.reset()
+    })
+
+    await act(async () => {
+      releaseTurn(handoffResult)
+    })
+
+    await expect(routed).resolves.toMatchObject({ kind: "superseded" })
   })
 })

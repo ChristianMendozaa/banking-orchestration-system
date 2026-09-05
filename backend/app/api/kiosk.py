@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.core.errors import AppError
 from app.core.security import hash_token, new_opaque_token
 from app.db.models import ConversationMessage, KioskSession
+from app.db.repositories import CaseRepository
 from app.db.session import get_db
 from app.domain.enums import SessionStatus
 from app.domain.schemas import (
@@ -57,6 +58,19 @@ async def create_session(
     )
 
 
+# The states a voice channel may be opened or reopened in. ASSIGNED, DECLINED and FAILED
+# are deliberately absent: from those the kiosk has said its last word, and ORCHESTRATING is
+# a request already in flight.
+_VOICE_ELIGIBLE_STATUSES = {
+    SessionStatus.CREATED,
+    SessionStatus.LISTENING,
+    SessionStatus.NEEDS_CLARIFICATION,
+    SessionStatus.AWAITING_CONFIRMATION,
+    SessionStatus.AWAITING_IDENTIFICATION,
+    SessionStatus.RESOLVED_AUTOMATIC,
+}
+
+
 @router.post("/sessions/{session_id}/realtime-token", response_model=RealtimeTokenResponse)
 async def realtime_token(
     kiosk_session: KioskSession = Depends(get_kiosk_session),
@@ -65,18 +79,26 @@ async def realtime_token(
 ) -> RealtimeTokenResponse:
     if not provider:
         raise AppError("OPENAI_NOT_CONFIGURED", "El servicio de voz no esta configurado", 503)
-    if kiosk_session.status not in {
-        SessionStatus.CREATED,
-        SessionStatus.LISTENING,
-        SessionStatus.NEEDS_CLARIFICATION,
-        SessionStatus.AWAITING_CONFIRMATION,
-        SessionStatus.AWAITING_IDENTIFICATION,
-    }:
+    if kiosk_session.status not in _VOICE_ELIGIBLE_STATUSES:
         raise AppError(
             "INVALID_SESSION_STATE",
             "La sesion no admite iniciar el canal de voz en su estado actual",
             409,
         )
+    # RESOLVED_AUTOMATIC is a state the conversation continues from -- `guard_turn` accepts
+    # a follow-up question there and resets the clarification counters for it -- so voice
+    # has to be able to reconnect into it, subject to the same budget that produces
+    # `conversation_can_continue`. Without this, dropping the connection right after the
+    # kiosk answered a question came back as a 409 in the middle of the flow.
+    if kiosk_session.status is SessionStatus.RESOLVED_AUTOMATIC:
+        settings = get_settings()
+        turns = await CaseRepository().turn_count(db, kiosk_session.id)
+        if turns >= settings.kiosk_max_turns:
+            raise AppError(
+                "SESSION_TURN_LIMIT_REACHED",
+                "La sesion alcanzo su limite de turnos",
+                409,
+            )
     data = await provider.create_realtime_client_secret(str(kiosk_session.id))
     if kiosk_session.status == SessionStatus.CREATED:
         kiosk_session.status = SessionStatus.LISTENING
