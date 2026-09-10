@@ -19,12 +19,23 @@ dependencies = [
   "pyjwt>=2.10.1",
   "python-multipart>=0.0.20",
   "prometheus-client>=0.22.1",
-  "pypdf>=6.15.0",
+  "pypdf>=6.16.1",
   "redis>=6.4.0",
   "sqlalchemy[asyncio]>=2.0.41",
   "structlog>=25.4.0",
   "tiktoken>=0.9.0",
   "uvicorn[standard]>=0.35.0",
+]
+
+[tool.uv]
+# Security floors for transitive dependencies. `mcp` pulls in `httpx2` / `httpcore2`
+# without an upper bound; pin the lower bound to the patched releases so a fresh
+# resolve can never regress to a vulnerable version.
+#   httpx2  < 2.11.0: CVE-2026-84379, CVE-2026-84380 (header injection / smuggling)
+#   httpx2  < 2.12.0: CVE-2026-84382 (decompression amplification)
+constraint-dependencies = [
+  "httpx2>=2.12.0",
+  "httpcore2>=2.12.0",
 ]
 
 [dependency-groups]

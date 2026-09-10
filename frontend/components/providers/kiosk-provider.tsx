@@ -1400,6 +1400,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     rememberVerbatim,
     resolveTurnTranscript,
     startCompletionCountdown,
+    takePendingTurnResult,
     updateState,
   ])
 
