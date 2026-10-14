@@ -1,5 +1,6 @@
 "use client"
 
+import { EndSessionButton } from "@/components/kiosk/end-session-button"
 import { KioskProvider } from "@/components/providers/kiosk-provider"
 import { useSystemConfig } from "@/components/providers/system-config-provider"
 import { Building2, RefreshCw } from "lucide-react"
@@ -19,9 +20,12 @@ function KioskShell({ children }: { children: React.ReactNode }) {
             <span className="block text-xs text-white/70">{config?.branch_name ?? ""}</span>
           </span>
         </Link>
-        <span className="hidden text-xs text-white/65 sm:block">
-          Atención segura · No ingreses PIN ni contraseñas
-        </span>
+        <div className="flex items-center gap-4">
+          <span className="hidden text-xs text-white/65 sm:block">
+            Atención segura · No ingreses PIN ni contraseñas
+          </span>
+          <EndSessionButton />
+        </div>
       </header>
       {error && (
         <div
