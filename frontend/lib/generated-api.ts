@@ -491,6 +491,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/tickets/{ticket_id}/derivation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Derive Ticket */
+        post: operations["derive_ticket_api_v1_tickets__ticket_id__derivation_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/tickets/{ticket_id}/derivation/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Derivation Candidates */
+        get: operations["derivation_candidates_api_v1_tickets__ticket_id__derivation_candidates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/tickets/{ticket_id}/identifier/reveal": {
         parameters: {
             query?: never;
@@ -657,6 +691,28 @@ export interface components {
         ConversationSyncResponse: {
             /** Accepted */
             accepted: number;
+        };
+        /** DerivationCandidate */
+        DerivationCandidate: {
+            /** Active Load */
+            active_load: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            status: components["schemas"]["ExecutiveStatus"];
+            /** Title */
+            title: string;
+            /** Window Number */
+            window_number: string;
+        };
+        /** DerivationCandidatesResponse */
+        DerivationCandidatesResponse: {
+            /** Items */
+            items: components["schemas"]["DerivationCandidate"][];
         };
         /** ExecutiveAssignment */
         ExecutiveAssignment: {
@@ -1268,6 +1324,38 @@ export interface components {
             expected_version: number;
             /** Reason */
             reason: string;
+        };
+        /** TicketDerivationRequest */
+        TicketDerivationRequest: {
+            /** Executive Id */
+            executive_id?: string | null;
+            /** Expected Version */
+            expected_version: number;
+            /** Note */
+            note: string;
+        };
+        /** TicketDerivationResult */
+        TicketDerivationResult: {
+            /** Automatic */
+            automatic: boolean;
+            /** Estimated Wait Minutes */
+            estimated_wait_minutes: number | null;
+            /** Executive Id */
+            executive_id: string | null;
+            /** Executive Name */
+            executive_name: string | null;
+            /** Executive Title */
+            executive_title: string | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Number */
+            number: string;
+            status: components["schemas"]["TicketStatus"];
+            /** Window Number */
+            window_number: string | null;
         };
         /** TicketDetail */
         TicketDetail: {
@@ -2560,6 +2648,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TicketDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    derive_ticket_api_v1_tickets__ticket_id__derivation_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TicketDerivationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TicketDerivationResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    derivation_candidates_api_v1_tickets__ticket_id__derivation_candidates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DerivationCandidatesResponse"];
                 };
             };
             /** @description Validation Error */

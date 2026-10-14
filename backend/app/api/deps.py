@@ -48,6 +48,12 @@ def get_orchestrator() -> OrchestratorService:
     )
 
 
+def get_derivation_agent(
+    orchestrator: OrchestratorService = Depends(get_orchestrator),
+) -> DerivationAgent:
+    return orchestrator.derivation
+
+
 async def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     db: AsyncSession = Depends(get_db),

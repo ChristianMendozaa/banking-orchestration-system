@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import {
   categoryColors,
   categoryLabels,
+  executiveStatusLabels,
   formatDateTime,
   priorityLabels,
   resolutionLabels,
@@ -41,6 +42,7 @@ describe("label maps", () => {
     expect(priorityLabels.CRITICO).toBe("Crítico")
     expect(statusLabels.EN_ATENCION).toBe("En atención")
     expect(resolutionLabels.PENDIENTE_DOCUMENTACION).toBe("Pendiente de documentación")
+    expect(executiveStatusLabels.OCUPADO).toBe("En atención")
     expect(Object.values(categoryColors).every((color) => /^#[0-9A-F]{6}$/i.test(color))).toBe(
       true,
     )

@@ -9,6 +9,7 @@ embedding provider is available it degrades to 1.0 so experience and load still 
 import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from uuid import UUID
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,10 +68,34 @@ class DerivationAgent:
         ranked = await self._rank(db, category, summary)
         return [row[3] for row in ranked]
 
+    async def rederive(
+        self,
+        db: AsyncSession,
+        category: Category,
+        summary: str,
+        *,
+        exclude_executive_id: UUID | None,
+    ) -> DerivationDecision | None:
+        """Pick who receives a case an executive is handing off.
+
+        Same ranking as `run()`, over a wider pool: the executive letting go of the case is
+        left out, and a busy colleague stays in, because the ticket waits in their queue.
+        """
+        executives = await self.repository.transfer_candidates(db, exclude_id=exclude_executive_id)
+        with STAGE_DURATION.labels(stage="derive").time():
+            ranked = await self._rank(db, category, summary, executives=executives)
+        return ranked[0][3] if ranked else None
+
     async def _rank(
-        self, db: AsyncSession, category: Category, summary: str
+        self,
+        db: AsyncSession,
+        category: Category,
+        summary: str,
+        *,
+        executives: list[Executive] | None = None,
     ) -> list[tuple[float, datetime, str, DerivationDecision]]:
-        executives = await self.repository.available(db)
+        if executives is None:
+            executives = await self.repository.available(db)
         if not executives:
             return []
 

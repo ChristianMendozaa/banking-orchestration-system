@@ -279,6 +279,47 @@ async def test_derivation_uses_semantic_similarity_before_experience() -> None:
     assert selected.active_load == 0
 
 
+async def test_rederivation_skips_the_origin_and_keeps_busy_colleagues() -> None:
+    origin_id = uuid4()
+    busy = Executive(
+        display_name="Colega ocupada",
+        title="Ejecutivo",
+        window_number="V2",
+        status=ExecutiveStatus.OCUPADO,
+    )
+    busy.id = uuid4()
+    busy.skills = [
+        ExecutiveSkill(
+            category=Category.REPORTE_FRAUDE,
+            description="fraude",
+            experience_level=3,
+        )
+    ]
+    asked: list[object] = []
+
+    class Repository:
+        async def available(self, _):
+            raise AssertionError("A handoff must not be limited to free executives")
+
+        async def transfer_candidates(self, _, *, exclude_id):
+            asked.append(exclude_id)
+            return [busy]
+
+        async def active_loads(self, _):
+            return defaultdict(int, {busy.id: 1})
+
+    selected = await DerivationAgent(None, Repository()).rederive(
+        None,
+        Category.REPORTE_FRAUDE,
+        "movimiento no reconocido",
+        exclude_executive_id=origin_id,
+    )
+    assert asked == [origin_id]
+    assert selected is not None
+    assert selected.executive is busy
+    assert selected.active_load == 1
+
+
 @pytest.mark.usability
 def test_comprehension_retry_requires_one_short_concept() -> None:
     assert clarification_is_simple("¿Qué pasó con tu tarjeta?")

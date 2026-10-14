@@ -1,53 +1,46 @@
 "use client"
 
+import { IdentifierReveal } from "@/components/executive/identifier-reveal"
 import { StatusSelector } from "@/components/executive/status-selector"
-import { useAuth } from "@/components/providers/auth-provider"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { errorMessage } from "@/lib/api"
 import { formatDateTime, resolutionLabels, statusLabels } from "@/lib/labels"
+import type { TicketDerivation } from "@/lib/types"
 import { useTicketDetail } from "@/lib/use-ticket-detail"
 import {
   Activity,
   ArrowLeft,
   Clock3,
-  Eye,
-  EyeOff,
-  IdCard,
+  Forward,
   MessageSquareText,
   ShieldCheck,
   UserRound,
 } from "lucide-react"
 import Link from "next/link"
-import { use, useEffect, useState } from "react"
+import { use, useState } from "react"
 
 export default function CaseDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
-  const { request } = useAuth()
   const { ticket, setTicket, error, setError, reload } = useTicketDetail(id)
-  const [revealedCi, setRevealedCi] = useState<string | null>(null)
-  const [revealing, setRevealing] = useState(false)
-  useEffect(() => {
-    if (!revealedCi) return
-    const timer = window.setTimeout(() => setRevealedCi(null), 30_000)
-    return () => window.clearTimeout(timer)
-  }, [revealedCi])
+  const [derivation, setDerivation] = useState<TicketDerivation | null>(null)
 
-  async function revealIdentifier() {
-    setRevealing(true)
-    setError(null)
-    try {
-      const response = await request<{ identifier: string }>(`/tickets/${id}/identifier/reveal`, { method: "POST" })
-      setRevealedCi(response.identifier)
-      await reload()
-    } catch (reason) {
-      setError(errorMessage(reason))
-    } finally {
-      setRevealing(false)
-    }
+  // The case now belongs to someone else, so the file is replaced rather than reloaded.
+  if (derivation) {
+    return (
+      <div className="mx-auto max-w-4xl">
+        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6" role="status">
+          <p className="flex items-center gap-2 text-lg font-bold text-emerald-900"><Forward className="h-5 w-5" />Ticket #{derivation.number} derivado</p>
+          <p className="mt-2 text-sm text-emerald-800">
+            {derivation.executive_name
+              ? `Ahora lo atiende ${derivation.executive_name} (${derivation.executive_title}) en ${derivation.window_number}.`
+              : "No hay un ejecutivo que pueda recibirlo ahora: quedó en la cola sin asignar para gerencia."}
+          </p>
+          {derivation.estimated_wait_minutes !== null && <p className="mt-1 text-sm text-emerald-800">Espera estimada: {derivation.estimated_wait_minutes} min.</p>}
+        </div>
+        <Link className="mt-5 inline-flex items-center gap-2 text-sm text-[#1168BD]" href="/ejecutivo"><ArrowLeft className="h-4 w-4" /> Volver a casos asignados</Link>
+      </div>
+    )
   }
-
   if (error && !ticket) {
     return <div className="mx-auto max-w-4xl"><Link className="text-sm text-[#1168BD]" href="/ejecutivo">← Volver</Link><p className="mt-5 rounded-xl bg-red-50 p-4 text-red-700">{error}</p></div>
   }
@@ -86,17 +79,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
                 <p className="mt-2 font-semibold text-gray-900">{ticket.identity.display_name ?? "Cliente no registrado"}</p>
                 <p className="mt-1 text-xs text-gray-500">{ticket.identity.status.replaceAll("_", " ")}</p>
               </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">Cédula de identidad</p>
-                <p className="mt-2 flex items-center gap-2 font-mono text-lg font-bold text-gray-900"><IdCard className="h-5 w-5 text-[#1168BD]" />{revealedCi ?? ticket.identity.masked_identifier ?? "No requerida"}</p>
-                {ticket.identity.reveal_available && (
-                  <Button className="mt-2" disabled={revealing} onClick={() => revealedCi ? setRevealedCi(null) : void revealIdentifier()} size="sm" variant="secondary">
-                    {revealedCi ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    {revealedCi ? "Ocultar CI" : revealing ? "Revelando…" : "Revelar por 30 s"}
-                  </Button>
-                )}
-                {!ticket.identity.reveal_available && ticket.identity.masked_identifier && <p className="mt-2 text-xs text-gray-400">CI completo no disponible para este caso histórico.</p>}
-              </div>
+              <IdentifierReveal ticket={ticket} onError={setError} onRevealed={reload} />
             </CardContent>
           </Card>
 
@@ -139,7 +122,7 @@ export default function CaseDetailPage({ params }: { params: Promise<{ id: strin
         <aside className="space-y-6">
           <Card>
             <CardHeader><CardTitle>Gestión del caso</CardTitle></CardHeader>
-            <CardContent><StatusSelector ticket={ticket} onUpdated={setTicket} /></CardContent>
+            <CardContent><StatusSelector ticket={ticket} onUpdated={setTicket} onDerived={setDerivation} /></CardContent>
           </Card>
           <Card>
             <CardContent className="space-y-4">
