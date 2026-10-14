@@ -115,6 +115,24 @@ class ExecutiveRepository:
             ).all()
         )
 
+    async def transfer_candidates(
+        self, db: AsyncSession, *, exclude_id: UUID | None
+    ) -> list[Executive]:
+        """Who a case can be handed to: anyone still working, busy or not.
+
+        A derived ticket waits in the receiving executive's queue, so being mid-attention
+        does not disqualify them the way it does for a customer standing at the kiosk.
+        """
+        statement = (
+            select(Executive)
+            .where(Executive.status != ExecutiveStatus.INACTIVO)
+            .options(selectinload(Executive.skills))
+            .order_by(Executive.display_name)
+        )
+        if exclude_id:
+            statement = statement.where(Executive.id != exclude_id)
+        return list((await db.scalars(statement)).all())
+
     async def active_loads(self, db: AsyncSession) -> defaultdict[UUID, int]:
         rows = await db.execute(
             select(Ticket.executive_id, func.count(Ticket.number))

@@ -10,6 +10,7 @@ from app.domain.enums import (
     Category,
     ConsultationLevel,
     ConversationRole,
+    ExecutiveStatus,
     IdentificationStatus,
     Priority,
     ResolutionOutcome,
@@ -96,3 +97,40 @@ class TicketStatusUpdate(BaseModel):
 class IdentifierRevealResponse(BaseModel):
     identifier: str
     reveal_seconds: int = 30
+
+
+class TicketDerivationRequest(BaseModel):
+    expected_version: int = Field(ge=1)
+    note: str = Field(min_length=10, max_length=1000)
+    # None lets the routing engine choose; a value is the colleague the executive picked.
+    executive_id: UUID | None = None
+
+    @field_validator("note")
+    @classmethod
+    def clean_note(cls, value: str) -> str:
+        return " ".join(value.split())
+
+
+class TicketDerivationResult(BaseModel):
+    id: UUID
+    number: str
+    status: TicketStatus
+    executive_id: UUID | None
+    executive_name: str | None
+    executive_title: str | None
+    window_number: str | None
+    estimated_wait_minutes: int | None
+    automatic: bool
+
+
+class DerivationCandidate(BaseModel):
+    id: UUID
+    name: str
+    title: str
+    window_number: str
+    status: ExecutiveStatus
+    active_load: int
+
+
+class DerivationCandidatesResponse(BaseModel):
+    items: list[DerivationCandidate]

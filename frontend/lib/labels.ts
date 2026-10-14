@@ -1,4 +1,10 @@
-import type { Category, Priority, ResolutionOutcome, TicketStatus } from "@/lib/types"
+import type {
+  Category,
+  ExecutiveStatus,
+  Priority,
+  ResolutionOutcome,
+  TicketStatus,
+} from "@/lib/types"
 
 export const categoryLabels: Record<Category, string> = {
   BLOQUEO_TARJETA: "Bloqueo de tarjeta",
@@ -35,6 +41,12 @@ export const resolutionLabels: Record<ResolutionOutcome, string> = {
   PENDIENTE_DOCUMENTACION: "Pendiente de documentación",
   CLIENTE_DESISTIO: "Cliente desistió",
   NO_RESUELTO: "No resuelto",
+}
+
+export const executiveStatusLabels: Record<ExecutiveStatus, string> = {
+  DISPONIBLE: "Disponible",
+  OCUPADO: "En atención",
+  INACTIVO: "No disponible",
 }
 
 export function formatDateTime(value: string | null): string {

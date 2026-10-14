@@ -1,19 +1,28 @@
 "use client"
 
+import { DerivationForm } from "@/components/executive/derivation-form"
 import { useAuth } from "@/components/providers/auth-provider"
 import { Button } from "@/components/ui/button"
 import { errorMessage } from "@/lib/api"
 import { resolutionLabels } from "@/lib/labels"
-import type { ResolutionOutcome, TicketDetail } from "@/lib/types"
+import type { ResolutionOutcome, TicketDerivation, TicketDetail } from "@/lib/types"
 import { CheckCircle2, PlayCircle } from "lucide-react"
 import { useState } from "react"
+
+// A derivation hands the case to a colleague instead of ending it, so it is its own action
+// below rather than one more way to close.
+const closingOutcomes = (Object.entries(resolutionLabels) as [ResolutionOutcome, string][]).filter(
+  ([value]) => value !== "DERIVADO",
+)
 
 export function StatusSelector({
   ticket,
   onUpdated,
+  onDerived,
 }: {
   ticket: TicketDetail
   onUpdated: (ticket: TicketDetail) => void
+  onDerived: (derivation: TicketDerivation) => void
 }) {
   const { request } = useAuth()
   const [updating, setUpdating] = useState(false)
@@ -66,6 +75,9 @@ export function StatusSelector({
           {updating ? "Iniciando…" : "Iniciar atención"}
         </Button>
         {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</p>}
+        <div className="border-t border-gray-100 pt-4">
+          <DerivationForm ticket={ticket} onDerived={onDerived} />
+        </div>
       </div>
     )
   }
@@ -80,7 +92,7 @@ export function StatusSelector({
           onChange={(event) => setOutcome(event.target.value as ResolutionOutcome)}
           value={outcome}
         >
-          {(Object.entries(resolutionLabels) as [ResolutionOutcome, string][]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          {closingOutcomes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
       </div>
       <div>
@@ -102,6 +114,9 @@ export function StatusSelector({
       </Button>
       {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</p>}
       <p className="text-xs text-gray-400">La nota se protege nuevamente antes de guardarse.</p>
+      <div className="border-t border-gray-100 pt-4">
+        <DerivationForm ticket={ticket} onDerived={onDerived} />
+      </div>
     </div>
   )
 }

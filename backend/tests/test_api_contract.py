@@ -41,6 +41,8 @@ EXPECTED_OPERATIONS = {
     ("PATCH", "/api/v1/management/tickets/{ticket_id}/priority"),
     ("GET", "/api/v1/system/public-config"),
     ("GET", "/api/v1/tickets/{ticket_id}"),
+    ("POST", "/api/v1/tickets/{ticket_id}/derivation"),
+    ("GET", "/api/v1/tickets/{ticket_id}/derivation/candidates"),
     ("POST", "/api/v1/tickets/{ticket_id}/identifier/reveal"),
     ("PATCH", "/api/v1/tickets/{ticket_id}/status"),
 }

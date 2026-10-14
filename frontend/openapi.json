@@ -320,6 +320,60 @@
         "title": "ConversationSyncResponse",
         "type": "object"
       },
+      "DerivationCandidate": {
+        "properties": {
+          "active_load": {
+            "title": "Active Load",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ExecutiveStatus"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "window_number": {
+            "title": "Window Number",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "title",
+          "window_number",
+          "status",
+          "active_load"
+        ],
+        "title": "DerivationCandidate",
+        "type": "object"
+      },
+      "DerivationCandidatesResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/DerivationCandidate"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "DerivationCandidatesResponse",
+        "type": "object"
+      },
       "ExecutiveAssignment": {
         "properties": {
           "id": {
@@ -1971,6 +2025,128 @@
           "reason"
         ],
         "title": "TicketAssignmentUpdate",
+        "type": "object"
+      },
+      "TicketDerivationRequest": {
+        "properties": {
+          "executive_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Id"
+          },
+          "expected_version": {
+            "minimum": 1.0,
+            "title": "Expected Version",
+            "type": "integer"
+          },
+          "note": {
+            "maxLength": 1000,
+            "minLength": 10,
+            "title": "Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_version",
+          "note"
+        ],
+        "title": "TicketDerivationRequest",
+        "type": "object"
+      },
+      "TicketDerivationResult": {
+        "properties": {
+          "automatic": {
+            "title": "Automatic",
+            "type": "boolean"
+          },
+          "estimated_wait_minutes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Estimated Wait Minutes"
+          },
+          "executive_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Id"
+          },
+          "executive_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Name"
+          },
+          "executive_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Executive Title"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TicketStatus"
+          },
+          "window_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Number"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "status",
+          "executive_id",
+          "executive_name",
+          "executive_title",
+          "window_number",
+          "estimated_wait_minutes",
+          "automatic"
+        ],
+        "title": "TicketDerivationResult",
         "type": "object"
       },
       "TicketDetail": {
@@ -4760,6 +4936,112 @@
           }
         ],
         "summary": "Ticket Detail",
+        "tags": [
+          "Operacion ejecutiva"
+        ]
+      }
+    },
+    "/api/v1/tickets/{ticket_id}/derivation": {
+      "post": {
+        "operationId": "derive_ticket_api_v1_tickets__ticket_id__derivation_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketDerivationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketDerivationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Derive Ticket",
+        "tags": [
+          "Operacion ejecutiva"
+        ]
+      }
+    },
+    "/api/v1/tickets/{ticket_id}/derivation/candidates": {
+      "get": {
+        "operationId": "derivation_candidates_api_v1_tickets__ticket_id__derivation_candidates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ticket Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DerivationCandidatesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Derivation Candidates",
         "tags": [
           "Operacion ejecutiva"
         ]
