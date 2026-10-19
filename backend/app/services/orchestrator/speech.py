@@ -101,14 +101,25 @@ def with_privacy_notice(
     )
 
 
-def decline_plan() -> SpeechPlan:
+def decline_plan(*, conversation_can_continue: bool) -> SpeechPlan:
+    """A decline either keeps listening or, after too many in a row, says goodbye.
+
+    It always used to say goodbye, and the turn it declined was often a bystander's sentence
+    rather than the customer's request -- so one stray "la presentación sería..." closed a
+    session someone was still standing in front of.
+    """
+    closing = (
+        "Luego pregúntale en una frase breve si necesita algo de esa lista y sigue escuchando."
+        if conversation_can_continue
+        else "Luego despídete brevemente: esta atención termina aquí y no haces otra pregunta."
+    )
     return SpeechPlan(
         intent="DECLINE",
         facts={"alcance": KIOSK_SCOPE},
         guidance=(
             "Dile con amabilidad que eso no lo puedes atender en este kiosco y nómbrale lo "
             "que sí atiendes, tomándolo de `alcance`. No ofrezcas ningún servicio que no "
-            "esté en esa lista, no pidas confirmación y no sigas la conversación."
+            "esté en esa lista y no pidas confirmación. " + closing
         ),
         fallback_text=DECLINE_SPEECH_TEXT,
     )

@@ -54,6 +54,10 @@ class KioskSession(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     preferential_attention: Mapped[bool] = mapped_column(Boolean, default=False)
     clarification_count: Mapped[int] = mapped_column(Integer, default=0)
     correction_count: Mapped[int] = mapped_column(Integer, default=0)
+    # Declined turns in a row. A decline used to end the session outright, so one sentence
+    # from someone standing next to the kiosk -- classified out of scope -- closed it on the
+    # customer. Only `kiosk_max_consecutive_declines` of them in a row do now.
+    decline_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     resolution_type: Mapped[ResolutionType | None] = mapped_column(
         string_enum(ResolutionType), nullable=True
     )

@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest"
 
 import { kioskRouteForState } from "../lib/kiosk-realtime"
-import type { FlowResult, KioskSession } from "../lib/types"
+import type { FlowResult, KioskSession, TurnAnalysis } from "../lib/types"
 
 const session: KioskSession = {
   session_id: "session-1",
@@ -63,5 +63,44 @@ describe("kioskRouteForState", () => {
     expect(
       kioskRouteForState({ session, result: result("COMPLETE", "AUTOMATIC") }),
     ).toBe("/kiosco/voz")
+  })
+})
+
+function decline(conversationCanContinue: boolean): TurnAnalysis {
+  return {
+    requirement_id: "requirement-1",
+    status: "DECLINED",
+    summary: "Pide un restaurante.",
+    customer_summary: "Necesitas orientación sobre una consulta bancaria.",
+    category: "CONSULTA_GENERAL",
+    priority: "BAJO",
+    consultation_level: "GENERAL",
+    confidence: 0.95,
+    intent_status: "CONFIRMED",
+    confirmation_kind: "INTENT",
+    clarification_outcome: "NOT_APPLICABLE",
+    clarification_question: null,
+    pii_types: [],
+    next_action: "DECLINE",
+    speech_text: "En este kiosco solo puedo ayudarte con...",
+    speech_plan: {
+      intent: "DECLINE",
+      facts: {},
+      verbatim: [],
+      guidance: "Dile que eso no lo atiendes.",
+      fallback_text: "En este kiosco solo puedo ayudarte con...",
+    },
+    conversation_can_continue: conversationCanContinue,
+  }
+}
+
+describe("kioskRouteForState after a decline", () => {
+  it("stays in the conversation when the session recovers from it", () => {
+    expect(
+      kioskRouteForState({ session, result: null, analysis: decline(true) }),
+    ).toBe("/kiosco/voz")
+    expect(
+      kioskRouteForState({ session, result: null, analysis: decline(false) }),
+    ).toBe("/kiosco/respuesta")
   })
 })

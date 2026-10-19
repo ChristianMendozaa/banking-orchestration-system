@@ -56,6 +56,7 @@ const analysis: TurnAnalysis = {
     guidance: "Confirma en una pregunta breve y natural que entendiste eso.",
     fallback_text: "¿Me confirmas si necesitas reportar un fraude en tu tarjeta?",
   },
+  conversation_can_continue: false,
 }
 
 const completed: FlowResult = {
@@ -893,6 +894,17 @@ describe("microphoneShouldBeOpen", () => {
         result: null,
       }),
     ).toBe(false)
+  })
+
+  // On 2026-10-14 a bystander's sentence was declined and the decline closed the microphone
+  // on the customer standing at the kiosk.
+  it("keeps it open after a decline the session recovers from", () => {
+    expect(
+      microphoneShouldBeOpen({
+        analysis: { ...analysis, next_action: "DECLINE", conversation_can_continue: true },
+        result: null,
+      }),
+    ).toBe(true)
   })
 
   it("leaves it open everywhere else, including mid-confirmation", () => {

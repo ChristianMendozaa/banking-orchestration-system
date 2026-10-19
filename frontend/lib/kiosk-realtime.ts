@@ -137,8 +137,19 @@ export function kioskRouteForState(state: {
       ? "/kiosco/voz"
       : "/kiosco/ticket"
   }
-  if (state.analysis?.next_action === "DECLINE") return "/kiosco/respuesta"
+  if (isTerminalDecline(state.analysis)) return "/kiosco/respuesta"
   return "/kiosco/voz"
+}
+
+// A decline used to end the session outright, and the turn it declined was as often a
+// bystander's sentence as the customer's request. The backend now keeps listening after one
+// and says so in `conversation_can_continue`; only a run of them in a row is the end.
+export function isTerminalDecline(analysis: TurnAnalysis | null | undefined): boolean {
+  return analysis?.next_action === "DECLINE" && !analysis.conversation_can_continue
+}
+
+export function declineCanContinue(analysis: TurnAnalysis | null | undefined): boolean {
+  return analysis?.next_action === "DECLINE" && Boolean(analysis.conversation_can_continue)
 }
 
 function compactText(value: string): string {
@@ -552,14 +563,14 @@ interface BusinessState {
 }
 
 // The only three states that close the microphone. IDENTIFY is a credential window --
-// nothing should be captured while someone types their CI -- and a terminal or declined
-// result means the kiosk has said its last word on this case. Everywhere else, including
+// nothing should be captured while someone types their CI -- and a terminal result or a
+// terminal decline means the kiosk has said its last word on this case. Everywhere else, including
 // while a tool runs, the mic stays live so the customer can interrupt, correct or add
 // something.
 export function microphoneShouldBeOpen(state: BusinessState): boolean {
   if (state.result?.next_action === "IDENTIFY") return false
   if (state.result && isTerminalFlowResult(state.result)) return false
-  if (state.analysis?.next_action === "DECLINE") return false
+  if (isTerminalDecline(state.analysis)) return false
   return true
 }
 

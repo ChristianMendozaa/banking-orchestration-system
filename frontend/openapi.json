@@ -2793,6 +2793,11 @@
           "consultation_level": {
             "$ref": "#/components/schemas/ConsultationLevel"
           },
+          "conversation_can_continue": {
+            "default": false,
+            "title": "Conversation Can Continue",
+            "type": "boolean"
+          },
           "customer_summary": {
             "title": "Customer Summary",
             "type": "string"

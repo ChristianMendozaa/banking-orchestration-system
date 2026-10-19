@@ -25,11 +25,13 @@ import {
   captionsFromHistory,
   captionsFromStoredConversation,
   correctedRequest,
+  declineCanContinue,
   explicitConfirmation,
   isBenignRealtimeError,
   isConversationClose,
   isSessionExhausted,
   isSessionStateConflict,
+  isTerminalDecline,
   isTerminalFlowResult,
   kioskRouteForState,
   mergeConversationCaptions,
@@ -488,9 +490,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             isClarification,
           }
         })
-        followUpPendingRef.current = Boolean(
-          snapshot.result?.conversation_can_continue,
-        )
+        followUpPendingRef.current =
+          Boolean(snapshot.result?.conversation_can_continue) ||
+          declineCanContinue(analysis)
         return snapshot
       } catch (reason) {
         if (
@@ -617,9 +619,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     applyMicrophonePolicy()
     const handedOff = state.result ? isTerminalFlowResult(state.result) : false
-    const declined = state.analysis?.next_action === "DECLINE"
+    const declined = isTerminalDecline(state.analysis)
     if (handedOff || declined) armTerminalCompletion()
-  }, [applyMicrophonePolicy, armTerminalCompletion, state.result, state.analysis?.next_action])
+  }, [applyMicrophonePolicy, armTerminalCompletion, state.result, state.analysis])
 
   useEffect(() => {
     if (
@@ -900,6 +902,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
               result: null,
               isClarification,
             }))
+            // A decline the kiosk recovers from waits for the next request like an automatic
+            // answer does, and frees the kiosk the same way if none comes.
+            followUpPendingRef.current = declineCanContinue(response)
             applyMicrophonePolicy()
             return response
           } catch (reason) {
@@ -1045,7 +1050,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           const { analysis, result } = stateRef.current
           if (result?.next_action === "IDENTIFY") return { kind: "awaiting_identification" }
           if (result && isTerminalFlowResult(result)) return { kind: "settled" }
-          if (analysis?.next_action === "DECLINE") return { kind: "settled" }
+          if (isTerminalDecline(analysis)) return { kind: "settled" }
 
           // A CONFIRM result means the backend read the last reply as a question or as
           // unreadable: the session is still AWAITING_CONFIRMATION, so the next reply
@@ -1548,6 +1553,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         result: null,
         isClarification,
       }))
+      followUpPendingRef.current = declineCanContinue(response)
+      if (followUpPendingRef.current) armFollowUpWindow()
       syncTextExchange(activeSession, transcript.trim(), response.speech_text)
       return response
     },

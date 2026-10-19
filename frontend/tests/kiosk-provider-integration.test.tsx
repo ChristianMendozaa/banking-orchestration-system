@@ -397,6 +397,56 @@ describe("KioskProvider voice turn arbitration", () => {
     await expect(routed).resolves.toMatchObject({ kind: "superseded" })
   })
 
+  it("keeps listening after a decline the session recovers from", async () => {
+    // On 2026-10-14 a bystander's "prototipo bueno la presentación sería" was declined and
+    // the decline closed the microphone on the customer standing at the kiosk.
+    await connectedKiosk({ listening: true })
+    const callbacks = mocks.createAgent.mock.calls[0][0] as KioskRealtimeCallbacks
+    const declined = {
+      requirement_id: "requirement-declined",
+      status: "DECLINED",
+      next_action: "DECLINE",
+      customer_summary: "Necesitas orientación sobre una consulta bancaria.",
+      speech_text: "En este kiosco solo puedo ayudarte con...",
+      speech_plan: {
+        intent: "DECLINE",
+        facts: {},
+        verbatim: [],
+        guidance: "Dile que eso no lo atiendes.",
+        fallback_text: "En este kiosco solo puedo ayudarte con...",
+      },
+      conversation_can_continue: true,
+    }
+    mocks.sessionRequest.mockImplementationOnce(async () => declined)
+    realtime.mute.mockClear()
+
+    await act(async () => {
+      await callbacks.processSpokenTurn("prototipo bueno la presentación sería", "call-1")
+    })
+
+    expect(latestKiosk.analysis?.next_action).toBe("DECLINE")
+    expect(realtime.mute).not.toHaveBeenCalledWith(true)
+    expect(latestKiosk.completionSeconds).toBeNull()
+
+    mocks.sessionRequest.mockClear()
+    mocks.sessionRequest.mockImplementationOnce(async () => ({
+      ...declined,
+      requirement_id: "requirement-next",
+      status: "AWAITING_CONFIRMATION",
+      next_action: "CONFIRM",
+    }))
+    await act(async () => {
+      await callbacks.processSpokenTurn("Quiero bloquear mi tarjeta", "call-2")
+    })
+
+    expect(mocks.sessionRequest).toHaveBeenCalledWith(
+      expect.anything(),
+      "/turns",
+      expect.objectContaining({ method: "POST" }),
+    )
+    expect(latestKiosk.analysis?.next_action).toBe("CONFIRM")
+  })
+
   describe("customer-paused listening", () => {
     const clarifyAnalysis = {
       session_id: session.session_id,

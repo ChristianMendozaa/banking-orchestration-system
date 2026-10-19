@@ -106,7 +106,9 @@ class OrchestratorService:
             )
             result = await build_result(db, kiosk_session.id, self.repository, self.settings)
             return completed_analysis_response(kiosk_session, final_state["requirement"], result)
-        return analysis_response(final_state["kiosk_session"], final_state["requirement"])
+        return analysis_response(
+            final_state["kiosk_session"], final_state["requirement"], self.settings
+        )
 
     async def _lock_session(self, db: AsyncSession, session_id: UUID) -> KioskSession:
         statement = (
@@ -205,7 +207,7 @@ class OrchestratorService:
         }:
             requirement = await self.repository.latest_requirement(db, kiosk_session.id)
             if requirement:
-                analysis = analysis_response(kiosk_session, requirement)
+                analysis = analysis_response(kiosk_session, requirement, self.settings)
         elif kiosk_session.status == SessionStatus.AWAITING_IDENTIFICATION:
             case = await self.repository.case_by_session(
                 db,
