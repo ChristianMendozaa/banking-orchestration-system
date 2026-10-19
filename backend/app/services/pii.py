@@ -36,9 +36,21 @@ class PIIMaskingService:
             re.compile(r"(?<!\d)(?:\+?591[ -]?)?[67]\d{7}(?!\d)"),
         ),
         (
+            # The value used to be `[A-Z0-9-]{5,16}` under `(?i)`, which is any word of five
+            # letters: a grounded answer telling someone to bring "tu carnet vigente" was
+            # stored as "tu [IDENTIFICADOR]". It also allowed nothing between the term and the
+            # number, so the way people actually say it -- "mi CI es 4567890", "mi carnet es
+            # 4567890 LP" -- was stored in the clear. The value now has to be a number (an
+            # optional leading letter, an optional "-1A" complement and department extension),
+            # and the connectors in between are spelled out. A bare number with no term in
+            # front of it ("soy 4567890") is left alone on purpose: without the term it cannot
+            # be told apart from an amount or a reference.
             "IDENTIFICADOR",
             re.compile(
-                r"(?i)\b(?:ci|c\.i\.|nit|carnet|documento)\s*(?:n(?:ro)?\.?|#)?\s*[:\-]?\s*[A-Z0-9-]{5,16}\b"
+                r"(?i)\b(?:ci|c\.i\.|nit|carnet|documento)(?:\s+de\s+identidad)?"
+                r"(?:\s+(?:es|n(?:ro)?\.?|n[uú]mero))?\s*[:#\-]?\s*"
+                r"[A-Z]?\d{5,12}(?:-?\d[A-Z])?"
+                r"(?:\s+(?:LP|SC|CB|OR|PT|CH|TJ|BE|PD))?\b"
             ),
         ),
         (

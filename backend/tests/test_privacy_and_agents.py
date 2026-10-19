@@ -89,6 +89,42 @@ def test_pii_masking_keeps_ordinary_spanish_that_follows_soy() -> None:
         assert "NOMBRE" not in result.counts, text
 
 
+@pytest.mark.regression
+def test_pii_masking_masks_identity_numbers_the_way_people_say_them() -> None:
+    """Nothing could sit between the term and the number, so a customer saying "mi CI es
+    4567890" had the whole number stored in the clear."""
+    service = PIIMaskingService()
+    for text in (
+        "CI 4567890",
+        "mi CI es 4567890",
+        "mi carnet es 4567890 LP",
+        "mi número de carnet es 4567890",
+        "carnet de identidad 4567890-1A",
+        "CI nro. 4567890",
+        "NIT: 1020304050",
+    ):
+        result = service.mask(text)
+        assert "4567890" not in result.masked_text, text
+        assert "1020304050" not in result.masked_text, text
+        assert result.counts.get("IDENTIFICADOR") == 1, text
+
+
+@pytest.mark.regression
+def test_pii_masking_keeps_identity_document_words_without_a_number() -> None:
+    """The value used to be any five-letter word, so a grounded answer telling someone to
+    bring "tu carnet vigente" was stored as "tu [IDENTIFICADOR]"."""
+    service = PIIMaskingService()
+    for text in (
+        "llevar tu carnet vigente",
+        "llevar tu CI vigente y tus boletas de pago",
+        "tu documento original",
+        "escribe tu CI en el campo protegido",
+    ):
+        result = service.mask(text)
+        assert result.masked_text == text, text
+        assert "IDENTIFICADOR" not in result.counts, text
+
+
 def test_grounded_answer_naturalness_allows_third_person_verbs_about_the_bank() -> None:
     """`grounded_answer_is_natural` must be narrower than `customer_facing_text_is_natural`:
     a multi-sentence RAG answer legitimately says "el banco puede pedir..." or "la tasa
