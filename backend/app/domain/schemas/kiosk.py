@@ -103,6 +103,10 @@ class TurnAnalysisResponse(BaseModel):
     next_action: Literal["CLARIFY", "CONFIRM", "DECLINE", "COMPLETE"]
     speech_text: str
     speech_plan: SpeechPlan
+    # Only meaningful on DECLINE: whether the kiosk keeps listening after it. A decline used
+    # to end the session, and the turn it declined was as often a bystander's sentence as the
+    # customer's request. False once `kiosk_max_consecutive_declines` declines come in a row.
+    conversation_can_continue: bool = False
     result: "FlowResult | None" = None
 
 

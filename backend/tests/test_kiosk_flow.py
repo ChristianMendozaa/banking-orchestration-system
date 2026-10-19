@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -831,7 +832,7 @@ async def test_out_of_scope_request_is_declined_without_case_or_ticket(
     client: AsyncClient,
 ) -> None:
     """The kiosk has a fixed set of banking services and no privileged mode to unlock. A
-    classifier decision marked out_of_scope must end the session in DECLINED without ever
+    classifier decision marked out_of_scope must leave the session in DECLINED without ever
     creating a CaseRecord or a Ticket -- unlike force_human, which still produces both."""
 
     class OutOfScopeProvider:
@@ -887,6 +888,121 @@ async def test_out_of_scope_request_is_declined_without_case_or_ticket(
         tickets = list(await db.scalars(select(Ticket)))
         assert cases == []
         assert tickets == []
+
+
+class _DeclinesOffTopicProvider:
+    """Declines anything about restaurants and reads everything else as a card block."""
+
+    async def classify(self, masked: str) -> ClassificationDecision:
+        try:
+            reply = json.loads(masked)["dialogue"]["latest_customer_reply"]
+        except (ValueError, KeyError, TypeError):
+            reply = masked
+        if "restaurante" in reply.lower():
+            return ClassificationDecision(
+                summary="Pide recomendacion de restaurante, ajeno a la banca",
+                customer_summary="Necesitas orientación sobre una consulta bancaria.",
+                category=Category.CONSULTA_GENERAL,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.95,
+                ambiguous=False,
+                out_of_scope=True,
+            )
+        return ClassificationDecision(
+            summary="Solicita bloquear su tarjeta",
+            customer_summary="Necesitas bloquear una tarjeta.",
+            category=Category.BLOQUEO_TARJETA,
+            consultation_level=ConsultationLevel.SENSIBLE,
+            confidence=0.95,
+            ambiguous=False,
+        )
+
+
+async def _turn_with(client: AsyncClient, session_id: str, token: str, transcript: str):
+    return await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers={"X-Session-Token": token},
+        json={"turn_id": str(uuid4()), "transcript": transcript},
+    )
+
+
+@pytest.fixture
+def declining_orchestrator():
+    provider = _DeclinesOffTopicProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    yield orchestrator
+    app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+async def test_a_single_decline_keeps_the_session_listening(
+    client: AsyncClient, declining_orchestrator: OrchestratorService
+) -> None:
+    """On 2026-10-14 a bystander's "prototipo bueno la presentación sería" was declined and
+    the decline ended the session on the customer standing at the kiosk."""
+    session_id, token = await _session(client)
+
+    declined = await _turn_with(client, session_id, token, "Recomiéndame un restaurante")
+    assert declined.status_code == 200, declined.text
+    assert declined.json()["next_action"] == "DECLINE"
+    assert declined.json()["conversation_can_continue"] is True
+    assert "sigue escuchando" in declined.json()["speech_plan"]["guidance"]
+
+    snapshot = await client.get(
+        f"/api/v1/kiosk/sessions/{session_id}", headers={"X-Session-Token": token}
+    )
+    assert snapshot.json()["analysis"]["conversation_can_continue"] is True
+
+    retry = await _turn_with(client, session_id, token, "Me robaron la tarjeta, quiero bloquearla")
+    assert retry.status_code == 200, retry.text
+    assert retry.json()["next_action"] == "CONFIRM"
+    assert retry.json()["category"] == "BLOQUEO_TARJETA"
+
+
+async def test_consecutive_declines_end_the_session(
+    client: AsyncClient, declining_orchestrator: OrchestratorService
+) -> None:
+    session_id, token = await _session(client)
+    for _ in range(settings_for_tests.kiosk_max_consecutive_declines - 1):
+        turn = await _turn_with(client, session_id, token, "Recomiéndame un restaurante")
+        assert turn.json()["conversation_can_continue"] is True
+
+    last = await _turn_with(client, session_id, token, "Otro restaurante, por favor")
+    assert last.status_code == 200, last.text
+    assert last.json()["next_action"] == "DECLINE"
+    assert last.json()["conversation_can_continue"] is False
+    assert "despídete" in last.json()["speech_plan"]["guidance"]
+
+    refused = await _turn_with(client, session_id, token, "Quiero bloquear mi tarjeta")
+    assert refused.status_code == 409
+    assert refused.json()["code"] == "INVALID_SESSION_STATE"
+
+
+async def test_an_understood_turn_breaks_a_run_of_declines(
+    client: AsyncClient, declining_orchestrator: OrchestratorService
+) -> None:
+    """Only declines in a row end the session; one the kiosk could work with resets them."""
+    session_id, token = await _session(client)
+    await _turn_with(client, session_id, token, "Recomiéndame un restaurante")
+
+    async with TestSession() as db:
+        kiosk_session = await db.get(KioskSession, UUID(session_id))
+        assert kiosk_session is not None
+        assert kiosk_session.decline_count == 1
+
+    await _turn_with(client, session_id, token, "Quiero bloquear mi tarjeta")
+
+    async with TestSession() as db:
+        kiosk_session = await db.get(KioskSession, UUID(session_id))
+        assert kiosk_session is not None
+        assert kiosk_session.decline_count == 0
 
 
 async def test_general_label_on_a_fraud_report_still_requires_identification(

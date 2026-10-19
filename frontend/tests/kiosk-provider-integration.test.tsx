@@ -44,7 +44,6 @@ import {
   KioskProvider,
   useKiosk,
 } from "../components/providers/kiosk-provider"
-import type { KioskRealtimeCallbacks } from "../lib/kiosk-realtime"
 
 describe("KioskProvider text flow", () => {
   beforeEach(() => {
@@ -111,12 +110,15 @@ describe("KioskProvider text flow", () => {
   })
 })
 
+
 describe("KioskProvider voice turn arbitration", () => {
   type Handler = (...args: unknown[]) => void
+  type ResponseCreate = { type: string; response?: { instructions?: string; tool_choice?: string } }
 
   class FakeRealtimeSession {
     handlers = new Map<string, Handler[]>()
     transportHandlers = new Map<string, Handler[]>()
+    history: unknown[] = []
     muted = false
     connect = vi.fn(async () => {})
     close = vi.fn()
@@ -154,6 +156,36 @@ describe("KioskProvider voice turn arbitration", () => {
         else payload.response_id = responseId
       }
       this.emit("transport_event", payload)
+    }
+
+    /** The customer talks: the turn detector fires, then the transcription lands. */
+    say(itemId: string, transcript: string) {
+      this.emitTransportEvent("input_audio_buffer.speech_started")
+      this.emitTransportEvent("input_audio_buffer.speech_stopped")
+      this.history = [
+        ...this.history,
+        {
+          itemId,
+          type: "message",
+          role: "user",
+          status: "completed",
+          content: [{ type: "input_audio", audio: null, transcript }],
+        },
+      ]
+      this.emit("history_updated", this.history)
+    }
+
+    /** The server acknowledges a requested response and finishes it, with no audio. */
+    finishResponse(responseId: string) {
+      this.emitTransportEvent("response.created", responseId)
+      this.emitTransportEvent("response.done", responseId)
+    }
+
+    /** Every response the application asked for, in order. */
+    responseRequests(): ResponseCreate[] {
+      return this.transport.sendEvent.mock.calls
+        .map(([event]) => event as ResponseCreate)
+        .filter((event) => event.type === "response.create")
     }
   }
 
@@ -200,11 +232,53 @@ describe("KioskProvider voice turn arbitration", () => {
       fallback_text: "Tu ticket es 42.",
     },
   }
+  const clarifyAnalysis = {
+    session_id: session.session_id,
+    requirement_id: "requirement-clarify",
+    status: "NEEDS_CLARIFICATION",
+    next_action: "CLARIFY",
+    customer_summary: null,
+    clarification_question: "¿Es tu tarjeta de débito o de crédito?",
+    speech_text: "¿Es tu tarjeta de débito o de crédito?",
+    speech_plan: {
+      intent: "CLARIFY",
+      facts: { pregunta: "¿Es tu tarjeta de débito o de crédito?" },
+      verbatim: [],
+      guidance: "Pregunta lo que falta.",
+      fallback_text: "¿Es tu tarjeta de débito o de crédito?",
+    },
+    conversation_can_continue: false,
+  }
+  const automaticAnswer = {
+    ...clarifyAnalysis,
+    requirement_id: "requirement-auto",
+    status: "RESOLVED",
+    next_action: "COMPLETE",
+    clarification_question: null,
+    result: {
+      ...identifyResult,
+      requirement_id: "requirement-auto",
+      status: "RESOLVED",
+      next_action: "COMPLETE",
+      resolution_type: "AUTOMATIC",
+      customer_summary: "Horarios de atención",
+      conversation_can_continue: true,
+    },
+  }
 
   let realtime: FakeRealtimeSession
   // The value from the latest render. What `connectedKiosk` returns is a snapshot, which is
   // enough for calling actions but not for reading state that changes afterwards.
   let latestKiosk: ReturnType<typeof useKiosk>
+  // What `POST /turns` answers. Routed by path rather than queued with `mockImplementationOnce`,
+  // because every transcript also syncs `/conversation/messages` around the turn.
+  let answerTurn: (transcript: string) => Promise<unknown>
+
+  function turnRequests(): string[] {
+    return mocks.sessionRequest.mock.calls
+      .filter(([, suffix]) => suffix === "/turns")
+      .map(([, , init]) => JSON.parse(String((init as RequestInit).body)).transcript)
+  }
 
   async function connectedKiosk(options: { listening?: boolean } = {}) {
     const listening = options.listening ?? false
@@ -213,35 +287,48 @@ describe("KioskProvider voice turn arbitration", () => {
       : session
     const storedResult = listening ? null : identifyResult
     realtime = new FakeRealtimeSession()
+    answerTurn = async () => {
+      throw new Error("unexpected /turns")
+    }
     mocks.newRealtimeSession.mockImplementation(() => realtime)
     mocks.createAgent.mockImplementation(() => ({}))
-    mocks.sessionRequest.mockImplementation(async (_session: unknown, suffix: string) => {
-      if (suffix === "") {
-        return {
-          session_id: storedSession.session_id,
-          status: storedSession.status,
-          result: storedResult,
+    mocks.sessionRequest.mockImplementation(
+      async (_session: unknown, suffix: string, init?: RequestInit) => {
+        if (suffix === "") {
+          return {
+            session_id: storedSession.session_id,
+            status: storedSession.status,
+            result: storedResult,
+          }
         }
-      }
-      if (suffix === "/conversation/messages") return { messages: [], accepted: 0 }
-      if (suffix === "/realtime-token") {
-        return {
-          value: "ek_test",
-          session: {
-            model: "gpt-realtime-2.1-mini",
-            instructions: "Eres la asistente virtual de un kiosco del banco.",
-            voice: "marin",
-            audio_input: {
-              noise_reduction: { type: "near_field" },
-              transcription: { model: "gpt-realtime-whisper", language: "es" },
-              turn_detection: { type: "semantic_vad" },
+        if (suffix === "/conversation/messages") return { messages: [], accepted: 0 }
+        if (suffix === "/realtime-token") {
+          return {
+            value: "ek_test",
+            session: {
+              model: "gpt-realtime-2.1-mini",
+              instructions: "Eres la asistente virtual de un kiosco del banco.",
+              voice: "marin",
+              audio_input: {
+                noise_reduction: { type: "near_field" },
+                transcription: { model: "gpt-realtime-whisper", language: "es" },
+                turn_detection: {
+                  type: "semantic_vad",
+                  eagerness: "low",
+                  create_response: false,
+                  interrupt_response: true,
+                },
+              },
             },
-          },
+          }
         }
-      }
-      if (suffix === "/identification") return handoffResult
-      throw new Error(`unexpected ${suffix}`)
-    })
+        if (suffix === "/turns") {
+          return answerTurn(JSON.parse(String(init?.body)).transcript)
+        }
+        if (suffix === "/identification") return handoffResult
+        throw new Error(`unexpected ${suffix}`)
+      },
+    )
 
     let kiosk: ReturnType<typeof useKiosk> | null = null
     function Probe() {
@@ -271,6 +358,17 @@ describe("KioskProvider voice turn arbitration", () => {
     return kiosk as unknown as ReturnType<typeof useKiosk>
   }
 
+  /** The greeting -- or the reconnect summary -- is heard out. */
+  function openingHeard() {
+    act(() => realtime.finishResponse("resp_opening"))
+  }
+
+  async function say(itemId: string, transcript: string) {
+    await act(async () => {
+      realtime.say(itemId, transcript)
+    })
+  }
+
   beforeEach(() => {
     sessionStorage.clear()
     vi.resetModules()
@@ -285,54 +383,197 @@ describe("KioskProvider voice turn arbitration", () => {
     })
   })
 
-  it("never sends a spoken turn to /turns while the CI field is open", async () => {
-    // The reported failure: the session refuses `POST /turns` for the whole time it is
-    // AWAITING_IDENTIFICATION, the 409 came back through the tool as "no pudiste consultar
-    // el sistema, discúlpate", and the customer standing in front of the CI field heard the
-    // kiosk say it had lost access and ask them to try again.
-    await connectedKiosk()
-    const callbacks = mocks.createAgent.mock.calls[0][0] as KioskRealtimeCallbacks
-    mocks.sessionRequest.mockClear()
+  describe("who decides when the kiosk speaks", () => {
+    it("greets first and alone, and answers what was said over it afterwards", async () => {
+      // 2026-10-14, session 20152c7d: the room was talking when the kiosk connected. It
+      // answered the noise ("Claro, déjame verificar la petición por un momento", "Ya lo
+      // estoy") and only then greeted. The opening line now goes out on its own, the noise
+      // cannot cut it off, and what was said over it waits for it to end.
+      await connectedKiosk({ listening: true })
+      const [, sessionOptions] = mocks.newRealtimeSession.mock.calls[0] as [
+        unknown,
+        { config: { audio: { input: { turnDetection: Record<string, unknown> } } } },
+      ]
+      expect(sessionOptions.config.audio.input.turnDetection).toMatchObject({
+        create_response: false,
+        interruptResponse: false,
+      })
+      expect(mocks.createAgent).toHaveBeenCalledWith({
+        instructions: "Eres la asistente virtual de un kiosco del banco.",
+        voice: "marin",
+      })
 
-    const result = await callbacks.processSpokenTurn("Ya lo estoy escribiendo", "call-1")
+      answerTurn = async () => clarifyAnalysis
+      await say("item-1", "¿Cuáles son los horarios de atención?")
 
-    expect(result).toEqual({ kind: "awaiting_identification" })
-    expect(
-      mocks.sessionRequest.mock.calls.some(([, suffix]) => suffix === "/turns"),
-    ).toBe(false)
+      expect(realtime.responseRequests()).toHaveLength(1)
+      expect(realtime.responseRequests()[0].response?.instructions).toContain(
+        "Recién empieza la atención",
+      )
+      expect(realtime.responseRequests()[0].response?.tool_choice).toBe("none")
+      expect(turnRequests()).toEqual([])
+
+      await act(async () => {
+        realtime.finishResponse("resp_opening")
+      })
+
+      await waitFor(() =>
+        expect(turnRequests()).toEqual(["¿Cuáles son los horarios de atención?"]),
+      )
+      expect(realtime.transport.updateSessionConfig).toHaveBeenCalledWith(
+        expect.objectContaining({
+          audio: expect.objectContaining({
+            input: expect.objectContaining({
+              turnDetection: expect.objectContaining({ interruptResponse: true }),
+            }),
+          }),
+        }),
+      )
+      await waitFor(() => expect(realtime.responseRequests()).toHaveLength(2))
+      expect(realtime.responseRequests()[1].response?.instructions).toContain(
+        '"intent":"CLARIFY"',
+      )
+    })
+
+    it("answers a question whose transcription landed after the speaker went quiet", async () => {
+      // Session 58933d69: "quiero saber los horarios de atención" was never answered. The
+      // model created its response the instant the speaker stopped, before the words had
+      // been transcribed, and nothing ever came back for them.
+      await connectedKiosk({ listening: true })
+      openingHeard()
+      answerTurn = async () => clarifyAnalysis
+
+      await act(async () => {
+        realtime.emitTransportEvent("input_audio_buffer.speech_started")
+        realtime.emitTransportEvent("input_audio_buffer.speech_stopped")
+      })
+      expect(turnRequests()).toEqual([])
+
+      realtime.history = [
+        {
+          itemId: "item-late",
+          type: "message",
+          role: "user",
+          status: "completed",
+          content: [
+            { type: "input_audio", audio: null, transcript: "Quiero saber los horarios" },
+          ],
+        },
+      ]
+      await act(async () => {
+        realtime.emit("history_updated", realtime.history)
+      })
+
+      await waitFor(() => expect(turnRequests()).toEqual(["Quiero saber los horarios"]))
+      await waitFor(() => expect(realtime.responseRequests()).toHaveLength(2))
+      // Fast enough that no filler was said in front of the answer.
+      expect(
+        realtime.responseRequests().some((request) =>
+          request.response?.instructions?.includes("Un momento"),
+        ),
+      ).toBe(false)
+    })
+
+    it("joins a lone word with the rest of the sentence instead of sending it alone", async () => {
+      // Session f7c2c32e: a lone "Quiero" went to the bank as a whole request.
+      await connectedKiosk({ listening: true })
+      openingHeard()
+      answerTurn = async () => clarifyAnalysis
+
+      await say("item-1", "Quiero")
+      expect(turnRequests()).toEqual([])
+      await say("item-2", "bloquear mi tarjeta")
+
+      await waitFor(() => expect(turnRequests()).toEqual(["Quiero bloquear mi tarjeta"]))
+    })
+
+    it("still sends a lone word if nothing follows it", async () => {
+      await connectedKiosk({ listening: true })
+      openingHeard()
+      answerTurn = async () => clarifyAnalysis
+
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+      try {
+        await say("item-1", "Quiero")
+        expect(turnRequests()).toEqual([])
+        await act(async () => {
+          vi.advanceTimersByTime(2_500)
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+      await waitFor(() => expect(turnRequests()).toEqual(["Quiero"]))
+    })
+
+    it("says one fixed line while the bank is slow, then the answer", async () => {
+      await connectedKiosk({ listening: true })
+      openingHeard()
+      let releaseTurn: (value: unknown) => void = () => {}
+      answerTurn = () => new Promise((resolve) => (releaseTurn = resolve))
+
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+      try {
+        await say("item-1", "Quiero bloquear mi tarjeta")
+        await act(async () => {
+          vi.advanceTimersByTime(1_500)
+        })
+      } finally {
+        vi.useRealTimers()
+      }
+
+      const filler = realtime.responseRequests()[1]
+      expect(filler.response?.instructions).toContain('"Un momento, por favor."')
+
+      await act(async () => {
+        releaseTurn(clarifyAnalysis)
+      })
+      // The answer waits for the filler to finish rather than talking over it.
+      expect(realtime.responseRequests()).toHaveLength(2)
+      act(() => realtime.finishResponse("resp_filler"))
+      await waitFor(() => expect(realtime.responseRequests()).toHaveLength(3))
+      expect(realtime.responseRequests()[2].response?.instructions).toContain(
+        '"intent":"CLARIFY"',
+      )
+    })
+
+    it("asks for nothing when the turn has nothing to say", async () => {
+      // Session 2791c387 opened with "No hay nada nuevo que procesar, así que seguimos
+      // conversando con calma": the model reading an idle tool result's guidance aloud.
+      // Words spoken while the CI field is open have nothing to say -- and no response.
+      await connectedKiosk()
+      openingHeard()
+      const before = realtime.responseRequests().length
+
+      await say("item-1", "Ya lo estoy escribiendo")
+      await act(async () => {})
+
+      expect(turnRequests()).toEqual([])
+      expect(realtime.responseRequests()).toHaveLength(before)
+    })
   })
 
-  it("cuts off the obsolete CI prompt and injects the closing exactly once", async () => {
+  it("cuts off the obsolete CI prompt and speaks the closing exactly once", async () => {
     const kiosk = await connectedKiosk()
-    const callbacks = mocks.createAgent.mock.calls[0][0] as KioskRealtimeCallbacks
-    realtime.sendMessage.mockClear()
+    openingHeard()
+    const before = realtime.responseRequests().length
     realtime.mute.mockClear()
 
     // The model is mid-sentence on "escribe tu CI en el campo protegido..." when the CI
     // lands. That sentence is obsolete; letting it finish and queueing the closing behind
     // it is what a fast typist heard as two unrelated turns in a row.
-    act(() => realtime.emitTransportEvent("response.created"))
+    act(() => realtime.emitTransportEvent("response.created", "resp_ci"))
     await act(async () => {
       await kiosk.submitIdentification("6735666")
     })
 
     expect(realtime.interrupt).toHaveBeenCalledTimes(1)
-    expect(realtime.sendMessage).toHaveBeenCalledTimes(1)
-    const injected = String(realtime.sendMessage.mock.calls[0][0])
-    expect(injected).toContain("Ya escribió su CI")
-    // The injection states what happened and nothing else. It used to tell the model to
-    // "say how this ends using what the last tool returned", which pointed at whatever the
-    // last call happened to be -- an idle check-in, on the recorded session -- and the
-    // customer was never told their ticket number.
-    expect(injected).not.toMatch(/herramienta|despídete/i)
-
-    // The outcome itself reaches the model the only way business data is allowed to: as a
-    // tool result carrying the backend's own SpeechPlan.
-    expect(callbacks.takePendingResult()).toEqual({
-      kind: "flow",
-      response: handoffResult,
-    })
-    expect(callbacks.takePendingResult()).toBeNull()
+    const closing = realtime.responseRequests().slice(before)
+    expect(closing).toHaveLength(1)
+    // The outcome reaches the model the only way business data is allowed to: the
+    // backend's own SpeechPlan, as data. On 2026-09-01 a model told to "say how this ends"
+    // never told the customer their ticket number.
+    expect(closing[0].response?.instructions).toContain('"ticket":"42"')
+    expect(closing[0].response?.instructions).toContain('"verbatim":["María Torres"]')
 
     // The microphone stays shut: the result is terminal, and the only thing the old
     // `mute(false)` bought was a path from the kiosk's speaker back into its own VAD.
@@ -369,68 +610,72 @@ describe("KioskProvider voice turn arbitration", () => {
   })
 
   it("does not let a stale answer reach the model after the conversation moved on", async () => {
-    // The client already refused to *show* a superseded answer. It handed the same
-    // response back to the tool anyway, so the model read out an answer to a question the
-    // person had already replaced.
+    // The client already refused to *show* a superseded answer. It used to hand the same
+    // response to the model anyway, so it read out an answer to a question the person had
+    // already replaced.
     const kiosk = await connectedKiosk({ listening: true })
-    const callbacks = mocks.createAgent.mock.calls[0][0] as KioskRealtimeCallbacks
-
+    openingHeard()
+    const connection = realtime
+    const before = connection.responseRequests().length
     let releaseTurn: (value: unknown) => void = () => {}
-    mocks.sessionRequest.mockImplementationOnce(
-      () => new Promise((resolve) => (releaseTurn = resolve)),
-    )
+    answerTurn = () => new Promise((resolve) => (releaseTurn = resolve))
 
-    let routed: Promise<unknown> = Promise.resolve()
-    act(() => {
-      routed = callbacks.processSpokenTurn("¿Cuáles son los horarios?", "call-stale")
-    })
-
+    await say("item-1", "¿Cuáles son los horarios?")
     // The conversation moves on while the backend is still answering.
     await act(async () => {
       await kiosk.reset()
     })
-
     await act(async () => {
-      releaseTurn(handoffResult)
+      releaseTurn(automaticAnswer)
     })
 
-    await expect(routed).resolves.toMatchObject({ kind: "superseded" })
+    expect(connection.responseRequests()).toHaveLength(before)
+  })
+
+  it("keeps listening after a decline the session recovers from", async () => {
+    // Session 2791c387: a bystander's "prototipo bueno la presentación sería" was declined
+    // and the decline closed the microphone on the customer standing at the kiosk.
+    await connectedKiosk({ listening: true })
+    openingHeard()
+    const declined = {
+      requirement_id: "requirement-declined",
+      status: "DECLINED",
+      next_action: "DECLINE",
+      customer_summary: "Necesitas orientación sobre una consulta bancaria.",
+      speech_text: "En este kiosco solo puedo ayudarte con...",
+      speech_plan: {
+        intent: "DECLINE",
+        facts: {},
+        verbatim: [],
+        guidance: "Dile que eso no lo atiendes.",
+        fallback_text: "En este kiosco solo puedo ayudarte con...",
+      },
+      conversation_can_continue: true,
+    }
+    answerTurn = async () => declined
+    realtime.mute.mockClear()
+
+    await say("item-1", "prototipo bueno la presentación sería")
+    await waitFor(() => expect(latestKiosk.analysis?.next_action).toBe("DECLINE"))
+    expect(realtime.mute).not.toHaveBeenCalledWith(true)
+    expect(latestKiosk.completionSeconds).toBeNull()
+
+    answerTurn = async () => ({
+      ...declined,
+      requirement_id: "requirement-next",
+      status: "AWAITING_CONFIRMATION",
+      next_action: "CONFIRM",
+    })
+    await say("item-2", "Quiero bloquear mi tarjeta")
+
+    await waitFor(() => expect(latestKiosk.analysis?.next_action).toBe("CONFIRM"))
+    expect(turnRequests()).toEqual([
+      "prototipo bueno la presentación sería",
+      "Quiero bloquear mi tarjeta",
+    ])
   })
 
   describe("customer-paused listening", () => {
-    const clarifyAnalysis = {
-      session_id: session.session_id,
-      requirement_id: "requirement-clarify",
-      status: "LISTENING",
-      next_action: "CLARIFY",
-      customer_summary: null,
-      clarification_question: "¿Es tu tarjeta de débito o de crédito?",
-      speech_text: "¿Es tu tarjeta de débito o de crédito?",
-      speech_plan: {
-        intent: "CLARIFY",
-        facts: {},
-        verbatim: [],
-        guidance: "Pregunta lo que falta.",
-        fallback_text: "¿Es tu tarjeta de débito o de crédito?",
-      },
-    }
-    const automaticAnswer = {
-      ...clarifyAnalysis,
-      requirement_id: "requirement-auto",
-      status: "RESOLVED",
-      next_action: "COMPLETE",
-      clarification_question: null,
-      result: {
-        ...identifyResult,
-        requirement_id: "requirement-auto",
-        status: "RESOLVED",
-        next_action: "COMPLETE",
-        resolution_type: "AUTOMATIC",
-        customer_summary: "Horarios de atención",
-        conversation_can_continue: true,
-      },
-    }
-
     async function pause(paused: boolean) {
       await act(async () => {
         latestKiosk.setListeningPaused(paused)
@@ -439,11 +684,13 @@ describe("KioskProvider voice turn arbitration", () => {
 
     async function answeredAutomatically() {
       await connectedKiosk({ listening: true })
-      const callbacks = mocks.createAgent.mock.calls[0][0] as KioskRealtimeCallbacks
-      mocks.sessionRequest.mockImplementationOnce(async () => automaticAnswer)
-      await act(async () => {
-        await callbacks.processSpokenTurn("¿Cuál es el horario?", "call-auto")
-      })
+      openingHeard()
+      answerTurn = async () => automaticAnswer
+      await say("item-auto", "¿Cuál es el horario?")
+      await waitFor(() => expect(latestKiosk.result?.resolution_type).toBe("AUTOMATIC"))
+      // The answer is spoken and over; what is left is the follow-up window.
+      await waitFor(() => expect(realtime.responseRequests()).toHaveLength(2))
+      act(() => realtime.finishResponse("resp_answer"))
       expect(latestKiosk.listeningControlAvailable).toBe(true)
     }
 
@@ -464,18 +711,16 @@ describe("KioskProvider voice turn arbitration", () => {
       // that did not survive the next one would leave the customer believing the kiosk had
       // stopped listening while it was still taking their words.
       await connectedKiosk({ listening: true })
-      const callbacks = mocks.createAgent.mock.calls[0][0] as KioskRealtimeCallbacks
+      openingHeard()
       await pause(true)
       realtime.mute.mockClear()
 
-      mocks.sessionRequest.mockImplementationOnce(async () => clarifyAnalysis)
-      await act(async () => {
-        await callbacks.processSpokenTurn("Quiero bloquear mi tarjeta", "call-paused")
-      })
-      act(() => realtime.emit("agent_tool_end", {}, {}, { name: "tool" }, "", {}))
+      // Words that were already on their way when the customer paused still get answered.
+      answerTurn = async () => clarifyAnalysis
+      await say("item-1", "Quiero bloquear mi tarjeta")
+      await waitFor(() => expect(latestKiosk.analysis?.next_action).toBe("CLARIFY"))
       await act(async () => {})
 
-      expect(latestKiosk.analysis?.next_action).toBe("CLARIFY")
       expect(realtime.mute).not.toHaveBeenCalledWith(false)
       expect(realtime.muted).toBe(true)
       expect(latestKiosk.voiceState).toBe("muted")

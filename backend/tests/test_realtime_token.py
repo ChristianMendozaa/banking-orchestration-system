@@ -9,6 +9,7 @@ from app.db.models import KioskSession
 from app.domain.enums import SessionStatus
 from app.main import app
 from app.services.openai_provider import KIOSK_VOICE_INSTRUCTIONS, OpenAIProvider
+from app.services.prompts import KIOSK_SCOPE
 from tests.conftest import TestSession
 
 pytestmark = [pytest.mark.functional, pytest.mark.integration, pytest.mark.regression]
@@ -111,22 +112,22 @@ async def test_realtime_session_enables_conversation_and_interruptions(
     assert session["audio"]["input"]["transcription"]["model"] == "gpt-realtime-whisper"
     assert session["audio"]["output"]["voice"] == "marin"
     assert "Trátala de tú" in session["instructions"]
-    # The model composes around authoritative tool data. A grounded answer is the exception:
-    # it must reproduce the approved wording instead of improvising or claiming no access --
-    # now the short spoken rendering of it, not the whole thing.
-    assert "no un guión" in session["instructions"]
-    assert "`verbatim` trae la respuesta aprobada" in session["instructions"]
-    # The mandatory acknowledgement is gone. It announced a wait before every consultation,
-    # and the next rule in the same block told the model to stay silent for a case it could
-    # not tell apart until the tool had already returned.
-    assert "déjame revisar eso" not in session["instructions"]
-    assert "Cada turno nuevo" in session["instructions"]
-    assert "`procesar_turno`" in session["instructions"]
-    assert "nunca niegues esa capacidad" in session["instructions"]
+    # On 2026-10-14 the kiosk said "¿Qué trámite querés hacer?" and offered "consultar
+    # saldo": the persona now forbids voseo outright and names the only services there are.
+    assert "nunca de vos" in session["instructions"]
+    assert KIOSK_SCOPE in session["instructions"]
+    # The application owns the turn, so the persona carries no tool rules at all. With them,
+    # the model called the bank before greeting anyone and read "no hay nada nuevo que
+    # procesar" aloud to the customer.
+    assert "procesar_turno" not in session["instructions"]
+    assert "ESTE TURNO" in session["instructions"]
+    assert "Nunca digas que tú lo" in session["instructions"]
+    # The application asks for every response itself, once the transcription the business
+    # logic runs on has landed. It still stops talking when the customer starts.
     assert turn_detection == {
         "type": "semantic_vad",
-        "eagerness": "auto",
-        "create_response": True,
+        "eagerness": "low",
+        "create_response": False,
         "interrupt_response": True,
     }
     assert captured["url"].endswith("/v1/realtime/client_secrets")
@@ -166,20 +167,11 @@ async def test_realtime_secret_returns_the_persona_the_browser_must_apply(
     data = await OpenAIProvider(configured).create_realtime_client_secret("session-test")
 
     assert data["session"]["instructions"] == KIOSK_VOICE_INSTRUCTIONS
-    assert "`verbatim` trae la respuesta aprobada" in KIOSK_VOICE_INSTRUCTIONS
-    assert "no agregues respuestas, correcciones ni datos" in KIOSK_VOICE_INSTRUCTIONS
-    assert "Cada turno nuevo" in KIOSK_VOICE_INSTRUCTIONS
-    # An idle tool result is not a failure. Without this the model treated "nothing to
-    # process" as an outage and apologised to whoever was standing at the kiosk -- most
-    # visibly the moment the CI field appeared, when the session stops accepting turns.
-    assert "no hay nada nuevo que procesar" in KIOSK_VOICE_INSTRUCTIONS
-    # Neither half of the old acknowledgement rule survives. It ordered a "déjame revisar
-    # eso" before every consultation and, one line later, silence for a check nobody asked
-    # for -- a distinction the model cannot make until the tool has already returned. What
-    # replaced it is one rule: look it up quietly and answer when there is an answer.
-    assert "Consulta callada y responde cuando" in KIOSK_VOICE_INSTRUCTIONS
-    assert "hazlo callada" not in KIOSK_VOICE_INSTRUCTIONS
-    assert "no te" in KIOSK_VOICE_INSTRUCTIONS and "disculpes" in KIOSK_VOICE_INSTRUCTIONS
+    assert "No agregues respuestas, correcciones ni datos" in KIOSK_VOICE_INSTRUCTIONS
+    # Neither the mandatory acknowledgement nor its replacement survives: the application
+    # decides what is said and when, so the persona only forbids filler.
+    assert "déjame revisar eso" not in KIOSK_VOICE_INSTRUCTIONS
+    assert "no pidas que\n  espere" in KIOSK_VOICE_INSTRUCTIONS
     assert data["session"]["model"] == "gpt-realtime-2.1-mini"
     assert data["session"]["voice"] == "marin"
 

@@ -85,10 +85,11 @@ def completed_analysis_response(
 
 
 def analysis_response(
-    kiosk_session: KioskSession, requirement: Requirement
+    kiosk_session: KioskSession, requirement: Requirement, settings: Settings
 ) -> TurnAnalysisResponse:
 
     if kiosk_session.status == SessionStatus.DECLINED:
+        can_continue = kiosk_session.decline_count < settings.kiosk_max_consecutive_declines
         return TurnAnalysisResponse(
             requirement_id=requirement.id,
             status=SessionStatus.DECLINED,
@@ -105,7 +106,8 @@ def analysis_response(
             pii_types=requirement.pii_metadata.get("types", []),
             next_action="DECLINE",
             speech_text=DECLINE_SPEECH_TEXT,
-            speech_plan=decline_plan(),
+            speech_plan=decline_plan(conversation_can_continue=can_continue),
+            conversation_can_continue=can_continue,
         )
     clarify = kiosk_session.status == SessionStatus.NEEDS_CLARIFICATION
     question = requirement.clarification_question if clarify else None

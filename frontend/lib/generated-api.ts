@@ -1552,6 +1552,11 @@ export interface components {
             /** @default INTENT */
             confirmation_kind: components["schemas"]["ConfirmationKind"];
             consultation_level: components["schemas"]["ConsultationLevel"];
+            /**
+             * Conversation Can Continue
+             * @default false
+             */
+            conversation_can_continue: boolean;
             /** Customer Summary */
             customer_summary: string;
             /** @default CONFIRMED */

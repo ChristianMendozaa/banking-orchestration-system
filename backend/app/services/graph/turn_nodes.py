@@ -17,7 +17,7 @@ from app.core.metrics import (
     STAGE_DURATION,
     UNRESOLVED_HANDOFFS,
 )
-from app.db.models import Requirement
+from app.db.models import KioskSession, Requirement
 from app.domain.enums import (
     Category,
     ClarificationOutcome,
@@ -111,17 +111,21 @@ async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) 
         # the classifier ranked first. ASSIGNED is deliberately not in here: a person is
         # already holding that case, and the kiosk must not open a parallel one behind
         # them. The counters are per-need, so the new question gets its own budget.
-        turns = await repository.turn_count(db, kiosk_session.id)
-        if turns >= runtime.context.settings.kiosk_max_turns:
-            raise AppError(
-                "SESSION_TURN_LIMIT_REACHED",
-                (
-                    "Esta atención alcanzó el límite de consultas. "
-                    "Inicia una nueva sesión si necesitas continuar."
-                ),
-                409,
-                {"max_turns": runtime.context.settings.kiosk_max_turns},
-            )
+        await _ensure_turn_budget(runtime, kiosk_session)
+        kiosk_session.status = SessionStatus.LISTENING
+        kiosk_session.clarification_count = 0
+        kiosk_session.correction_count = 0
+
+    if (
+        kiosk_session.status == SessionStatus.DECLINED
+        and kiosk_session.decline_count < runtime.context.settings.kiosk_max_consecutive_declines
+    ):
+        # A decline the session can recover from. The kiosk named what it attends and kept
+        # listening, so this is the person trying again -- or the customer speaking after a
+        # bystander's sentence was the one declined. Same budget as a follow-up: the turn
+        # limit is what stops decline -> clarify -> decline from running forever, because
+        # each of those resets the counters below.
+        await _ensure_turn_budget(runtime, kiosk_session)
         kiosk_session.status = SessionStatus.LISTENING
         kiosk_session.clarification_count = 0
         kiosk_session.correction_count = 0
@@ -146,6 +150,20 @@ async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) 
         )
 
     return Command(goto="mask_pii")
+
+
+async def _ensure_turn_budget(runtime: Runtime[GraphContext], kiosk_session: KioskSession) -> None:
+    turns = await runtime.context.repository.turn_count(runtime.context.db, kiosk_session.id)
+    if turns >= runtime.context.settings.kiosk_max_turns:
+        raise AppError(
+            "SESSION_TURN_LIMIT_REACHED",
+            (
+                "Esta atención alcanzó el límite de consultas. "
+                "Inicia una nueva sesión si necesitas continuar."
+            ),
+            409,
+            {"max_turns": runtime.context.settings.kiosk_max_turns},
+        )
 
 
 async def mask_pii(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
@@ -335,8 +353,13 @@ async def decline(state: OrchestrationState) -> dict:
     that set. `route_ambiguity` sends anything the classifier marks `out_of_scope` here
     before it ever reaches a confirmation step, so an out-of-domain or privileged-access
     request is never echoed back as if it were serviceable. No case or ticket is ever
-    created for a declined turn."""
+    created for a declined turn.
+
+    A decline no longer ends the session by itself: `decline_count` counts them in a row,
+    and `guard_turn` takes a new turn from DECLINED until it reaches
+    `kiosk_max_consecutive_declines`."""
     kiosk_session = state["kiosk_session"]
+    kiosk_session.decline_count += 1
     decision = state["decision"].model_copy(
         update={
             "summary": state["masked_context"][:500],
@@ -355,6 +378,10 @@ async def persist_requirement(state: OrchestrationState, runtime: Runtime[GraphC
     kiosk_session = state["kiosk_session"]
     payload = state["turn_payload"]
     decision = state["decision"]
+    # Every node that reaches here except `decline` leaves the session out of DECLINED, so
+    # this is where a turn the kiosk could work with breaks a run of declines.
+    if kiosk_session.status != SessionStatus.DECLINED:
+        kiosk_session.decline_count = 0
     proposed_priority = runtime.context.prioritizer.run(
         decision.category,
         decision.summary,

@@ -105,6 +105,10 @@ class Settings(BaseSettings):
     # and hands the session to a person. Without a ceiling, a customer who cannot phrase
     # the request loops CONFIRM -> reject -> CAPTURE forever and leaves with no ticket.
     max_corrections: int = 2
+    # How many out-of-scope turns in a row end the session. One no longer does: the kiosk
+    # names what it can attend and keeps listening, because the turn it declined is as often
+    # a bystander's sentence as the customer's request.
+    kiosk_max_consecutive_declines: int = 2
     openai_timeout_seconds: float = 20.0
     estimated_service_minutes: int = 8
     support_tracking_information: str = (
@@ -132,6 +136,8 @@ class Settings(BaseSettings):
             raise ValueError("KIOSK_SESSION_MINUTES must be positive")
         if self.kiosk_max_turns <= 0:
             raise ValueError("KIOSK_MAX_TURNS must be positive")
+        if self.kiosk_max_consecutive_declines <= 0:
+            raise ValueError("KIOSK_MAX_CONSECUTIVE_DECLINES must be positive")
         if self.kiosk_follow_up_inactivity_seconds <= 0:
             raise ValueError("KIOSK_FOLLOW_UP_INACTIVITY_SECONDS must be positive")
         if self.knowledge_max_upload_mb <= 0:

@@ -23,6 +23,7 @@ no database and no agent.
 
 from app.domain.enums import Category, ResolutionType
 from app.domain.schemas import ExecutiveAssignment, FlowOutcome, SpeechPlan
+from app.services.prompts import KIOSK_SCOPE
 
 # The written rendering of a declined turn, used by the text channel and as the voice
 # channel's `fallback_text`. The voice channel no longer reads it aloud: it gets
@@ -53,14 +54,6 @@ HANDOFF_REASONS = {
 }
 URGENT_HANDOFF_REASSURANCE = " Este caso se está atendiendo como prioritario."
 
-
-# The services the kiosk can actually attend. Named as a fact rather than a fixed sentence
-# so the model can decline in its own words -- but it may not add to this list, which is why
-# it is passed as data and repeated in the guidance.
-KIOSK_SCOPE = (
-    "bloqueo de tarjetas, reporte de fraude, solicitudes de crédito, banca digital y "
-    "consultas generales del banco"
-)
 
 # What belongs in `verbatim` and what belongs in `facts` -- see the module docstring. The
 # short version: operational tokens that carry a digit (ticket number, wait estimate,
@@ -101,14 +94,25 @@ def with_privacy_notice(
     )
 
 
-def decline_plan() -> SpeechPlan:
+def decline_plan(*, conversation_can_continue: bool) -> SpeechPlan:
+    """A decline either keeps listening or, after too many in a row, says goodbye.
+
+    It always used to say goodbye, and the turn it declined was often a bystander's sentence
+    rather than the customer's request -- so one stray "la presentación sería..." closed a
+    session someone was still standing in front of.
+    """
+    closing = (
+        "Luego pregúntale en una frase breve si necesita algo de esa lista y sigue escuchando."
+        if conversation_can_continue
+        else "Luego despídete brevemente: esta atención termina aquí y no haces otra pregunta."
+    )
     return SpeechPlan(
         intent="DECLINE",
         facts={"alcance": KIOSK_SCOPE},
         guidance=(
             "Dile con amabilidad que eso no lo puedes atender en este kiosco y nómbrale lo "
             "que sí atiendes, tomándolo de `alcance`. No ofrezcas ningún servicio que no "
-            "esté en esa lista, no pidas confirmación y no sigas la conversación."
+            "esté en esa lista y no pidas confirmación. " + closing
         ),
         fallback_text=DECLINE_SPEECH_TEXT,
     )

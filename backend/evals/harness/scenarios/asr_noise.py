@@ -155,6 +155,61 @@ async def mild_noise_is_still_understood(session: ConversationSession) -> list[C
     ]
 
 
+async def bystander_sentence_does_not_end_the_session(
+    session: ConversationSession,
+) -> list[CheckResult]:
+    """A sentence from someone standing next to the kiosk, then the customer's own request.
+
+    Recorded 2026-10-14: "prototipo bueno la presentación sería" -- people talking about the
+    kiosk, not to it -- was declined, and the decline ended the session on the customer who
+    was about to speak. Whatever the kiosk makes of the bystander, it must still be listening
+    when the real request comes, and that request must land where it always would have.
+    """
+    first = await _turn(session, "prototipo bueno la presentación sería", is_clarification=False)
+    still_listening = first.get("next_action") == "CLARIFY" or (
+        first.get("next_action") == "DECLINE" and first.get("conversation_can_continue") is True
+    )
+
+    request = await _turn(
+        session,
+        "Me robaron la tarjeta de debito y quiero bloquearla.",
+        is_clarification=first.get("next_action") == "CLARIFY",
+    )
+    landed_right = request.get("category") in {"REPORTE_FRAUDE", "BLOQUEO_TARJETA"}
+
+    # Carried to a ticket, like the other recovery here: the point is not only that the
+    # kiosk heard the customer but that the case it opens for them is the right one.
+    final = request
+    if request.get("next_action") == "CONFIRM":
+        final = await session.client.send_confirmation(
+            session.handle, request["requirement_id"], True
+        )
+        session.record_raw("send_confirmation", "confirmed=true", 200, final)
+    if final.get("next_action") == "IDENTIFY":
+        final = await session.client.send_identification(session.handle, DEFAULT_IDENTIFIER)
+        session.record_raw("send_identification", "CI valido", 200, final)
+    ticket = (final.get("ticket") or {}).get("number")
+
+    return [
+        CheckResult(
+            "bystander_sentence_does_not_end_the_session",
+            still_listening,
+            f"next_action={first.get('next_action')} "
+            f"puede_continuar={first.get('conversation_can_continue')}",
+        ),
+        CheckResult(
+            "customer_request_after_bystander_lands_right",
+            landed_right,
+            f"categoria={request.get('category')}",
+        ),
+        CheckResult(
+            "customer_request_after_bystander_reaches_a_person",
+            final.get("resolution_type") == "HUMAN" and ticket is not None,
+            f"resolution={final.get('resolution_type')} ticket={ticket}",
+        ),
+    ]
+
+
 _NOTES = (
     "This is a transcription-robustness scenario, not a conversation. The transcript given "
     "to the kiosk is deliberately wrong in the way a Spanish speech recogniser gets things "
@@ -187,6 +242,11 @@ SCENARIOS = [
         "transcripcion_pierde_el_riesgo",
         "A transcript that lost the word carrying the risk must never resolve automatically.",
         corruption_never_downgrades_risk,
+    ),
+    _asr(
+        "frase_de_un_tercero_no_cierra_la_sesion",
+        "A bystander's sentence must not end the session before the customer's own request.",
+        bystander_sentence_does_not_end_the_session,
     ),
     _asr(
         "transcripcion_con_ruido_leve",

@@ -46,13 +46,20 @@ class OpenAIProvider:
                 "model": self.settings.transcription_model,
                 "language": "es",
             },
-            # The model runs the conversation, so its own turn-taking is the
-            # point: it answers when the customer stops, and it stops when the
-            # customer starts.
+            # The application owns the turn, not the model. With `create_response` on, the
+            # model answered whatever the microphone heard the moment it went quiet -- on
+            # 2026-10-14 that was a room full of people, before the kiosk had even
+            # greeted anyone -- and it did so before the transcription the business logic
+            # runs on had landed. The browser now waits for that transcription, asks the
+            # backend, and requests the response itself.
+            #
+            # It still stops when the customer starts (`interrupt_response`), and it waits
+            # longer before deciding they are done (`eagerness: low`): "Quiero..." followed
+            # by a breath used to be sent to the bank as a whole request.
             "turn_detection": {
                 "type": "semantic_vad",
-                "eagerness": "auto",
-                "create_response": True,
+                "eagerness": "low",
+                "create_response": False,
                 "interrupt_response": True,
             },
         }
