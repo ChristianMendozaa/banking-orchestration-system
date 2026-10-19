@@ -19,7 +19,7 @@ import {
   type RealtimeSecret,
 } from "@/lib/kiosk-api"
 import {
-  APPLICATION_EVENT_PREFIX,
+  OUTAGE_GUIDANCE,
   SpeechFloor,
   analysisSpeechPlan,
   captionsFromHistory,
@@ -27,10 +27,13 @@ import {
   correctedRequest,
   declineCanContinue,
   explicitConfirmation,
+  fillerInstructions,
+  greetingInstructions,
   isBenignRealtimeError,
   isConversationClose,
   isSessionExhausted,
   isSessionStateConflict,
+  isSpeechFragment,
   isTerminalDecline,
   isTerminalFlowResult,
   kioskRouteForState,
@@ -38,16 +41,15 @@ import {
   microphoneShouldBeOpen,
   missingVerbatim,
   realtimeResponseId,
-  realtimeToolChoiceForTurn,
   realtimeVoiceSessionConfig,
   selectAuthoritativeTranscript,
   shouldApplyAnalysisResponse,
   shouldApplyFlowResponse,
-  turnResultIsSilent,
+  situationInstructions,
+  turnInstructions,
   type ConversationCaption,
   type KioskTurnProcessingResult,
-  type RealtimeToolChoice,
-  type SpokenTurn,
+  type TranscriptSelection,
 } from "@/lib/kiosk-realtime"
 import type {
   ConversationHistory,
@@ -78,13 +80,15 @@ const DEFAULT_FOLLOW_UP_INACTIVITY_SECONDS = 20
 // to take their time, so the usual window would cut them off -- but a paused kiosk whose
 // customer walked away still has to free itself for the next person.
 const PAUSED_FOLLOW_UP_INACTIVITY_SECONDS = 120
-// How long a tool waits for the session's audio transcription of the turn to land. The
-// transcription usually arrives around the same time as the tool call, so this is a settle
-// window, not a poll loop: the common case resolves on the first check. On timeout the tool
-// tells the model to ask the person to repeat -- there is no second-best transcript to fall
-// back to, and inventing one is exactly the bug this replaced.
-const TRANSCRIPT_SETTLE_TIMEOUT_MS = 1_500
-const TRANSCRIPT_SETTLE_INTERVAL_MS = 100
+// How long a lone word like "Quiero" waits for the rest of the sentence before it is sent to
+// the bank on its own. See `isSpeechFragment`.
+const FRAGMENT_HOLD_MS = 2_500
+// How long the bank may take before the kiosk says "Un momento" so the silence does not read
+// as the kiosk not having heard. Most turns answer well inside it and hear no filler at all.
+const FILLER_DELAY_MS = 1_500
+// How long one spoken turn may stay with the bank before the kiosk gives up on it and says
+// so. Same ceiling the SDK's tool timeout used to impose when turns went through a tool.
+const TURN_TIMEOUT_MS = 25_000
 
 export type VoiceState =
   | "idle"
@@ -137,29 +141,36 @@ interface KioskContextValue extends KioskState {
 
 const KioskContext = createContext<KioskContextValue | null>(null)
 
-// Deliberately a log line and not a metric endpoint: this is the number to look at while
-// tuning the flow, and shipping per-session timings anywhere else would need a privacy
-// decision this does not have. No transcript, no identifiers.
-function reportTurnLatency(milliseconds: number): void {
-  if (process.env.NODE_ENV === "production") return
-  console.info("[kiosco] primer audio del turno", { milliseconds })
+// Browser clock to browser clock, for the stages of one spoken turn. Subtracting a server
+// timestamp from `performance.now()` would measure clock skew as much as anything else.
+interface TurnTiming {
+  // When the customer stopped talking, if the turn detector said so before the transcript.
+  speechStoppedAt: number | null
+  transcriptAt: number
+  backendAt: number | null
 }
 
-function toolCallKey(toolCall: unknown, fallback: string): string {
-  if (toolCall && typeof toolCall === "object") {
-    if ("callId" in toolCall && typeof toolCall.callId === "string") {
-      return toolCall.callId
-    }
-    if ("id" in toolCall && typeof toolCall.id === "string") {
-      return toolCall.id
-    }
-  }
-  return fallback
+// Deliberately a log line and not a metric endpoint: these are the numbers to look at while
+// tuning the flow, and shipping per-session timings anywhere else would need a privacy
+// decision this does not have. No transcript, no identifiers. Split by stage because the
+// one total it used to log could not say whether a slow turn was the transcription, the
+// bank, or the voice.
+function reportTurnLatency(timing: TurnTiming, firstAudioAt: number): void {
+  if (process.env.NODE_ENV === "production") return
+  const backendAt = timing.backendAt ?? firstAudioAt
+  console.info("[kiosco] tiempos del turno", {
+    transcriptionMs:
+      timing.speechStoppedAt === null
+        ? null
+        : Math.round(timing.transcriptAt - timing.speechStoppedAt),
+    backendMs: Math.round(backendAt - timing.transcriptAt),
+    voiceMs: Math.round(firstAudioAt - backendAt),
+    totalMs: Math.round(firstAudioAt - (timing.speechStoppedAt ?? timing.transcriptAt)),
+  })
 }
 
 // A short state summary handed to the model after a reconnect, so it can pick the
 // conversation back up in its own words instead of the application replaying a script at it.
-// APPLICATION_EVENT_PREFIX keeps it off the caption strip.
 function resumeContext(state: KioskState): string | null {
   const { analysis, result } = state
   if (
@@ -212,35 +223,22 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const connectPromiseRef = useRef<Promise<void> | null>(null)
   const connectionAttemptRef = useRef(0)
   const clarificationRef = useRef(false)
-  const activeToolCallsRef = useRef(new Set<string>())
   const turnIdsRef = useRef(new Map<string, string>())
   const syncedConversationItemsRef = useRef(new Set<string>())
   const userCaptionsRef = useRef<ConversationCaption[]>([])
+  // Customer transcript items a turn has already been sent for. One turn runs at a time, so
+  // whatever is not in here and has finished transcribing is exactly the next turn.
   const consumedTranscriptItemsRef = useRef(new Set<string>())
-  // Turns the tool has read, whether or not it managed to act on them. Distinct from
-  // `consumedTranscriptItemsRef` on purpose: an unconsumed turn stays readable so a retry
-  // classifies what the person actually said, but it must stop *forcing* a tool call, or a
-  // backend that keeps failing would hold `tool_choice: "required"` on forever and the model
-  // would spend the conversation calling the tool instead of talking.
-  const attemptedTranscriptItemsRef = useRef(new Set<string>())
-  // Turns a tool call is holding right now. Reading used to be free, so two overlapping tool
-  // calls -- the SDK will make one while another is still resolving -- could both pick up the
-  // same words and open two requirements for one question. A reservation is released the
-  // moment the holder commits or gives them back.
-  const reservedTranscriptItemsRef = useRef(new Set<string>())
-  // Strings the last tool result said must be spoken word for word. Observed only: a miss
+  // Strings the last turn's plan said must be spoken word for word. Observed only: a miss
   // puts the full text on screen and never sends the model back to re-read anything.
   const pendingVerbatimRef = useRef<string[]>([])
   const verbatimBaselineRef = useRef(new Set<string>())
   // The single arbiter of anything the application makes the model say. Created per
   // connection, alongside the realtime session it speaks through.
   const speechFloorRef = useRef<SpeechFloor | null>(null)
-  // A backend result that reached the application through a form rather than through
-  // speech, waiting for the tool to hand it to the model. See `takePendingResult`.
-  const pendingTurnResultRef = useRef<KioskTurnProcessingResult | null>(null)
-  // Recomputes `tool_choice` against current state. Owned by the live connection, so
-  // callers outside `connectVoice` reach it through here.
-  const syncToolChoiceRef = useRef<(() => void) | null>(null)
+  // The persona the live connection was minted with. Every response repeats it in full (see
+  // `turnInstructions`), including the ones requested from outside `connectVoice`.
+  const voicePersonaRef = useRef<string | null>(null)
   const confirmationPromisesRef = useRef(
     new Map<string, { promise: Promise<FlowResult>; revision: number }>(),
   )
@@ -254,10 +252,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const terminalAudioTimeoutRef = useRef<number | null>(null)
   const followUpTimeoutRef = useRef<number | null>(null)
   const followUpPendingRef = useRef(false)
-  // When the tool call for the current turn started, for the one latency number this side
-  // can measure honestly: browser clock to browser clock. Subtracting a server timestamp
-  // from `performance.now()` would measure clock skew as much as anything else.
-  const turnStartedAtRef = useRef<number | null>(null)
+  // The stages of the turn being answered, reported when its first audio plays.
+  const turnTimingRef = useRef<TurnTiming | null>(null)
   const conversationClosePendingRef = useRef(false)
 
   const updateState = useCallback((updater: (current: KioskState) => KioskState) => {
@@ -294,13 +290,12 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         // The connection may already have been closed by the transport.
       }
     }
-    activeToolCallsRef.current.clear()
     pendingVerbatimRef.current = []
     verbatimBaselineRef.current.clear()
     speechFloorRef.current?.reset()
     speechFloorRef.current = null
-    syncToolChoiceRef.current = null
-    pendingTurnResultRef.current = null
+    voicePersonaRef.current = null
+    turnTimingRef.current = null
     conversationClosePendingRef.current = false
     // A pause belongs to the connection it was made on. Whatever replaces this one -- a
     // retry, a new session, the text mode -- starts out listening.
@@ -310,16 +305,12 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
 
   const clearFlowTracking = useCallback(() => {
     clarificationRef.current = false
-    activeToolCallsRef.current.clear()
     pendingVerbatimRef.current = []
     verbatimBaselineRef.current.clear()
     turnIdsRef.current.clear()
     syncedConversationItemsRef.current.clear()
     userCaptionsRef.current = []
     consumedTranscriptItemsRef.current.clear()
-    attemptedTranscriptItemsRef.current.clear()
-    reservedTranscriptItemsRef.current.clear()
-    pendingTurnResultRef.current = null
     confirmationPromisesRef.current.clear()
     identificationPromiseRef.current = null
     reconciliationPromiseRef.current = null
@@ -670,57 +661,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     reset()
   }, [reset])
 
-  // The only record of what the customer said is the voice session's own transcription. It
-  // normally lands within a few hundred milliseconds of the tool call, so wait a bounded
-  // moment; if it never arrives, say so rather than inventing a transcript.
-  //
-  // Reading the turn does not spend it. The caller commits once it has actually acted on
-  // those words, so a tool that reads them and then rejects the turn -- a confirmation that
-  // does not parse, a backend that never answered -- does not silently destroy the only copy
-  // of what the person said.
-  const resolveTurnTranscript = useCallback(async (): Promise<SpokenTurn | null> => {
-    const deadline = Date.now() + TRANSCRIPT_SETTLE_TIMEOUT_MS
-    for (;;) {
-      const selection = selectAuthoritativeTranscript(userCaptionsRef.current, {
-        has: (itemId) =>
-          consumedTranscriptItemsRef.current.has(itemId) ||
-          reservedTranscriptItemsRef.current.has(itemId),
-      })
-      if (selection) {
-        selection.itemIds.forEach((itemId) => {
-          attemptedTranscriptItemsRef.current.add(itemId)
-          reservedTranscriptItemsRef.current.add(itemId)
-        })
-        const unreserve = () =>
-          selection.itemIds.forEach((itemId) =>
-            reservedTranscriptItemsRef.current.delete(itemId),
-          )
-        return {
-          text: selection.text,
-          commit: () => {
-            selection.itemIds.forEach((itemId) =>
-              consumedTranscriptItemsRef.current.add(itemId),
-            )
-            unreserve()
-          },
-          release: unreserve,
-        }
-      }
-      if (Date.now() >= deadline) return null
-      await new Promise((resolve) =>
-        window.setTimeout(resolve, TRANSCRIPT_SETTLE_INTERVAL_MS),
-      )
-    }
-  }, [])
-
-  const takePendingTurnResult = useCallback((): KioskTurnProcessingResult | null => {
-    const pending = pendingTurnResultRef.current
-    pendingTurnResultRef.current = null
-    return pending
-  }, [])
-
   // Everything the model has already said is baseline: a check must measure only what comes
-  // out after this tool result, not the whole conversation so far.
+  // out after this turn's outcome, not the whole conversation so far.
   const rememberVerbatim = useCallback((plan: SpeechPlan | undefined) => {
     pendingVerbatimRef.current = plan?.verbatim ?? []
     verbatimBaselineRef.current = new Set(
@@ -1030,8 +972,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           }
         }
         // Every state the session can be in needs an answer here. There used to be two
-        // branches -- confirmation, and everything else goes to `/turns` -- so a tool call
-        // made while the credential window was open fell through to an endpoint the backend
+        // branches -- confirmation, and everything else goes to `/turns` -- so a turn
+        // spoken while the credential window was open fell through to an endpoint the backend
         // refuses in that state, and the 409 reached the customer as "no pude consultar el
         // sistema, inténtalo otra vez". The kiosk knows perfectly well what is happening;
         // it just had nowhere to say so.
@@ -1085,65 +1027,68 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           return { kind: "analysis", response: analysisResponse }
         }
 
-        const agent = createKioskRealtimeAgent(
-          {
-            takePendingResult: takePendingTurnResult,
-            resolveSpokenText: resolveTurnTranscript,
-            settleTurn: (result) => {
-              // Both of these have to happen while `execute` is still on the stack: the SDK
-              // emits `response.create` the moment it resolves. Releasing `required` here is
-              // what keeps the response that speaks this result from being forced into a
-              // second, turnless tool call, and suppressing is the only way a result with
-              // nothing to say produces actual silence rather than filler.
-              syncToolChoice()
-              if (turnResultIsSilent(result)) speechFloor.suppressNextResponse()
-            },
-            processSpokenTurn: async (transcript, callId, signal) => {
-              try {
-                return await routeSpokenTurn(transcript, callId, signal)
-              } catch (reason) {
-                // The backend and this client disagreed about where the conversation is.
-                // Reconcile and say nothing: the customer did nothing wrong and the bank
-                // is not down, so an apology here would be a lie about both.
-                if (isSessionStateConflict(reason)) {
-                  void reconcileSession(activeSession).catch(() => {
-                    // A failed reconciliation surfaces through its own paths.
-                  })
-                  return { kind: "noop" }
-                }
-                if (isSessionExhausted(reason)) {
-                  conversationClosePendingRef.current = true
-                  return { kind: "close" }
-                }
-                throw reason
-              }
-            },
-          },
-          { instructions, voice },
-        )
+        const processSpokenTurn = async (
+          transcript: string,
+          turnKey: string,
+          signal: AbortSignal,
+        ): Promise<KioskTurnProcessingResult> => {
+          try {
+            return await routeSpokenTurn(transcript, turnKey, signal)
+          } catch (reason) {
+            // The backend and this client disagreed about where the conversation is.
+            // Reconcile and say nothing: the customer did nothing wrong and the bank is not
+            // down, so an apology here would be a lie about both. Awaited, so the caller can
+            // route the same words again against the state the session is really in.
+            if (isSessionStateConflict(reason)) {
+              await reconcileSession(activeSession).catch(() => {
+                // A failed reconciliation surfaces through its own paths.
+              })
+              return { kind: "noop" }
+            }
+            if (isSessionExhausted(reason)) {
+              conversationClosePendingRef.current = true
+              return { kind: "close" }
+            }
+            throw reason
+          }
+        }
 
-        let greeted = false
-        let appliedToolChoice: RealtimeToolChoice = realtimeToolChoiceForTurn({
-          greeted,
-          hasUnspentTranscript: false,
-        })
+        const agent = createKioskRealtimeAgent({ instructions, voice })
+        voicePersonaRef.current = instructions
+
+        // The application owns the turn, so it has to know what the session is doing: whether
+        // the opening line is still going out, whether the customer is mid-sentence, whether a
+        // turn is already with the bank. Per connection on purpose -- a reconnect starts over.
+        let openingDone = false
+        let interruptionsEnabled = false
+        let customerSpeaking = false
+        let turnInFlight = false
+        let lastSpeechStoppedAt: number | null = null
+        let fragmentTimer: number | null = null
+        // The fragment that already waited its moment, so it is sent instead of held again.
+        let releasedFragment: string | null = null
 
         const realtime = new RealtimeSessionClass(agent, {
           model,
           historyStoreAudio: false,
           tracingDisabled: true,
-          config: realtimeVoiceSessionConfig(audioInput, voice, appliedToolChoice),
+          config: realtimeVoiceSessionConfig(audioInput, voice, { interruptResponse: false }),
         })
         realtimeRef.current = realtime
         const isCurrentRealtime = () =>
           isActiveAttempt() && realtimeRef.current === realtime
 
         const speechFloor = new SpeechFloor({
-          sendMessage: (message) => {
+          speak: (text) => {
             try {
-              realtime.sendMessage(message)
+              // Through `sendEvent`, so the SDK's own sequencer still holds a request that
+              // arrives while a response is active instead of having it rejected.
+              realtime.transport.sendEvent({
+                type: "response.create",
+                response: { instructions: text, tool_choice: "none" },
+              })
             } catch (reason) {
-              // The floor drops the message and moves on; the customer still needs to be
+              // The floor drops the request and moves on; the customer still needs to be
               // told that the rest of this is on screen rather than left waiting for a
               // voice that is not coming.
               setVoiceError(
@@ -1158,37 +1103,20 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
         })
         speechFloorRef.current = speechFloor
 
-        // Derived from state, never from VAD events: an unspent transcript is exactly what
-        // `procesar_turno` will find when it runs, so `required` promises only what the
-        // application can keep. Sent only when the value actually changes, so the session
-        // stops being reconfigured on every breath the microphone hears.
-        const syncToolChoice = () => {
-          const choice = realtimeToolChoiceForTurn({
-            greeted,
-            // Offered to the tool once is the guarantee; succeeding is not, so an attempt
-            // releases `required` even when the backend call behind it failed.
-            hasUnspentTranscript:
-              selectAuthoritativeTranscript(userCaptionsRef.current, {
-                has: (itemId) =>
-                  consumedTranscriptItemsRef.current.has(itemId) ||
-                  attemptedTranscriptItemsRef.current.has(itemId),
-              }) !== null,
-            hasPendingResult: pendingTurnResultRef.current !== null,
-          })
-          if (choice === appliedToolChoice) return
-          appliedToolChoice = choice
+        const enableInterruptions = () => {
+          if (interruptionsEnabled) return
+          interruptionsEnabled = true
           try {
             realtime.transport.updateSessionConfig(
-              realtimeVoiceSessionConfig(audioInput, voice, choice),
+              realtimeVoiceSessionConfig(audioInput, voice, { interruptResponse: true }),
             )
           } catch {
             // The transport is gone; the next connection mints its own configuration.
           }
         }
-        syncToolChoiceRef.current = syncToolChoice
 
         const settleVoiceState = () => {
-          if (activeToolCallsRef.current.size > 0) return
+          if (turnInFlight) return
           setVoiceState(realtime.muted ? "muted" : "listening")
         }
 
@@ -1197,8 +1125,14 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           verbatimBaselineRef.current.clear()
         }
 
+        const clearFragmentHold = () => {
+          if (fragmentTimer === null) return
+          window.clearTimeout(fragmentTimer)
+          fragmentTimer = null
+        }
+
         // What became of the old controlled-speech machine: an observation, not a
-        // correction. When a tool result carried strings that must survive word for word,
+        // correction. When a turn's plan carried strings that must survive word for word,
         // check the model said them -- and if it did not, leave the full text on screen and
         // say so once. It used to push a "say this word for word" message back into the
         // conversation instead, which starts a whole new response; with "Ventanilla 3" and
@@ -1228,6 +1162,92 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           )
         }
 
+        // Sends the next turn to the bank once there is one to send. Called whenever any of
+        // its conditions may have changed: a transcription landed, the customer stopped
+        // talking, the opening line finished, the previous turn came back. A turn spoken while
+        // another one is with the bank is not lost -- it is still unspent when that one
+        // returns, and it goes next, joined with anything else said in the meantime.
+        const maybeRunTurn = () => {
+          if (!isCurrentRealtime() || !openingDone || turnInFlight || customerSpeaking) return
+          const selection = selectAuthoritativeTranscript(
+            userCaptionsRef.current,
+            consumedTranscriptItemsRef.current,
+          )
+          if (!selection) return
+          const { analysis, result } = stateRef.current
+          const awaitingAnswer =
+            analysis?.next_action === "CONFIRM" || result?.next_action === "CONFIRM"
+          const key = selection.itemIds.join("|")
+          if (!awaitingAnswer && isSpeechFragment(selection.text) && releasedFragment !== key) {
+            if (fragmentTimer === null) {
+              fragmentTimer = window.setTimeout(() => {
+                fragmentTimer = null
+                releasedFragment = key
+                maybeRunTurn()
+              }, FRAGMENT_HOLD_MS)
+            }
+            return
+          }
+          clearFragmentHold()
+          void runSpokenTurn(selection)
+        }
+
+        const runSpokenTurn = async (selection: TranscriptSelection) => {
+          turnInFlight = true
+          const timing: TurnTiming = {
+            speechStoppedAt: lastSpeechStoppedAt,
+            transcriptAt: performance.now(),
+            backendAt: null,
+          }
+          lastSpeechStoppedAt = null
+          // A new turn. Any unchecked requirement from the preceding answer belongs to the
+          // answer before it, not to this one. The microphone stays live: the customer must
+          // be able to interrupt, correct or add something while the bank answers.
+          dropPendingVerbatim()
+          cancelFollowUpWindow()
+          setVoiceState("thinking")
+
+          const controller = new AbortController()
+          const timeout = window.setTimeout(() => controller.abort(), TURN_TIMEOUT_MS)
+          const filler = window.setTimeout(() => {
+            speechFloor.request("filler", () =>
+              turnInFlight && isCurrentRealtime() ? fillerInstructions(instructions) : null,
+            )
+          }, FILLER_DELAY_MS)
+          const turnKey = crypto.randomUUID()
+          let result: KioskTurnProcessingResult = { kind: "noop" }
+          try {
+            // A state disagreement has been reconciled by the time `noop` comes back, and
+            // nobody has read these words yet: route them once more against the state the
+            // session is really in, instead of leaving the person unanswered.
+            for (let attempt = 0; attempt < 2 && result.kind === "noop"; attempt += 1) {
+              result = await processSpokenTurn(selection.text, turnKey, controller.signal)
+            }
+          } catch {
+            // Only a genuine outage reaches here, or the bank taking longer than
+            // TURN_TIMEOUT_MS. The words are spent anyway: left unspent, they would be sent
+            // again the instant this returned, against a bank that just failed, and the
+            // apology already asks the person to say it again.
+            result = { kind: "retry", guidance: OUTAGE_GUIDANCE }
+          } finally {
+            window.clearTimeout(timeout)
+            window.clearTimeout(filler)
+            selection.itemIds.forEach((itemId) => consumedTranscriptItemsRef.current.add(itemId))
+            turnInFlight = false
+          }
+          if (!isCurrentRealtime()) return
+
+          timing.backendAt = performance.now()
+          turnTimingRef.current = timing
+          // Re-derived when the floor frees, so an outcome the conversation has overtaken in
+          // the meantime -- or one with nothing to say -- produces no response at all.
+          speechFloor.request("turn", () =>
+            isCurrentRealtime() ? turnInstructions(instructions, result) : null,
+          )
+          settleVoiceState()
+          maybeRunTurn()
+        }
+
         realtime.on("history_updated", (history) => {
           if (!isCurrentRealtime()) return
           const liveCaptions = captionsFromHistory(history)
@@ -1237,9 +1257,8 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           )
           setCaptions(nextCaptions)
           userCaptionsRef.current = nextCaptions
-          // A customer transcript landing here is what arms `required`, and a tool
-          // consuming one is what releases it.
-          syncToolChoice()
+          // A customer transcript landing here is what starts a turn.
+          maybeRunTurn()
           const session = stateRef.current.session
           const pending = nextCaptions.filter(
             (caption) =>
@@ -1260,42 +1279,15 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             pending.forEach((caption) => syncedConversationItemsRef.current.delete(caption.id))
           })
         })
-        realtime.on("agent_tool_start", (_context, _agent, _tool, details) => {
-          if (!isCurrentRealtime()) return
-          // One clock, this one. Two numbers matter and they are not the same: how long
-          // until the kiosk makes any sound, and how long until it says something with the
-          // answer in it. The removed acknowledgement only ever improved the first.
-          turnStartedAtRef.current = performance.now()
-          // The microphone stays live. A backend round-trip takes several seconds, and the
-          // customer must be able to interrupt, correct or add something during it.
-          activeToolCallsRef.current.add(toolCallKey(details.toolCall, _tool.name))
-          speechFloor.noteToolStarted()
-          // A tool call belongs to a new customer turn. Any unchecked requirement from the
-          // preceding answer belongs to the answer before it, not to this one.
-          dropPendingVerbatim()
-          cancelFollowUpWindow()
-          setVoiceState("thinking")
-        })
-        realtime.on("agent_tool_end", (_context, _agent, _tool, _result, details) => {
-          if (!isCurrentRealtime()) return
-          activeToolCallsRef.current.delete(toolCallKey(details.toolCall, _tool.name))
-          speechFloor.noteToolFinished()
-          // `tool_choice` is released from inside the tool now (see `settleTurn`): this
-          // event fires *after* the SDK has already put `response.create` on the wire, so
-          // releasing it here always lost the race. Kept as a backstop for the paths that
-          // never reach `settleTurn`, such as the SDK's own timeout.
-          syncToolChoice()
-          settleVoiceState()
-        })
         realtime.on("audio_start", () => {
           if (!isCurrentRealtime()) return
           // The SDK event carries no response id; `output_audio_buffer.started` below does,
           // and that is the one the floor is told about. This only paints the UI.
           setVoiceState("speaking")
-          const startedAt = turnStartedAtRef.current
-          if (startedAt !== null) {
-            turnStartedAtRef.current = null
-            reportTurnLatency(Math.round(performance.now() - startedAt))
+          const timing = turnTimingRef.current
+          if (timing !== null) {
+            turnTimingRef.current = null
+            reportTurnLatency(timing, performance.now())
           }
         })
         realtime.on("audio_stopped", () => {
@@ -1322,12 +1314,6 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
             speechFloor.noteAudioFinished(responseId)
             checkVerbatim()
             settleVoiceState()
-            // The greeting is over the first time the kiosk stops speaking, and only then
-            // may the model reach for a tool.
-            if (!greeted) {
-              greeted = true
-              syncToolChoice()
-            }
             if (conversationClosePendingRef.current) {
               conversationClosePendingRef.current = false
               startCompletionCountdown()
@@ -1335,22 +1321,25 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
               armFollowUpWindow()
             }
           } else if (event.type === "input_audio_buffer.speech_started") {
+            customerSpeaking = true
+            // More is coming: a held fragment waits for it instead of going out alone.
+            clearFragmentHold()
             // The customer is talking, possibly over the kiosk. That is a supported way to
             // use it, not a failure: nothing is replayed, and a verbatim string the model
             // was cut off from saying is dropped rather than forced through a second time.
             // (`audio_interrupted` used to carry this too, but only the WebSocket transport
             // ever emits it and the browser runs on WebRTC.)
-            // Someone talking to the kiosk ends the greeting phase as surely as the
-            // greeting finishing does, and this path does not depend on audio playback.
-            greeted = true
-            // A barge-in stops the kiosk's audio without necessarily reporting the buffer
-            // as stopped, and a floor still believing it is speaking never frees.
-            speechFloor.noteAudioFinished()
             dropPendingVerbatim()
             cancelFollowUpWindow()
             setVoiceState("listening")
+            // A barge-in stops the kiosk's audio without necessarily reporting the buffer as
+            // stopped, and a floor still believing it is speaking never frees. Not during the
+            // opening line, though: interruptions are off then, so the audio is still playing.
+            if (interruptionsEnabled) speechFloor.noteAudioFinished()
           } else if (event.type === "input_audio_buffer.speech_stopped") {
-            if (activeToolCallsRef.current.size === 0) setVoiceState("thinking")
+            customerSpeaking = false
+            lastSpeechStoppedAt = performance.now()
+            maybeRunTurn()
           }
         })
         realtime.on("error", ({ error }) => {
@@ -1387,21 +1376,28 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
           setVoiceState("listening")
         }
 
-        // Hand the model the state it is resuming into, if any, and let it open its mouth.
-        // No instructions override, no fixed greeting: the persona on the session already
-        // says to introduce itself and ask what the person needs, and it words that itself.
+        // The opening line: a greeting, or the state a reconnect is resuming into. Through
+        // the arbiter, and re-derived when it is released, so a reconnection that lands while
+        // the business state is still moving does not narrate a step the kiosk has already
+        // passed. On 2026-10-14 the greeting came out *last*, behind two answers to the
+        // people talking around the kiosk; nothing else is asked for until it has been heard.
         const resume = resumeContext(stateRef.current)
         if (resume) {
-          // Through the arbiter, and re-derived when it is released: a reconnection that
-          // lands while the business state is still moving must not narrate a step the
-          // kiosk has already passed.
           speechFloor.request("resume", () => {
             const current = resumeContext(stateRef.current)
-            return current ? `${APPLICATION_EVENT_PREFIX} ${current}` : null
+            return current ? situationInstructions(instructions, current) : null
           })
         } else {
-          realtime.transport.sendEvent({ type: "response.create" })
+          speechFloor.request("greeting", () => greetingInstructions(instructions))
         }
+        // Whatever was said over the opening line was transcribed all the same, and goes out
+        // as the first turn the moment it ends.
+        speechFloor.whenFree(() => {
+          if (!isCurrentRealtime()) return
+          openingDone = true
+          enableInterruptions()
+          maybeRunTurn()
+        })
       } catch (reason) {
         if (attemptId !== connectionAttemptRef.current) return
         disposeRealtime()
@@ -1438,9 +1434,7 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     handleExpiredSession,
     reconcileSession,
     rememberVerbatim,
-    resolveTurnTranscript,
     startCompletionCountdown,
-    takePendingTurnResult,
     updateState,
   ])
 
@@ -1670,28 +1664,21 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
 
         const realtime = realtimeRef.current
         const speechFloor = speechFloorRef.current
-        if (realtime?.transport.status === "connected" && speechFloor) {
+        const persona = voicePersonaRef.current
+        if (realtime?.transport.status === "connected" && speechFloor && persona) {
           // The microphone stays closed. It used to be opened here "so the customer can
           // react", but this result is terminal and the mic-policy effect shut it again a
           // tick later anyway -- all that window ever did was give the kiosk's own speaker
           // a path back into the voice-activity detector.
           rememberVerbatim(completed.speech_plan)
           // The identity card is typed on a form, so this outcome never passed through
-          // speech and the model has not been shown it. Telling it to "say how this ends
-          // using what the last tool returned" pointed at whatever the last tool call
-          // happened to be -- on 2026-09-01 that was an idle check-in with empty facts, and
-          // a customer who had just been assigned ticket 1 at Ventanilla 4 with Roberto
-          // Torrez was told the next step "depends on internal confirmation". Business data
-          // reaches the model through tool results and nowhere else, so this queues the
-          // real result and forces the tool call that delivers it.
-          pendingTurnResultRef.current = { kind: "flow", response: completed }
-          syncToolChoiceRef.current?.()
-          // The instruction was already cancelled before the request went out. This
-          // supersedes anything the model started saying in the meantime and queues the
-          // handover behind it.
-          speechFloor.preempt(
-            "identification_close",
-            () => `${APPLICATION_EVENT_PREFIX} Ya escribió su CI en el campo protegido.`,
+          // speech. It is spoken from the backend's own SpeechPlan, exactly like a spoken
+          // turn's outcome: on 2026-09-01 a model told to "say how this ends" from memory
+          // assured a customer who had just been given ticket 1 at Ventanilla 4 that the next
+          // step "depended on internal confirmation". The instruction was already cancelled
+          // before the request went out; this supersedes anything started in the meantime.
+          speechFloor.preempt("identification_close", () =>
+            turnInstructions(persona, { kind: "flow", response: completed }),
           )
         } else if (stateRef.current.interactionMode === "voice") {
           setVoiceError(

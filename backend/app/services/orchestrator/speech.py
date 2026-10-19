@@ -23,6 +23,7 @@ no database and no agent.
 
 from app.domain.enums import Category, ResolutionType
 from app.domain.schemas import ExecutiveAssignment, FlowOutcome, SpeechPlan
+from app.services.prompts import KIOSK_SCOPE
 
 # The written rendering of a declined turn, used by the text channel and as the voice
 # channel's `fallback_text`. The voice channel no longer reads it aloud: it gets
@@ -53,14 +54,6 @@ HANDOFF_REASONS = {
 }
 URGENT_HANDOFF_REASSURANCE = " Este caso se está atendiendo como prioritario."
 
-
-# The services the kiosk can actually attend. Named as a fact rather than a fixed sentence
-# so the model can decline in its own words -- but it may not add to this list, which is why
-# it is passed as data and repeated in the guidance.
-KIOSK_SCOPE = (
-    "bloqueo de tarjetas, reporte de fraude, solicitudes de crédito, banca digital y "
-    "consultas generales del banco"
-)
 
 # What belongs in `verbatim` and what belongs in `facts` -- see the module docstring. The
 # short version: operational tokens that carry a digit (ticket number, wait estimate,

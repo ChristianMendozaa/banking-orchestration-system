@@ -5,29 +5,32 @@
 import { describe, expect, it, vi } from "vitest"
 
 import {
-  analysisToolOutput,
-  APPLICATION_EVENT_PREFIX,
+  OUTAGE_GUIDANCE,
+  SpeechFloor,
+  analysisSpeechData,
   captionsFromHistory,
   captionsFromStoredConversation,
-  isTerminalFlowResult,
-  isConversationClose,
+  correctedRequest,
   explicitConfirmation,
-  flowToolOutput,
-  mergeConversationCaptions,
-  missingVerbatim,
+  fillerInstructions,
+  flowSpeechData,
+  greetingInstructions,
   isBenignRealtimeError,
+  isConversationClose,
   isSessionStateConflict,
+  isSpeechFragment,
+  isTerminalFlowResult,
+  mergeConversationCaptions,
   microphoneShouldBeOpen,
-  realtimeToolChoiceForTurn,
+  missingVerbatim,
   realtimeVoiceSessionConfig,
   selectAuthoritativeTranscript,
   shouldApplyAnalysisResponse,
   shouldApplyFlowResponse,
-  speechPlanToolOutput,
-  correctedRequest,
-  turnProcessingToolOutput,
+  speechPlanData,
+  turnInstructions,
   turnResultIsSilent,
-  SpeechFloor,
+  turnSpeechData,
 } from "../lib/kiosk-realtime"
 import { ApiError } from "../lib/api"
 import { createKioskRealtimeAgent } from "../lib/kiosk-realtime-agent"
@@ -164,14 +167,8 @@ describe("captionsFromHistory", () => {
       {
         itemId: "internal",
         type: "message",
-        role: "user",
-        status: "completed",
-        content: [
-          {
-            type: "input_text",
-            text: `${APPLICATION_EVENT_PREFIX} inicia la atención`,
-          },
-        ],
+        role: "system",
+        content: [{ type: "input_text", text: "Instrucciones internas" }],
       },
       {
         itemId: "assistant",
@@ -249,36 +246,7 @@ describe("persistent conversation history", () => {
   })
 })
 
-describe("realtime turn controls", () => {
-  it("forbids startup tools, requires processing while a turn is unspent, then permits speech", () => {
-    expect(
-      realtimeToolChoiceForTurn({ greeted: false, hasUnspentTranscript: false }),
-    ).toBe("none")
-    expect(
-      realtimeToolChoiceForTurn({ greeted: true, hasUnspentTranscript: true }),
-    ).toBe("required")
-    expect(
-      realtimeToolChoiceForTurn({ greeted: true, hasUnspentTranscript: false }),
-    ).toBe("auto")
-  })
-
-  it("never forces a tool call on noise", () => {
-    // `required` used to be armed by `input_audio_buffer.speech_started`, so a cough or the
-    // kiosk's own audio leaking into the microphone forced the *next* response to call the
-    // tool -- frequently the response that was supposed to speak the previous tool's result.
-    // It found no transcript and apologised. Nothing but an actual unspent transcript arms
-    // it now, and a spent one releases it before the result is spoken.
-    expect(
-      realtimeToolChoiceForTurn({ greeted: true, hasUnspentTranscript: false }),
-    ).not.toBe("required")
-  })
-
-  it("keeps the greeting free of tools even before any audio has played", () => {
-    expect(
-      realtimeToolChoiceForTurn({ greeted: false, hasUnspentTranscript: true }),
-    ).toBe("none")
-  })
-
+describe("realtime session controls", () => {
   it.each(["No, gracias", "Eso es todo", "Nada más, gracias"])(
     "recognizes a complete social close: %s",
     (value) => expect(isConversationClose(value)).toBe(true),
@@ -289,28 +257,38 @@ describe("realtime turn controls", () => {
     (value) => expect(isConversationClose(value)).toBe(false),
   )
 
-  it("preserves backend audio settings whenever tool choice changes", () => {
+  it("preserves backend audio settings whenever interruptions are toggled", () => {
     const audioInput = {
       noise_reduction: { type: "near_field" },
       transcription: { model: "gpt-realtime-whisper", language: "es" },
       turn_detection: {
         type: "semantic_vad",
-        eagerness: "auto" as const,
-        create_response: true,
+        eagerness: "low" as const,
+        create_response: false,
         interrupt_response: true,
       },
     }
-    const required = realtimeVoiceSessionConfig(audioInput, "marin", "required")
-    const automatic = realtimeVoiceSessionConfig(audioInput, "marin", "auto")
-    const greeting = realtimeVoiceSessionConfig(audioInput, "marin", "none")
+    const opening = realtimeVoiceSessionConfig(audioInput, "marin", {
+      interruptResponse: false,
+    })
+    const conversation = realtimeVoiceSessionConfig(audioInput, "marin", {
+      interruptResponse: true,
+    })
 
-    expect(required.toolChoice).toBe("required")
-    expect(automatic.toolChoice).toBe("auto")
-    expect(greeting.toolChoice).toBe("none")
-    expect(required.audio).toEqual(automatic.audio)
-    expect(greeting.audio).toEqual(required.audio)
-    expect(required.audio.input.transcription).toEqual(audioInput.transcription)
-    expect(required.audio.input.turnDetection).toEqual(audioInput.turn_detection)
+    expect(opening.audio.input.transcription).toEqual(audioInput.transcription)
+    expect(opening.audio.input.noiseReduction).toEqual(audioInput.noise_reduction)
+    // The backend's choice that the session never answers by itself survives every update.
+    expect(opening.audio.input.turnDetection).toMatchObject({
+      type: "semantic_vad",
+      eagerness: "low",
+      create_response: false,
+      interruptResponse: false,
+    })
+    expect(conversation.audio.input.turnDetection).toMatchObject({
+      create_response: false,
+      interruptResponse: true,
+    })
+    expect(conversation).not.toHaveProperty("toolChoice")
   })
 })
 
@@ -419,69 +397,37 @@ const agentOptions = {
   voice: "marin",
 }
 
-function toolNamed(
-  agent: ReturnType<typeof createKioskRealtimeAgent>,
-  name: string,
-) {
-  const found = agent.tools.find(
-    (candidate) => candidate.type === "function" && candidate.name === name,
-  )
-  if (!found || found.type !== "function") {
-    throw new Error(`No se encontró la herramienta ${name}`)
-  }
-  return found
-}
-
 describe("createKioskRealtimeAgent", () => {
   it("takes its persona from the client secret the backend minted", () => {
     // The Agents SDK sends these as the session instructions on connect, so a second copy
     // written in the frontend would be the one that actually governed the conversation.
-    const agent = createKioskRealtimeAgent(
-      {
-        takePendingResult: () => null,
-        resolveSpokenText: async () => null,
-        processSpokenTurn: vi.fn(),
-        settleTurn: vi.fn(),
-      },
-      agentOptions,
-    )
+    const agent = createKioskRealtimeAgent(agentOptions)
 
     expect(agent.voice).toBe("marin")
     expect(agent.instructions).toBe(agentOptions.instructions)
-    expect(agent.tools.map((item) => item.name)).toEqual(["procesar_turno"])
   })
 
-  it("hands the model facts and guidance, never a sentence to read out", async () => {
-    // The whole point of the change: a tool result is raw material for the model's own
-    // wording. `speech_text` deliberately does not reach it.
-    const processSpokenTurn = vi.fn().mockResolvedValue({
-      kind: "analysis",
-      response: analysis,
-    })
-    const agent = createKioskRealtimeAgent(
-      {
-        takePendingResult: () => null,
-        resolveSpokenText: async () => ({ text: "Me robaron la tarjeta.", commit: vi.fn(), release: vi.fn() }),
-        processSpokenTurn,
-        settleTurn: vi.fn(),
-      },
-      agentOptions,
-    )
+  it("has no tools to decide with", () => {
+    // On 2026-10-14 the model called `procesar_turno` on the noise in the room before it had
+    // greeted anyone, and read "no hay nada nuevo que procesar" aloud. The application owns
+    // the turn now; the model has nothing to call.
+    expect(createKioskRealtimeAgent(agentOptions).tools).toEqual([])
+  })
+})
 
-    const output = await toolNamed(agent, "procesar_turno").invoke(
-      {} as never,
-      JSON.stringify({}),
-      { toolCall: { callId: "call-1" } } as never,
-    )
+describe("turnInstructions", () => {
+  const persona = agentOptions.instructions
 
-    // The third argument is the SDK's own abort signal, merged with the tool timeout, and
-    // handed straight to `fetch` so an abandoned turn stops mutating state behind the
-    // conversation.
-    const [spokenText, spokenCallId, spokenSignal] = processSpokenTurn.mock.calls[0]
-    expect([spokenText, spokenCallId]).toEqual(["Me robaron la tarjeta.", "call-1"])
-    expect(spokenSignal).toBeInstanceOf(AbortSignal)
-    const parsed = output
-    expect(parsed).toMatchObject({
+  it("repeats the persona and hands over the turn as data, never a sentence to read", () => {
+    // A `response.create` that carries instructions replaces the session's for that
+    // response, so the persona has to travel with every one.
+    const instructions = turnInstructions(persona, { kind: "analysis", response: analysis })
+
+    expect(instructions).not.toBeNull()
+    expect(instructions!.startsWith(persona)).toBe(true)
+    expect(instructions).toContain("ESTE TURNO")
+    const data = JSON.parse(instructions!.slice(instructions!.indexOf("{")))
+    expect(data).toMatchObject({
       ok: true,
       next_action: "CONFIRM",
       intent: "CONFIRM",
@@ -489,151 +435,64 @@ describe("createKioskRealtimeAgent", () => {
       facts: analysis.speech_plan.facts,
       verbatim: [],
     })
-    expect(output).not.toHaveProperty("speech_text")
+    expect(instructions).not.toContain(analysis.speech_text)
   })
 
-  it("cannot classify the model's retelling, because there is nothing to retell into", async () => {
-    // The production failure this design removes: the customer said "reportar el robo",
-    // the model typed "portar el juego" into `fallback_transcript`, and the backend
-    // classified that. The tool now takes no arguments at all.
-    const agent = createKioskRealtimeAgent(
-      {
-        takePendingResult: () => null,
-        resolveSpokenText: async () => ({
-          text: "Quiero reportar el robo de mi tarjeta de débito.",
-          commit: vi.fn(),
-          release: vi.fn(),
-        }),
-        settleTurn: vi.fn(),
-        processSpokenTurn: vi.fn().mockResolvedValue({
-          kind: "analysis",
-          response: analysis,
-        }),
-      },
-      agentOptions,
-    )
-    const analyzeTool = toolNamed(agent, "procesar_turno")
+  it.each(["awaiting_identification", "settled", "superseded", "noop"] as const)(
+    "asks for no response at all on a %s result",
+    (kind) => {
+      // The guidance these used to carry ("no hay nada nuevo que procesar...") was itself
+      // read aloud to a customer. Not asking is the only silence that cannot be broken.
+      expect(turnInstructions(persona, { kind })).toBeNull()
+    },
+  )
 
-    expect(
-      Object.keys(
-        (analyzeTool.parameters as { properties?: Record<string, unknown> }).properties ?? {},
-      ),
-    ).toEqual([])
+  it("apologises for a real outage and only for that", () => {
+    const instructions = turnInstructions(persona, { kind: "retry", guidance: "" })
+    expect(instructions).toContain(OUTAGE_GUIDANCE)
+    expect(instructions).toContain('"ok":false')
   })
 
-  it("stays quiet, and never invents a transcript, when none landed", async () => {
-    // There is no second-best transcript; inventing one is the bug this design replaced.
-    // But "there is nothing to process" is not a failure either. Reporting it as one made
-    // the model apologise and ask the person to repeat themselves every time it called the
-    // tool without a fresh turn -- while they were typing their CI, for instance.
-    const processSpokenTurn = vi.fn()
-    const agent = createKioskRealtimeAgent(
-      {
-        takePendingResult: () => null,
-        resolveSpokenText: async () => null,
-        processSpokenTurn,
-        settleTurn: vi.fn(),
+  it("speaks a form-submitted handoff from its own facts", () => {
+    // Recorded 2026-09-01, session b7844a53: a customer assigned ticket 1 at Ventanilla 4
+    // with Roberto Torrez was told the next step "depends on internal confirmation",
+    // because the outcome of typing the CI never reached the model. It is spoken from the
+    // backend's own SpeechPlan now, like any other turn.
+    const handoff: FlowResult = {
+      ...completed,
+      speech_plan: {
+        ...completed.speech_plan,
+        facts: { ticket: "1", ventanilla: "Ventanilla 4", ejecutivo: "Roberto Torrez" },
+        verbatim: ["Roberto Torrez"],
       },
-      agentOptions,
-    )
+    }
+    const instructions = turnInstructions(persona, { kind: "flow", response: handoff })
 
-    const output = await toolNamed(agent, "procesar_turno").invoke(
-      {} as never,
-      JSON.stringify({}),
-      { toolCall: { callId: "call-2" } } as never,
-    )
-
-    expect(processSpokenTurn).not.toHaveBeenCalled()
-    // `ok: true` is the load-bearing part: the persona treats `ok: false` as something it
-    // must apologise for, and nothing here went wrong.
-    expect(output).toMatchObject({ ok: true, intent: "NOOP", next_action: "NONE" })
+    expect(instructions).toContain('"ventanilla":"Ventanilla 4"')
+    expect(instructions).toContain('"verbatim":["Roberto Torrez"]')
   })
 
-  it("passes the terminal facts through as strings the model must keep intact", async () => {
-    const processSpokenTurn = vi.fn().mockResolvedValue({
-      kind: "flow",
-      response: completed,
-    })
-    const agent = createKioskRealtimeAgent(
-      {
-        takePendingResult: () => null,
-        resolveSpokenText: async () => ({ text: "Sí, es correcto", commit: vi.fn(), release: vi.fn() }),
-        processSpokenTurn,
-        settleTurn: vi.fn(),
-      },
-      agentOptions,
-    )
-
-    const output = await toolNamed(agent, "procesar_turno").invoke(
-      {} as never,
-      JSON.stringify({}),
-      { toolCall: { callId: "call-3" } } as never,
-    )
-
-    expect(processSpokenTurn.mock.calls[0].slice(0, 2)).toEqual(["Sí, es correcto", "call-3"])
-    expect(output).toMatchObject({
-      next_action: "COMPLETE",
-      intent: "HANDOFF",
-      verbatim: ["María Torres"],
-    })
-  })
-
-  it("spends the turn only once the backend has answered", async () => {
-    // Reading the transcript is not spending it. A backend that never answered has consumed
-    // nothing, so the words stay available and a retry classifies what the person actually
-    // said instead of asking them to repeat it.
-    const commit = vi.fn()
-    const processSpokenTurn = vi.fn().mockRejectedValue(new Error("sin red"))
-    const agent = createKioskRealtimeAgent(
-      {
-        takePendingResult: () => null,
-        resolveSpokenText: async () => ({ text: "Me robaron la tarjeta.", commit, release: vi.fn() }),
-        processSpokenTurn,
-        settleTurn: vi.fn(),
-      },
-      agentOptions,
-    )
-
-    const output = await toolNamed(agent, "procesar_turno").invoke(
-      {} as never,
-      JSON.stringify({}),
-      { toolCall: { callId: "call-6" } } as never,
-    )
-
-    expect(output).toMatchObject({ ok: false, intent: "RETRY" })
-    expect(commit).not.toHaveBeenCalled()
-  })
-
-  it("spends an answer it could not read, so it cannot bleed into the next one", async () => {
-    // This was the answer to a question the kiosk did ask; it just was not a clear one.
-    // Left unspent it would be glued onto whatever comes next, and "no sé" followed by "sí"
-    // reads as a no.
-    const commit = vi.fn()
-    const agent = createKioskRealtimeAgent(
-      {
-        takePendingResult: () => null,
-        resolveSpokenText: async () => ({ text: "No sé", commit, release: vi.fn() }),
-        settleTurn: vi.fn(),
-        processSpokenTurn: vi.fn().mockResolvedValue({
-          kind: "retry",
-          guidance: "Pide una respuesta clara.",
-        }),
-      },
-      agentOptions,
-    )
-
-    const output = await toolNamed(agent, "procesar_turno").invoke(
-      {} as never,
-      JSON.stringify({}),
-      { toolCall: { callId: "call-8" } } as never,
-    )
-
-    expect(output).toMatchObject({ ok: false, intent: "RETRY" })
-    expect(commit).toHaveBeenCalledTimes(1)
+  it("greets naming only what the kiosk attends, and fills a wait with one fixed line", () => {
+    expect(greetingInstructions(persona)).toContain("LO QUE ATIENDES")
+    // The model's own fillers were "Claro, déjame verificar la petición por un momento"
+    // before every single lookup.
+    expect(fillerInstructions(persona)).toContain("Un momento, por favor.")
   })
 })
 
-describe("tool output", () => {
+describe("isSpeechFragment", () => {
+  it.each(["Quiero", "Eh...", "Bueno"])("holds the front of an unfinished sentence: %s", (value) => {
+    // On 2026-10-14 a lone "Quiero" was sent to the bank as a whole request.
+    expect(isSpeechFragment(value)).toBe(true)
+  })
+
+  it.each(["Sí", "No", "Claro", "Gracias", "Quiero bloquear mi tarjeta"])(
+    "sends a complete reply straight away: %s",
+    (value) => expect(isSpeechFragment(value)).toBe(false),
+  )
+})
+
+describe("turn speech data", () => {
   it("makes each grounded answer authoritative without carrying the previous answer forward", () => {
     const hours =
       "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 y sábados de 09:00 a 13:00."
@@ -658,8 +517,8 @@ describe("tool output", () => {
       remaining_turns: 7,
     })
 
-    const hoursOutput = flowToolOutput(automatic("hours", hours))
-    const creditOutput = flowToolOutput(automatic("credit", credit))
+    const hoursOutput = flowSpeechData(automatic("hours", hours))
+    const creditOutput = flowSpeechData(automatic("credit", credit))
 
     expect(hoursOutput).toMatchObject({
       intent: "ANSWER",
@@ -674,7 +533,7 @@ describe("tool output", () => {
     expect(JSON.stringify(creditOutput)).not.toContain(hours)
   })
 
-  it("routes a COMPLETE analysis (GENERAL, no confirmation step) through the flow tool output", () => {
+  it("routes a COMPLETE analysis (GENERAL, no confirmation step) through the flow shape", () => {
     const autoResolved: TurnAnalysis = {
       ...analysis,
       consultation_level: "GENERAL",
@@ -683,11 +542,11 @@ describe("tool output", () => {
       speech_plan: completed.speech_plan,
       result: completed,
     }
-    expect(analysisToolOutput(autoResolved)).toEqual(flowToolOutput(completed))
+    expect(analysisSpeechData(autoResolved)).toEqual(flowSpeechData(completed))
   })
 
   it("carries the plan's own fields and never the written fallback", () => {
-    const output = speechPlanToolOutput(completed.speech_plan, { next_action: "COMPLETE" })
+    const output = speechPlanData(completed.speech_plan, { next_action: "COMPLETE" })
     expect(output).toEqual({
       ok: true,
       next_action: "COMPLETE",
@@ -841,29 +700,14 @@ describe("business response ordering", () => {
   })
 })
 
-describe("idle tool results", () => {
-  // Three states in which the model calls `procesar_turno` and there is genuinely nothing
-  // to do. Every one of them used to reach `/turns`, be refused by the backend guard, and
-  // come back as "no pudiste consultar el sistema, discúlpate" -- which is what a customer
-  // heard the moment the CI field appeared in front of them.
-  it.each([
-    ["awaiting_identification", "IDENTIFY"],
-    ["settled", "SETTLED"],
-    ["noop", "NOOP"],
-  ] as const)("reports %s as a success the model must not apologise for", (kind, intent) => {
-    const output = turnProcessingToolOutput({ kind })
-    expect(output).toMatchObject({ ok: true, intent, next_action: "NONE" })
-    expect(output.facts).toEqual({})
-    expect(output.verbatim).toEqual([])
-  })
-
-  it("tells the model to wait in silence while the CI is typed", () => {
-    const guidance = String(
-      turnProcessingToolOutput({ kind: "awaiting_identification" }).guidance,
-    )
-    expect(guidance).toMatch(/campo protegido/i)
-    expect(guidance).toMatch(/espera/i)
-  })
+describe("silent and failed turns", () => {
+  // Three states in which there is genuinely nothing to say. Every one of them used to reach
+  // the customer either as an apology for a failure that never happened or as the model
+  // reading its own instructions aloud.
+  it.each(["awaiting_identification", "settled", "noop"] as const)(
+    "has no speech data for %s",
+    (kind) => expect(turnSpeechData({ kind })).toBeNull(),
+  )
 
   it("keeps a real outage distinguishable from a state disagreement", () => {
     expect(isSessionStateConflict(new ApiError(409, { code: "INVALID_SESSION_STATE" }))).toBe(
@@ -876,6 +720,10 @@ describe("idle tool results", () => {
       false,
     )
     expect(isSessionStateConflict(new Error("sin red"))).toBe(false)
+    expect(turnSpeechData({ kind: "retry", guidance: "" })).toMatchObject({
+      ok: false,
+      guidance: OUTAGE_GUIDANCE,
+    })
   })
 })
 
@@ -924,12 +772,12 @@ describe("microphoneShouldBeOpen", () => {
 })
 
 describe("SpeechFloor", () => {
-  const transport = () => ({ sendMessage: vi.fn(), interrupt: vi.fn() })
+  const transport = () => ({ speak: vi.fn(), interrupt: vi.fn() })
 
   it("speaks immediately when nothing else is speaking", () => {
     const wire = transport()
     new SpeechFloor(wire).request("resume", () => "hola")
-    expect(wire.sendMessage).toHaveBeenCalledWith("hola")
+    expect(wire.speak).toHaveBeenCalledWith("hola")
   })
 
   it("holds an injection until the current response is done", () => {
@@ -940,20 +788,10 @@ describe("SpeechFloor", () => {
     const floor = new SpeechFloor(wire)
     floor.noteResponseStarted()
     floor.request("resume", () => "hola")
-    expect(wire.sendMessage).not.toHaveBeenCalled()
+    expect(wire.speak).not.toHaveBeenCalled()
 
     floor.noteResponseDone()
-    expect(wire.sendMessage).toHaveBeenCalledWith("hola")
-  })
-
-  it("waits for a tool call as well as for speech", () => {
-    const wire = transport()
-    const floor = new SpeechFloor(wire)
-    floor.noteToolStarted()
-    floor.request("resume", () => "hola")
-    expect(wire.sendMessage).not.toHaveBeenCalled()
-    floor.noteToolFinished()
-    expect(wire.sendMessage).toHaveBeenCalledTimes(1)
+    expect(wire.speak).toHaveBeenCalledWith("hola")
   })
 
   it("drops a held injection whose state has moved on", () => {
@@ -964,7 +802,7 @@ describe("SpeechFloor", () => {
     floor.request("resume", () => (stillRelevant ? "hola" : null))
     stillRelevant = false
     floor.noteResponseDone()
-    expect(wire.sendMessage).not.toHaveBeenCalled()
+    expect(wire.speak).not.toHaveBeenCalled()
   })
 
   it("coalesces repeated requests of the same kind, last one wins", () => {
@@ -974,8 +812,8 @@ describe("SpeechFloor", () => {
     floor.request("identification_close", () => "primero")
     floor.request("identification_close", () => "después")
     floor.noteResponseDone()
-    expect(wire.sendMessage).toHaveBeenCalledTimes(1)
-    expect(wire.sendMessage).toHaveBeenCalledWith("después")
+    expect(wire.speak).toHaveBeenCalledTimes(1)
+    expect(wire.speak).toHaveBeenCalledWith("después")
   })
 
   it("cuts off a sentence the customer has already made obsolete", () => {
@@ -988,7 +826,7 @@ describe("SpeechFloor", () => {
     floor.preempt("identification_close", () => "ya quedó resuelto")
 
     expect(wire.interrupt).toHaveBeenCalledTimes(1)
-    expect(wire.sendMessage).toHaveBeenCalledWith("ya quedó resuelto")
+    expect(wire.speak).toHaveBeenCalledWith("ya quedó resuelto")
   })
 
   it("runs a deferred closing only once the model has stopped talking", () => {
@@ -1047,7 +885,7 @@ describe("SpeechFloor", () => {
 
     floor.preempt("identification_close", () => "ya quedó resuelto")
     expect(wire.interrupt).toHaveBeenCalledTimes(1)
-    expect(wire.sendMessage).toHaveBeenCalledWith("ya quedó resuelto")
+    expect(wire.speak).toHaveBeenCalledWith("ya quedó resuelto")
 
     // The injection is on the wire; the server acknowledges it, and only then does the
     // cancelled response finish winding down.
@@ -1093,13 +931,13 @@ describe("SpeechFloor", () => {
 
     floor.silenceNow()
     expect(wire.interrupt).toHaveBeenCalledTimes(1)
-    expect(wire.sendMessage).not.toHaveBeenCalled()
+    expect(wire.speak).not.toHaveBeenCalled()
   })
 
   it("cancels a response that had not started yet when it is silenced", () => {
     // Submitting the identity card before the instruction's audio began. The SDK puts a
-    // `response.create` on the wire the instant a tool result resolves, so at that moment
-    // there is frequently nothing playing to cancel -- and without this the invalidated
+    // `response.create` on the wire the moment the instruction is requested, so at that
+    // moment there is frequently nothing playing to cancel -- and without this the invalidated
     // sentence simply starts after the thing that invalidated it.
     const wire = transport()
     const floor = new SpeechFloor(wire)
@@ -1122,36 +960,20 @@ describe("SpeechFloor", () => {
     floor.noteAudioFinished("resp_ci")
     floor.preempt("identification_close", () => "ya escribió su CI")
 
-    expect(wire.sendMessage).toHaveBeenCalledWith("ya escribió su CI")
+    expect(wire.speak).toHaveBeenCalledWith("ya escribió su CI")
     const interruptsBefore = wire.interrupt.mock.calls.length
     floor.noteResponseStarted("resp_handover")
     expect(wire.interrupt).toHaveBeenCalledTimes(interruptsBefore)
   })
-
-  it("cancels a response the application knows carries nothing to say", () => {
-    // The SDK always requests a response after a function-call output, so a `guidance`
-    // asking for silence is a request. `response.cancel` is not.
-    const wire = transport()
-    const floor = new SpeechFloor(wire)
-    floor.suppressNextResponse()
-    floor.noteResponseStarted("resp_idle")
-    expect(wire.interrupt).toHaveBeenCalledTimes(1)
-  })
 })
 
 describe("turnResultIsSilent", () => {
-  it.each(["awaiting_identification", "settled", "superseded"] as const)(
+  it.each(["awaiting_identification", "settled", "superseded", "noop"] as const)(
     "has nothing to add to a %s result",
     (kind) => {
       expect(turnResultIsSilent({ kind })).toBe(true)
     },
   )
-
-  it("lets the model talk its way through a turn whose words arrived late", () => {
-    // `noop` is also what a transcription that missed the settle window looks like. Silencing
-    // that leaves the turn stranded until the person speaks again.
-    expect(turnResultIsSilent({ kind: "noop" })).toBe(false)
-  })
 })
 
 describe("isBenignRealtimeError", () => {
@@ -1166,125 +988,5 @@ describe("isBenignRealtimeError", () => {
     expect(isBenignRealtimeError({ error: { code: "session_expired" } })).toBe(false)
     expect(isBenignRealtimeError(new Error("data channel closed"))).toBe(false)
     expect(isBenignRealtimeError(null)).toBe(false)
-  })
-})
-
-describe("tool choice release", () => {
-  // `required` guarantees that every turn the person actually spoke is offered to the tool.
-  // It must not also guarantee success: a backend outage leaves the words unconsumed on
-  // purpose, so a retry classifies what was really said, and if that also kept the turn
-  // "unspent" the model would be forced to call the tool again on every single response.
-  it("stops forcing a tool call once the turn has been offered, even if it was not consumed", () => {
-    const captions = [
-      { id: "item-1", role: "user" as const, text: "Me robaron la tarjeta.", completed: true },
-    ]
-    const attempted = new Set<string>()
-    const consumed = new Set<string>()
-    const offered = () =>
-      selectAuthoritativeTranscript(captions, {
-        has: (id: string) => consumed.has(id) || attempted.has(id),
-      }) !== null
-
-    expect(offered()).toBe(true)
-    attempted.add("item-1")
-    expect(offered()).toBe(false)
-    // The words themselves stay readable for the retry.
-    expect(selectAuthoritativeTranscript(captions, consumed)).not.toBeNull()
-  })
-})
-
-describe("results the model was never shown", () => {
-  // Recorded 2026-09-01, session b7844a53. The customer asked for a consumer loan, confirmed
-  // it, typed their CI, and was assigned ticket 1 at Ventanilla 4 with Roberto Torrez and an
-  // 8-minute wait. What the kiosk actually said was: "el trámite quedó resuelto ... el
-  // siguiente paso depende de la confirmación interna del proceso". Not one of those facts
-  // was spoken, because the identity card is typed on a form: that outcome never passed
-  // through speech, so no tool call ever carried its SpeechPlan to the model, and the
-  // closing message told it to use "what the last tool returned" -- which was an idle
-  // check-in with empty facts.
-  const handoff: FlowResult = {
-    ...completed,
-    ticket: { id: "ticket-1", number: 1, status: "PENDIENTE", estimated_wait_minutes: 8 },
-    speech_plan: {
-      intent: "HANDOFF",
-      facts: {
-        ticket: "1",
-        ventanilla: "Ventanilla 4",
-        ejecutivo: "Roberto Torrez",
-        espera_minutos: "8",
-      },
-      verbatim: ["Roberto Torrez"],
-      guidance: "Dale el ticket, la ventanilla y el nombre exactamente como aparecen.",
-      fallback_text: "Tu ticket es 1. Dirígete a Ventanilla 4 con Roberto Torrez.",
-    },
-  }
-
-  it("hands a form-submitted outcome to the model ahead of anything that was said", async () => {
-    const resolveSpokenText = vi.fn()
-    const processSpokenTurn = vi.fn()
-    const takePendingResult = vi
-      .fn()
-      .mockReturnValueOnce({ kind: "flow", response: handoff })
-      .mockReturnValue(null)
-    const agent = createKioskRealtimeAgent(
-      { takePendingResult, resolveSpokenText, processSpokenTurn, settleTurn: vi.fn() },
-      agentOptions,
-    )
-
-    const output = await toolNamed(agent, "procesar_turno").invoke(
-      {} as never,
-      JSON.stringify({}),
-      { toolCall: { callId: "call-identification" } } as never,
-    )
-
-    // The ticket, the window and the executive all reach the model as tool data.
-    expect(output).toMatchObject({
-      ok: true,
-      intent: "HANDOFF",
-      facts: handoff.speech_plan.facts,
-      verbatim: ["Roberto Torrez"],
-    })
-    // There is no turn to transcribe: the card was typed, not spoken.
-    expect(resolveSpokenText).not.toHaveBeenCalled()
-    expect(processSpokenTurn).not.toHaveBeenCalled()
-  })
-
-  it("is spent once, so it cannot be announced twice", async () => {
-    const takePendingResult = vi
-      .fn()
-      .mockReturnValueOnce({ kind: "flow", response: handoff })
-      .mockReturnValue(null)
-    const agent = createKioskRealtimeAgent(
-      {
-        takePendingResult,
-        resolveSpokenText: async () => null,
-        processSpokenTurn: vi.fn(),
-        settleTurn: vi.fn(),
-      },
-      agentOptions,
-    )
-    const tool = toolNamed(agent, "procesar_turno")
-
-    const first = await tool.invoke({} as never, JSON.stringify({}), {
-      toolCall: { callId: "call-1" },
-    } as never)
-    const second = await tool.invoke({} as never, JSON.stringify({}), {
-      toolCall: { callId: "call-2" },
-    } as never)
-
-    expect(first).toMatchObject({ intent: "HANDOFF" })
-    expect(second).toMatchObject({ intent: "NOOP" })
-  })
-
-  it("makes the delivering tool call mandatory", () => {
-    // Nothing was said, so the transcript-based rule would leave tool choice on `auto` and
-    // let the model narrate an outcome it had never been shown.
-    expect(
-      realtimeToolChoiceForTurn({
-        greeted: true,
-        hasUnspentTranscript: false,
-        hasPendingResult: true,
-      }),
-    ).toBe("required")
   })
 })

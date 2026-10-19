@@ -14,11 +14,12 @@ from app.services.prompts.classification import (
     CONFIRMATION_READING_SYSTEM_PROMPT,
 )
 from app.services.prompts.grounding import GROUNDED_ANSWER_SYSTEM_PROMPT
-from app.services.prompts.voice import KIOSK_VOICE_INSTRUCTIONS
+from app.services.prompts.voice import KIOSK_SCOPE, KIOSK_VOICE_INSTRUCTIONS
 
 __all__ = [
     "CLASSIFICATION_SYSTEM_PROMPT",
     "CONFIRMATION_READING_SYSTEM_PROMPT",
     "GROUNDED_ANSWER_SYSTEM_PROMPT",
+    "KIOSK_SCOPE",
     "KIOSK_VOICE_INSTRUCTIONS",
 ]
