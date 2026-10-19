@@ -202,6 +202,9 @@ describe("KioskProvider voice turn arbitration", () => {
   }
 
   let realtime: FakeRealtimeSession
+  // The value from the latest render. What `connectedKiosk` returns is a snapshot, which is
+  // enough for calling actions but not for reading state that changes afterwards.
+  let latestKiosk: ReturnType<typeof useKiosk>
 
   async function connectedKiosk(options: { listening?: boolean } = {}) {
     const listening = options.listening ?? false
@@ -243,6 +246,7 @@ describe("KioskProvider voice turn arbitration", () => {
     let kiosk: ReturnType<typeof useKiosk> | null = null
     function Probe() {
       kiosk = useKiosk()
+      latestKiosk = kiosk
       return null
     }
     sessionStorage.setItem(
@@ -391,5 +395,179 @@ describe("KioskProvider voice turn arbitration", () => {
     })
 
     await expect(routed).resolves.toMatchObject({ kind: "superseded" })
+  })
+
+  describe("customer-paused listening", () => {
+    const clarifyAnalysis = {
+      session_id: session.session_id,
+      requirement_id: "requirement-clarify",
+      status: "LISTENING",
+      next_action: "CLARIFY",
+      customer_summary: null,
+      clarification_question: "¿Es tu tarjeta de débito o de crédito?",
+      speech_text: "¿Es tu tarjeta de débito o de crédito?",
+      speech_plan: {
+        intent: "CLARIFY",
+        facts: {},
+        verbatim: [],
+        guidance: "Pregunta lo que falta.",
+        fallback_text: "¿Es tu tarjeta de débito o de crédito?",
+      },
+    }
+    const automaticAnswer = {
+      ...clarifyAnalysis,
+      requirement_id: "requirement-auto",
+      status: "RESOLVED",
+      next_action: "COMPLETE",
+      clarification_question: null,
+      result: {
+        ...identifyResult,
+        requirement_id: "requirement-auto",
+        status: "RESOLVED",
+        next_action: "COMPLETE",
+        resolution_type: "AUTOMATIC",
+        customer_summary: "Horarios de atención",
+        conversation_can_continue: true,
+      },
+    }
+
+    async function pause(paused: boolean) {
+      await act(async () => {
+        latestKiosk.setListeningPaused(paused)
+      })
+    }
+
+    async function answeredAutomatically() {
+      await connectedKiosk({ listening: true })
+      const callbacks = mocks.createAgent.mock.calls[0][0] as KioskRealtimeCallbacks
+      mocks.sessionRequest.mockImplementationOnce(async () => automaticAnswer)
+      await act(async () => {
+        await callbacks.processSpokenTurn("¿Cuál es el horario?", "call-auto")
+      })
+      expect(latestKiosk.listeningControlAvailable).toBe(true)
+    }
+
+    it("closes the microphone when the customer pauses", async () => {
+      await connectedKiosk({ listening: true })
+      expect(latestKiosk.listeningControlAvailable).toBe(true)
+      realtime.mute.mockClear()
+
+      await pause(true)
+
+      expect(realtime.mute).toHaveBeenCalledWith(true)
+      expect(latestKiosk.listeningPaused).toBe(true)
+      expect(latestKiosk.voiceState).toBe("muted")
+    })
+
+    it("keeps a paused microphone closed across business state changes", async () => {
+      // The mic policy reopens the microphone on every state change that allows it. A pause
+      // that did not survive the next one would leave the customer believing the kiosk had
+      // stopped listening while it was still taking their words.
+      await connectedKiosk({ listening: true })
+      const callbacks = mocks.createAgent.mock.calls[0][0] as KioskRealtimeCallbacks
+      await pause(true)
+      realtime.mute.mockClear()
+
+      mocks.sessionRequest.mockImplementationOnce(async () => clarifyAnalysis)
+      await act(async () => {
+        await callbacks.processSpokenTurn("Quiero bloquear mi tarjeta", "call-paused")
+      })
+      act(() => realtime.emit("agent_tool_end", {}, {}, { name: "tool" }, "", {}))
+      await act(async () => {})
+
+      expect(latestKiosk.analysis?.next_action).toBe("CLARIFY")
+      expect(realtime.mute).not.toHaveBeenCalledWith(false)
+      expect(realtime.muted).toBe(true)
+      expect(latestKiosk.voiceState).toBe("muted")
+    })
+
+    it("opens the microphone again when the customer resumes", async () => {
+      await connectedKiosk({ listening: true })
+      await pause(true)
+      realtime.mute.mockClear()
+
+      await pause(false)
+
+      expect(realtime.mute).toHaveBeenCalledWith(false)
+      expect(latestKiosk.listeningPaused).toBe(false)
+      expect(latestKiosk.voiceState).toBe("listening")
+    })
+
+    it("cannot open the microphone while the CI field is open", async () => {
+      await connectedKiosk()
+      expect(latestKiosk.listeningControlAvailable).toBe(false)
+      realtime.mute.mockClear()
+
+      await pause(true)
+      await pause(false)
+
+      expect(realtime.mute).not.toHaveBeenCalled()
+      expect(realtime.muted).toBe(true)
+      expect(latestKiosk.listeningPaused).toBe(false)
+    })
+
+    it("starts a new connection listening", async () => {
+      await connectedKiosk({ listening: true })
+      await pause(true)
+
+      await act(async () => {
+        await latestKiosk.retryVoice()
+      })
+
+      expect(latestKiosk.listeningPaused).toBe(false)
+      expect(latestKiosk.voiceState).toBe("listening")
+    })
+
+    it("gives a paused follow-up a longer window, and the usual one once resumed", async () => {
+      await answeredAutomatically()
+
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] })
+      try {
+        act(() => realtime.emitTransportEvent("output_audio_buffer.stopped"))
+        await pause(true)
+
+        // Well past the usual 20 s, the paused customer still has the kiosk.
+        await act(async () => {
+          vi.advanceTimersByTime(60_000)
+        })
+        expect(latestKiosk.completionSeconds).toBeNull()
+
+        // Resuming puts the usual window back, counted from now.
+        await pause(false)
+        await act(async () => {
+          vi.advanceTimersByTime(19_000)
+        })
+        expect(latestKiosk.completionSeconds).toBeNull()
+        await act(async () => {
+          vi.advanceTimersByTime(1_000)
+        })
+        expect(latestKiosk.completionSeconds).not.toBeNull()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it("frees a paused kiosk whose customer walked away", async () => {
+      await answeredAutomatically()
+
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] })
+      try {
+        await pause(true)
+        // Armed while paused: here the kiosk only stops speaking after the pause.
+        act(() => realtime.emitTransportEvent("output_audio_buffer.stopped"))
+
+        await act(async () => {
+          vi.advanceTimersByTime(119_000)
+        })
+        expect(latestKiosk.completionSeconds).toBeNull()
+        await act(async () => {
+          vi.advanceTimersByTime(1_000)
+        })
+        expect(latestKiosk.voiceState).toBe("closed")
+        expect(latestKiosk.completionSeconds).not.toBeNull()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
   })
 })

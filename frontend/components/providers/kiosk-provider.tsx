@@ -72,6 +72,10 @@ const TERMINAL_AUDIO_TIMEOUT_MS = 30_000
 // waiting for a person to decide whether they have another question, not for audio to
 // finish playing.
 const DEFAULT_FOLLOW_UP_INACTIVITY_SECONDS = 20
+// The same window while the customer has paused listening. Someone who paused is choosing
+// to take their time, so the usual window would cut them off -- but a paused kiosk whose
+// customer walked away still has to free itself for the next person.
+const PAUSED_FOLLOW_UP_INACTIVITY_SECONDS = 120
 // How long a tool waits for the session's audio transcription of the turn to land. The
 // transcription usually arrives around the same time as the tool call, so this is a settle
 // window, not a poll loop: the common case resolves on the first check. On timeout the tool
@@ -110,6 +114,12 @@ interface KioskContextValue extends KioskState {
   hydrated: boolean
   voiceState: VoiceState
   voiceError: string | null
+  // The customer's own pause, distinct from the closures the business state imposes.
+  listeningPaused: boolean
+  // Whether the customer may pause or resume right now: only while the voice transport is
+  // up and the business state would otherwise keep the microphone open.
+  listeningControlAvailable: boolean
+  setListeningPaused: (paused: boolean) => void
   captions: ConversationCaption[]
   completionSeconds: number | null
   beginSession: (preferentialAttention: boolean) => Promise<void>
@@ -190,8 +200,11 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const [voiceError, setVoiceError] = useState<string | null>(null)
   const [captions, setCaptions] = useState<ConversationCaption[]>([])
   const [completionSeconds, setCompletionSeconds] = useState<number | null>(null)
+  const [listeningPaused, setListeningPausedState] = useState(false)
 
   const stateRef = useRef(state)
+  // Read by the microphone policy, which runs from callbacks that must not wait a render.
+  const listeningPausedRef = useRef(false)
   const businessRevisionRef = useRef(0)
   const realtimeRef = useRef<RealtimeSession | null>(null)
   const connectPromiseRef = useRef<Promise<void> | null>(null)
@@ -287,6 +300,10 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     syncToolChoiceRef.current = null
     pendingTurnResultRef.current = null
     conversationClosePendingRef.current = false
+    // A pause belongs to the connection it was made on. Whatever replaces this one -- a
+    // retry, a new session, the text mode -- starts out listening.
+    listeningPausedRef.current = false
+    setListeningPausedState(false)
   }, [])
 
   const clearFlowTracking = useCallback(() => {
@@ -380,11 +397,10 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     if (followUpTimeoutRef.current !== null) {
       window.clearTimeout(followUpTimeoutRef.current)
     }
-    followUpTimeoutRef.current = window.setTimeout(
-      startCompletionCountdown,
-      (config?.kiosk_follow_up_inactivity_seconds ??
-        DEFAULT_FOLLOW_UP_INACTIVITY_SECONDS) * 1_000,
-    )
+    const seconds = listeningPausedRef.current
+      ? PAUSED_FOLLOW_UP_INACTIVITY_SECONDS
+      : (config?.kiosk_follow_up_inactivity_seconds ?? DEFAULT_FOLLOW_UP_INACTIVITY_SECONDS)
+    followUpTimeoutRef.current = window.setTimeout(startCompletionCountdown, seconds * 1_000)
   }, [config?.kiosk_follow_up_inactivity_seconds, startCompletionCountdown])
 
   const noteUserActivity = useCallback(() => {
@@ -559,7 +575,9 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
   const applyMicrophonePolicy = useCallback(() => {
     const realtime = realtimeRef.current
     if (realtime?.transport.status !== "connected") return
-    const open = microphoneShouldBeOpen(stateRef.current)
+    // The customer's pause only ever closes. It cannot open a microphone the business state
+    // keeps shut, and no business state change reopens one the customer paused.
+    const open = microphoneShouldBeOpen(stateRef.current) && !listeningPausedRef.current
     try {
       if (open) {
         // This used to only ever close. A rejected summary sends the session back to
@@ -578,6 +596,23 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       // Navigation and business state do not depend on the voice transport.
     }
   }, [])
+
+  // Pausing does not interrupt the kiosk: whatever it is saying finishes, it just stops
+  // hearing the customer until they resume.
+  const setListeningPaused = useCallback(
+    (paused: boolean) => {
+      if (realtimeRef.current?.transport.status !== "connected") return
+      if (!microphoneShouldBeOpen(stateRef.current)) return
+      if (listeningPausedRef.current === paused) return
+      listeningPausedRef.current = paused
+      setListeningPausedState(paused)
+      applyMicrophonePolicy()
+      // A follow-up window already running was sized for the previous mode. One that has not
+      // started yet picks the right size when the kiosk stops speaking.
+      if (followUpTimeoutRef.current !== null) armFollowUpWindow()
+    },
+    [applyMicrophonePolicy, armFollowUpWindow],
+  )
 
   useEffect(() => {
     applyMicrophonePolicy()
@@ -1686,12 +1721,22 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
     ],
   )
 
+  const listeningControlAvailable =
+    microphoneShouldBeOpen(state) &&
+    (voiceState === "listening" ||
+      voiceState === "thinking" ||
+      voiceState === "speaking" ||
+      voiceState === "muted")
+
   const value = useMemo<KioskContextValue>(
     () => ({
       ...state,
       hydrated,
       voiceState,
       voiceError,
+      listeningPaused,
+      listeningControlAvailable,
+      setListeningPaused,
       captions,
       completionSeconds,
       beginSession,
@@ -1710,9 +1755,12 @@ export function KioskProvider({ children }: { children: React.ReactNode }) {
       completionSeconds,
       connectVoice,
       hydrated,
+      listeningControlAvailable,
+      listeningPaused,
       reset,
       retryVoice,
       selectInteractionMode,
+      setListeningPaused,
       noteUserActivity,
       state,
       submitTextTurn,

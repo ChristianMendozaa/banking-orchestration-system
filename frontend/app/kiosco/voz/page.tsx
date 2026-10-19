@@ -4,6 +4,7 @@ import { useKiosk, type VoiceState } from "@/components/providers/kiosk-provider
 import { TextInteraction } from "@/components/kiosk/text-interaction"
 import { GroundedAnswerCard } from "@/components/kiosk/grounded-answer-card"
 import { CompletionStatus } from "@/components/kiosk/completion-status"
+import { ListeningToggle } from "@/components/kiosk/listening-toggle"
 import { useSystemConfig } from "@/components/providers/system-config-provider"
 import { Button } from "@/components/ui/button"
 import {
@@ -11,6 +12,7 @@ import {
   CircleAlert,
   LoaderCircle,
   Mic,
+  MicOff,
   Keyboard,
   RefreshCw,
   ShieldCheck,
@@ -45,6 +47,7 @@ export default function VoicePage() {
     interactionMode,
     selectInteractionMode,
     completionSeconds,
+    listeningPaused,
   } = useKiosk()
 
   useEffect(() => {
@@ -116,6 +119,8 @@ export default function VoicePage() {
             <AudioLines className="h-16 w-16 text-white" />
           ) : voiceState === "error" ? (
             <CircleAlert className="h-16 w-16 text-red-300" />
+          ) : voiceState === "muted" ? (
+            <MicOff className="h-16 w-16 text-white/80" />
           ) : (
             <Mic className="h-16 w-16 text-white" />
           )}
@@ -123,8 +128,12 @@ export default function VoicePage() {
       </div>
 
       <p className="text-lg font-medium text-white/70" role="status">
-        {statusText[voiceState]}
+        {listeningPaused
+          ? "Escucha en pausa. Toca «Reanudar escucha» para seguir hablando."
+          : statusText[voiceState]}
       </p>
+
+      <ListeningToggle />
 
       <GroundedAnswerCard result={result} />
 
