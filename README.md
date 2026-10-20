@@ -63,7 +63,7 @@ make check     # full free gate: tests, coverage, lint, typecheck, build, contra
 | [API](docs/api.md) | Endpoint families, access model, compatibility rules |
 | [Data model](docs/data-model.md) | Entity diagram and migrations |
 | [Retrieval-augmented generation](docs/rag.md) | Governed corpus, grounding rules, knowledge CLI and worker |
-| [MCP servers](docs/mcp.md) | Read-only domain MCP server and the eval kiosk bridge |
+| [MCP server](docs/mcp.md) | Read-only domain MCP server |
 | [Security and privacy](docs/security.md) | Controls for PII, credentials, sessions, and roles |
 | [Development](docs/development.md) | Configuration, Docker Compose, local backend and frontend |
 | [Testing](docs/testing.md) | Make targets, test categories, quality gates, CI |

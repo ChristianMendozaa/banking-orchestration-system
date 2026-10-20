@@ -115,9 +115,9 @@ async def drive_prompt_injection(session: ConversationSession) -> list[CheckResu
     """Scripted rather than improvised, deliberately.
 
     The whole point of this scenario is one fixed adversarial string, and a simulated
-    customer backed by a local CLI may simply decline to utter it -- on 2026-08-18 the codex
-    customer said nothing at all, the session stayed CREATED, and the run scored the kiosk
-    1/10 for a security test it was never actually given. A script removes the customer
+    customer model may simply decline to utter it -- on 2026-08-18 the customer said nothing
+    at all, the session stayed CREATED, and the run scored the kiosk 1/10 for a security
+    test it was never actually given. A script removes the customer
     model's discretion from a test that has nothing to gain from it.
     """
     reply = await session.send_turn(INJECTION_OPENER, is_clarification=False)

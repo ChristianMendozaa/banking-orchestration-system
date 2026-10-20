@@ -2,9 +2,7 @@
 .NOTPARALLEL:
 .PHONY: help install \
 	backend-lint backend-test backend-coverage transcript-fidelity \
-	evals-lint evals-test evals-smoke evals-live evals-deep \
-	evals-live-claude-code evals-live-codex \
-	evals-retry evals-retry-claude-code evals-retry-codex \
+	evals-lint evals-test evals-smoke evals-live evals-deep evals-retry \
 	frontend-lint frontend-typecheck frontend-test frontend-build \
 	contract \
 	services-up services-down \
@@ -22,7 +20,7 @@ SHELL := /bin/bash
 REPORT := .make-report.tsv
 
 # Extra flags appended to every evals-* harness invocation below, e.g.
-#   make evals-live-codex EVAL_ARGS="--only-failing reports/runs/<run_id>/report.json"
+#   make evals-retry EVAL_ARGS="--only-failing reports/runs/<run_id>/report.json"
 #   make evals-smoke EVAL_ARGS="--tag adversarial --repeat 3"
 # `?=` so it's empty (a no-op) unless set on the command line; every evals-* target's own
 # fixed flags ($(2) in run_evals) still apply, EVAL_ARGS is appended after them.
@@ -192,18 +190,6 @@ evals-live: ## Full catalog, mini judge (default) -- billed, but ~90% cheaper th
 evals-deep: ## Full catalog, flagship judge -- billed at the harness's original (pre-cost-cut) rate
 	@$(call run_evals,evals:deep,--judge-model gpt-5.4,LIVE EVALUATION)
 
-# Full customer + judge eval on a local CLI instead of OpenAI -- billed against whatever
-# that CLI is authenticated as on this machine, not OPENAI_API_KEY. OPENAI_API_KEY is
-# still used for one thing in every mode: the kiosk backend under test itself
-# (classification/RAG/embeddings) -- that's the system being evaluated, not something
-# these providers stand in for. See
-# docs/evaluation.md#running-on-a-local-cli-instead-of-openai.
-evals-live-claude-code: ## Full catalog, customer + judge on the local `claude` CLI instead of OpenAI
-	@$(call run_evals,evals:live-claude-code,--model claude-code --judge-model claude-code --concurrency 4,LIVE EVALUATION)
-
-evals-live-codex: ## Full catalog, customer + judge on the local `codex` CLI instead of OpenAI
-	@$(call run_evals,evals:live-codex,--model codex --judge-model codex --concurrency 4,LIVE EVALUATION)
-
 # --only-failing reads a prior JSON report and runs (or --rejudge's) just the scenarios
 # that were not PASS in it. There's no reports/latest.json alias (see cli.py::_record_run),
 # so LATEST_RUN_REPORT resolves it by listing reports/runs/ -- names are
@@ -215,12 +201,6 @@ LATEST_RUN_REPORT = reports/runs/$$(ls -1 reports/runs 2>/dev/null | sort | tail
 
 evals-retry: ## Re-run only the scenarios that weren't PASS in the most recent run, mini judge
 	@$(call run_evals,evals:retry,--only-failing $(LATEST_RUN_REPORT),LIVE EVALUATION)
-
-evals-retry-claude-code: ## Re-run only the scenarios that weren't PASS in the most recent run, customer + judge on `claude`
-	@$(call run_evals,evals:retry-claude-code,--model claude-code --judge-model claude-code --concurrency 4 --only-failing $(LATEST_RUN_REPORT),LIVE EVALUATION)
-
-evals-retry-codex: ## Re-run only the scenarios that weren't PASS in the most recent run, customer + judge on `codex`
-	@$(call run_evals,evals:retry-codex,--model codex --judge-model codex --concurrency 4 --only-failing $(LATEST_RUN_REPORT),LIVE EVALUATION)
 
 ## --- Aggregates. Each runs its suites through a nested `make -k` (keep-going): every
 ## suite runs even if an earlier one fails, and every failure ends up in the summary. ---
@@ -275,7 +255,7 @@ check: ## All free automated categories and quality gates; never Docker, an API 
 	@$(MAKE) --no-print-directory _report-status
 
 check-live: ## Deliberate maximum validation: free check, then billed live evals
-	@echo "WARNING: check-live runs the live LLM evaluation and can incur API or CLI-provider cost."
+	@echo "WARNING: check-live runs the live LLM evaluation and can incur API cost."
 	@$(MAKE) --no-print-directory check
 	-@$(MAKE) --no-print-directory evals-live
 	@$(MAKE) --no-print-directory _summary SUMMARY_FAIL=false

@@ -6,7 +6,7 @@ transient API error.
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from conftest import make_scenario, make_verdict
 
@@ -91,49 +91,6 @@ async def test_a_conversational_scenario_drives_the_customer_agent() -> None:
     assert any(check.name == "expected_category" for check in result.checks)
 
 
-async def test_a_conversational_scenario_on_a_cli_provider_uses_the_mcp_bridge() -> None:
-    """`--model claude-code`/`codex` must route through the MCP bridge (a pooled server
-    from `mcp_kiosk_server.serve_kiosk_pool` + a CLI customer backend), never AutoGen's
-    `build_customer_agent` -- the two paths are mutually exclusive per scenario. `run_all`
-    is the one that actually starts the pool (see `test_run_all_starts_and_reuses_a_pool`
-    below); here `run_scenario` is called directly, so the pool is faked the same way
-    `KioskMcpServerPool.acquire` behaves: an async context manager yielding a URL."""
-    scenario = make_scenario(expected=ExpectedOutcome(category=("REPORTE_FRAUDE",)))
-    backend = AsyncMock()
-    # `acquire()` itself is a plain (synchronous) method that returns an async context
-    # manager -- it is not itself awaited -- so it must be a MagicMock, not an AsyncMock.
-    pool = MagicMock()
-    pool.acquire.return_value.__aenter__ = AsyncMock(return_value="http://127.0.0.1:1/mcp")
-    pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-    with (
-        patch("harness.runner.build_customer_agent") as build_agent,
-        patch("harness.runner.build_cli_customer_backend", return_value=backend) as build_backend,
-    ):
-        session = _session_that_spoke()
-        with patch.object(ConversationSession, "start", AsyncMock(return_value=session)):
-            result = await run_scenario(
-                AsyncMock(), Evaluator(), None, scenario, model="claude-code", mcp_pool=pool
-            )
-    build_agent.assert_not_called()
-    build_backend.assert_called_once_with("claude-code", None)
-    pool.acquire.assert_called_once_with(session)
-    backend.run.assert_awaited_once()
-    assert backend.run.call_args.kwargs["mcp_url"] == "http://127.0.0.1:1/mcp"
-    assert result.final_status == "ASSIGNED"
-
-
-async def test_a_cli_provider_without_a_pool_fails_the_scenario_instead_of_hanging() -> None:
-    """`run_all` is the only caller responsible for starting the pool; if `run_scenario`
-    is ever invoked on a CLI provider without one, that must be a scored failure on this
-    one scenario, not a crash that takes the whole run down or a silent no-op."""
-    scenario = make_scenario(expected=ExpectedOutcome(category=("REPORTE_FRAUDE",)))
-    with patch("harness.runner.build_customer_agent") as build_agent:
-        result = await _run(scenario, model="claude-code")
-    build_agent.assert_not_called()
-    assert result.status == "FAIL"
-    assert "kiosk MCP pool" in (result.error or "")
-
-
 async def test_a_scripted_scenario_is_not_sent_to_the_judge() -> None:
     """A protocol scenario has no customer utterances and no free-text kiosk speech --
     its script's own checks are the entire evidence, so a judge call would only restate
@@ -169,59 +126,23 @@ async def test_the_judge_sees_the_deterministic_checks() -> None:
     assert result.verdict.overall_score == 8
 
 
-async def test_run_all_starts_one_pool_and_reuses_it_across_scenarios() -> None:
-    """A fresh MCP server per scenario is what broke the codex/claude-code bridge after
-    its first use (see `mcp_kiosk_server.serve_kiosk_pool`'s docstring) -- `run_all` must
-    start exactly one pool, sized to `concurrency`, and every scenario in the run must
-    borrow from that same pool rather than triggering a new one."""
+async def test_run_all_runs_every_scenario_in_catalog_order() -> None:
     scenarios = [make_scenario(name="uno"), make_scenario(name="dos")]
-    session = _session_that_spoke()
-    fake_pool_cm = AsyncMock()
-    fake_pool = MagicMock()  # acquire() is sync-returning-a-context-manager, not awaited
-    fake_pool_cm.__aenter__ = AsyncMock(return_value=fake_pool)
-    fake_pool_cm.__aexit__ = AsyncMock(return_value=False)
-    fake_pool.acquire.return_value.__aenter__ = AsyncMock(return_value="http://127.0.0.1:1/mcp")
-    fake_pool.acquire.return_value.__aexit__ = AsyncMock(return_value=False)
-
     with (
-        patch("harness.runner.serve_kiosk_pool", return_value=fake_pool_cm) as serve_pool,
         patch("harness.runner.build_customer_agent") as build_agent,
-        patch("harness.runner.build_cli_customer_backend", return_value=AsyncMock()),
-        patch.object(ConversationSession, "start", AsyncMock(return_value=session)),
+        patch.object(ConversationSession, "start", AsyncMock(return_value=_session_that_spoke())),
     ):
+        build_agent.return_value.run = AsyncMock()
         results = await run_all(
             base_url="http://unused",
-            model="codex",
+            model="gpt-5.4-mini",
             judge_model=None,
             max_clarifications=2,
             scenarios=scenarios,
             concurrency=3,
         )
-    serve_pool.assert_called_once_with(3)  # one pool, sized to concurrency
-    assert fake_pool.acquire.call_count == 2  # both scenarios borrowed from it
-    build_agent.assert_not_called()  # never falls back to the native OpenAI path
-    assert {r.scenario for r in results} == {"uno", "dos"}
-
-
-async def test_run_all_does_not_start_a_pool_for_the_native_openai_customer() -> None:
-    """The default customer (a plain model name, no CLI sentinel) never touches MCP, so
-    starting a pool for it would be pure overhead -- and a stray pool left running would
-    be a real bug to chase."""
-    with (
-        patch("harness.runner.serve_kiosk_pool") as serve_pool,
-        patch("harness.runner.build_customer_agent") as build_agent,
-        patch.object(ConversationSession, "start", AsyncMock(return_value=_session())),
-    ):
-        build_agent.return_value.run = AsyncMock()
-        await run_all(
-            base_url="http://unused",
-            model="gpt-5.4-mini",
-            judge_model=None,
-            max_clarifications=2,
-            scenarios=[make_scenario()],
-            concurrency=3,
-        )
-    serve_pool.assert_not_called()
+    assert build_agent.call_count == 2
+    assert [r.scenario for r in results] == ["uno", "dos"]
 
 
 async def test_a_crashing_scenario_becomes_a_scored_failure_not_an_exception() -> None:
@@ -338,7 +259,7 @@ async def test_a_hung_judge_times_out_and_says_which_stage_failed() -> None:
 
 
 async def test_a_slow_judge_is_retried_once_before_being_given_up_on() -> None:
-    """A judge call is one long request to a model or a local CLI. One slow response is a
+    """A judge call is one long request to a model. One slow response is a
     fact about the harness, not evidence about the kiosk, so it is worth a second try."""
     import harness.runner as runner_module
 
@@ -366,7 +287,7 @@ async def test_a_slow_judge_is_retried_once_before_being_given_up_on() -> None:
 
 async def test_a_customer_that_never_speaks_is_a_harness_failure_not_a_kiosk_one() -> None:
     """`prompt_injection` scored 1/10 on 2026-08-18 with an empty transcript and no error:
-    the codex-backed customer declined to utter the injection string, so the kiosk was never
+    the customer model declined to utter the injection string, so the kiosk was never
     tested, yet the report read as a failed security test. It must be retried once and then
     reported as what it is."""
     judge = AsyncMock()

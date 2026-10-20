@@ -33,9 +33,8 @@ Customer-facing text and domain enums are Spanish; code, comments, and docs are 
 - **RAG** is governed: only manifest-registered PDFs in `doc/rag/`, pgvector retrieval,
   citations validated against retrieved chunks; any gap routes to a human.
   → [docs/rag.md](docs/rag.md)
-- **Two unrelated MCP servers**: `backend/app/mcp_server/` (read-only, staff-JWT, ships) and
-  `backend/evals/harness/mcp_kiosk_server.py` (eval-only bridge). The kiosk never uses MCP.
-  → [docs/mcp.md](docs/mcp.md)
+- **MCP server**: `backend/app/mcp_server/` (read-only, staff-JWT) for external clients. The
+  kiosk never uses MCP. → [docs/mcp.md](docs/mcp.md)
 - **Persistence**: async SQLAlchemy models grouped by context in `db/models/`
   (`identity`, `kiosk`, `operations`, `knowledge`), explicit Alembic revisions.
   → [docs/data-model.md](docs/data-model.md)
@@ -71,7 +70,7 @@ Use the root Makefile; don't reconstruct equivalent commands. `make help` lists 
 - `make services-up` / `make services-down` — local PostgreSQL, Redis, ClamAV, backend.
   Needed to exercise a new Alembic revision against real PostgreSQL.
 - **Costs money — only when explicitly intended:** `make check-live` and every
-  `make evals-*` target (live backend + model calls on OpenAI or a local CLI's account).
+  `make evals-*` target (live backend + billed OpenAI model calls).
 
 ## Conventions
 

@@ -42,7 +42,6 @@ Docker, a running backend, `OPENAI_API_KEY`, nor a model call.
 | `make usability-test` | Automated accessibility and clarity support checks, including labelled controls, live announcements, explicit choices, and scoped axe checks | Free; it supports but does not replace testing with participants. |
 | `make check` | Every free category plus coverage, lint, type-check, build, and OpenAPI contract quality gates | Free normal validation; displays the newest saved live-evaluation metrics without rerunning it. |
 | `make evals-live` | Live Docker backend, simulated LLM customer, deterministic evaluator, and LLM judge | Deliberate billed validation. |
-| `make evals-live-codex` / `make evals-live-claude-code` | The same live backend evaluation through the named local CLI provider | Deliberate billed validation; backend model calls still require `OPENAI_API_KEY`. |
 | `make check-live` | `make check`, then `make evals-live` | Maximum milestone validation; can incur API cost. |
 
 Coverage, linting, type checking, frontend build, and OpenAPI drift checks are quality gates,

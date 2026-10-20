@@ -6,8 +6,6 @@ flowchart LR
     Executive[Bank executive] --> Staff[Staff surface<br/>Next.js]
     Manager[Manager] --> Staff
     Eval[Evaluation harness<br/>simulated customer and judge] -.->|Kiosk REST contract| API
-    CliAgent[Local claude or codex CLI] -.->|Localhost MCP<br/>3 session tools| Bridge[Eval kiosk MCP bridge]
-    Bridge -.->|Same REST contract| API
 
     Kiosk -->|Allowlisted BFF proxy| API[FastAPI application]
     Staff -->|Allowlisted BFF proxy| API
@@ -40,9 +38,7 @@ flowchart LR
 The MCP server is a second ASGI process on its own port, sharing the backend's domain
 code and PostgreSQL database without becoming part of the kiosk request path. The kiosk,
 staff surfaces, and the evaluation harness all reach the backend over REST; authenticated
-external MCP clients use `/mcp`. The harness runs a second, unrelated MCP server of its own
-so a local coding-agent CLI can play the customer -- see
-[MCP servers](mcp.md) for how the two differ.
+external MCP clients use `/mcp` -- see [MCP server](mcp.md).
 
 ## Deployment topology
 
@@ -77,7 +73,7 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | `app/services/openai_provider.py` | Transport only: structured model calls, embeddings, grounded generation, and realtime client-secret creation |
 | `app/services/pii.py` | Local PII detection and masking before downstream AI processing |
 | `app/knowledge` | PDF extraction, chunking, ingestion, retrieval, grounding validation, evaluation, and management lifecycle; `uploads.py` holds the gate a PDF passes before it may become a document |
-| `app/mcp_server` | Read-only MCP tools for authenticated external clients -- bearer-authenticated, streamable-HTTP, never called by the frontends (see [MCP servers](mcp.md)) |
+| `app/mcp_server` | Read-only MCP tools for authenticated external clients -- bearer-authenticated, streamable-HTTP, never called by the frontends (see [MCP server](mcp.md)) |
 | `app/domain/schemas` | API and AI schemas grouped by the surface that exchanges them: `kiosk`, `staff`, `management`, `knowledge`, `auth`, `ai` |
 | `app/db` | Async SQLAlchemy models split into their four bounded contexts (`identity`, `kiosk`, `operations`, `knowledge`), plus repositories, session management, and idempotent operational seeding |
 | `alembic` | Explicit, ordered schema migrations including pgvector and the HNSW vector index |
@@ -90,7 +86,7 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | --- | --- |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, OpenAI Agents SDK, Zod |
 | Backend | Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2 async, Uvicorn, Structlog |
-| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools, plus the eval kiosk bridge), AutoGen (offline REST-based evaluation: simulated customer and LLM judge), optional local `claude` / `codex` CLI backends for both eval roles |
+| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools), AutoGen (offline REST-based evaluation: simulated customer and LLM judge) |
 | Data | PostgreSQL 17, pgvector, HNSW cosine index, Alembic |
 | Security | Argon2, JWT access tokens, rotating opaque refresh tokens, HMAC identifier protection |
 | Tooling | Docker Compose, `uv`, `pnpm`, Ruff, Pytest, Vitest, ESLint |

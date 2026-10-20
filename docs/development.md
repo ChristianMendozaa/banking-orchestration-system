@@ -86,7 +86,7 @@ The application requires `APP_NAME`, `BANK_NAME`, `BRANCH_NAME`, `CORS_ORIGINS`,
 no deployment data or backup credentials live in code.
 
 The read-only MCP server is a separate process on the same environment
-(`uv run python -m app.mcp_server`, see [MCP servers](mcp.md)); knowledge-base CLI
+(`uv run python -m app.mcp_server`, see [MCP server](mcp.md)); knowledge-base CLI
 commands are in [RAG](rag.md#knowledge-base-cli-and-worker).
 
 | Endpoint | URL |
