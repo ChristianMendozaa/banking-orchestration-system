@@ -1,7 +1,7 @@
 """General inquiries: the only path allowed to resolve without a human.
 
 These scenarios test the RAG side of the policy from both directions. Most of them ask
-something the approved corpus in `doc/rag/` genuinely answers, and must come back grounded
+something the approved corpus in `backend/doc/rag/` genuinely answers, and must come back grounded
 and cited. Two of them deliberately do not -- `consulta_fuera_del_corpus` asks about a
 product that appears nowhere in the corpus, and `pide_tasa_exacta` asks for a number the
 documents explicitly refuse to fix -- and those must reach a human rather than invent an

@@ -16,7 +16,7 @@ from tests.conftest import TestSession, fake_provider, settings_for_tests
 
 pytestmark = [pytest.mark.functional, pytest.mark.integration, pytest.mark.regression]
 
-CORPUS_DIR = Path(__file__).parents[2] / "doc" / "rag"
+CORPUS_DIR = Path(__file__).parents[1] / "doc" / "rag"
 
 
 def test_generated_pdfs_are_searchable_and_split_by_section() -> None:

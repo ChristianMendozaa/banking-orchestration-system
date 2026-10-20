@@ -33,7 +33,7 @@ An automatic response requires all of the following:
 
 Every retrieval attempt records its outcome, prompt version, retrieved chunk metadata, and an answer hash when applicable. The raw generated answer is not duplicated in the RAG audit record.
 
-The corpus itself is eight manifest-managed PDFs (`doc/rag/`), currently at version
+The corpus itself is eight manifest-managed PDFs (`backend/doc/rag/`), currently at version
 `2026.08.2` -- regenerated in August 2026 with the sections the eval runs showed missing
 (agency hours, accounts for minors, periodic-payment deposits, among others), each with a
 fresh `sha256`, `verified_at`, and `review_after` date that the ingestion CLI verifies before
@@ -43,7 +43,7 @@ Managers can list, upload, update, version, download, reindex, and archive knowl
 
 ## Knowledge base CLI and worker
 
-Bootstrap consumes exclusively `doc/rag/manifest.json`; documents are never generated at
+Bootstrap consumes exclusively `backend/doc/rag/manifest.json`; documents are never generated at
 runtime. The managed PDFs and the manifest are themselves generated: after changing their
 sources run `cd backend && uv run python scripts/render_operational_documents.py`.
 

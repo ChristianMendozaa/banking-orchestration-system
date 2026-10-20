@@ -34,7 +34,7 @@ Customer-facing text and domain enums are Spanish; code, comments, and docs are 
   to Claude Haiku 5.5 via `services/anthropic_provider.py` (`messages.parse` structured
   outputs, effort-controlled). Embeddings (pgvector is fixed at 1536 dims) and realtime voice
   stay on OpenAI via `services/openai_provider.py`.
-- **RAG** is governed: only manifest-registered PDFs in `doc/rag/`, pgvector retrieval,
+- **RAG** is governed: only manifest-registered PDFs in `backend/doc/rag/`, pgvector retrieval,
   citations validated against retrieved chunks; any gap routes to a human.
   → [docs/rag.md](docs/rag.md)
 - **MCP server**: `backend/app/mcp_server/` (read-only, staff-JWT) for external clients. The
@@ -56,7 +56,7 @@ Customer-facing text and domain enums are Spanish; code, comments, and docs are 
 | Kiosk or business orchestration | `api/kiosk.py` → `services/orchestrator/` (`service.py`, `responses.py`, `speech.py`) → `services/graph/`; decisions in `services/agents/`, `prompts/`, `anthropic_provider.py` | [orchestration.md](docs/orchestration.md) |
 | Kiosk voice / client turn logic | `frontend/components/providers/kiosk-provider.tsx`, `frontend/lib/kiosk-realtime.ts`, `kiosk-realtime-agent.ts` | [frontend.md](docs/frontend.md) |
 | Persistence or migration | `db/models/`, repositories/session in `db/`, `backend/alembic/versions/` | [data-model.md](docs/data-model.md) |
-| RAG or knowledge lifecycle | `api/knowledge.py`, `app/knowledge/` (service, repository, indexing, `uploads.py`, `worker.py`), `doc/rag/` | [rag.md](docs/rag.md) |
+| RAG or knowledge lifecycle | `api/knowledge.py`, `app/knowledge/` (service, repository, indexing, `uploads.py`, `worker.py`), `backend/doc/rag/` | [rag.md](docs/rag.md) |
 | Auth, roles, infrastructure | `api/auth.py`, `api/deps.py`, `core/security.py`, `core/config.py`, `main.py`, `mcp_server/`, `docker-compose.yml` | [security.md](docs/security.md), [operations.md](docs/operations.md) |
 | Frontend route, UI, API use | `frontend/app/`, `components/` (incl. providers), `lib/api.ts`, `kiosk-api.ts`, `types.ts`, `app-surface.ts`, `app/backend-api/` | [frontend.md](docs/frontend.md) |
 | Tests or model evaluation | `backend/tests/`, `frontend/tests/`, `backend/evals/` (`harness/scenarios/`, `tests/`) | [testing.md](docs/testing.md), [evaluation.md](docs/evaluation.md) |
@@ -105,7 +105,8 @@ Use the root Makefile; don't reconstruct equivalent commands. `make help` lists 
 - The `GENERATED GRAPH DIAGRAMS` block in `docs/orchestration.md` ←
   `cd backend && PYTHONPATH=. uv run python scripts/render_graph_diagrams.py` after any change
   under `backend/app/services/graph/`.
-- `doc/rag/*.pdf`, `doc/rag/manifest.json`, `doc/operacion/catalogo_perfiles_ejecutivos.pdf`
+- `backend/doc/rag/*.pdf`, `backend/doc/rag/manifest.json`,
+  `backend/doc/operacion/catalogo_perfiles_ejecutivos.pdf`
   ← `cd backend && uv run python scripts/render_operational_documents.py`.
 
 ## Invariants — do not weaken

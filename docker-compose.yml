@@ -10,7 +10,7 @@ x-backend-environment: &backend-environment
   CLAMAV_HOST: clamav
   CLAMAV_PORT: 3310
   KNOWLEDGE_STORAGE_DIR: /workspace/data/knowledge
-  RAG_CORPUS_DIR: /workspace/doc/rag
+  RAG_CORPUS_DIR: /workspace/backend/doc/rag
   SEED_DATA_PATH: /workspace/backend/seed/operational_seed.json
   CORS_ORIGINS: ${KIOSK_FRONTEND_ORIGIN:-http://localhost:3000},${STAFF_FRONTEND_ORIGIN:-http://localhost:3001}
 

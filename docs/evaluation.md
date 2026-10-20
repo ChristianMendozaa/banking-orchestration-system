@@ -17,7 +17,7 @@ across every run that's ever been made.
 
 The kiosk takes one natural-language Spanish request and must land it in exactly one of two
 places: an **evidence-grounded automatic answer** built from the approved corpus in
-`doc/rag/`, or a **human handoff** with a ticket, a deterministic priority and a
+`backend/doc/rag/`, or a **human handoff** with a ticket, a deterministic priority and a
 skill-matched executive. Everything between those poles is policy it must not get wrong —
 masking PII before any model call, at most `MAX_CLARIFICATIONS` questions before giving up
 to a human, explicit confirmation of a summary the customer would recognise, protected

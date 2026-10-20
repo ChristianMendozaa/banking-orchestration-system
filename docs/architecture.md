@@ -107,6 +107,9 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 │   │   ├── knowledge/           # Ingestion, retrieval, RAG, document management
 │   │   ├── mcp_server/          # Read-only MCP tools for authenticated external clients
 │   │   └── services/            # Orchestrator adapter, LangGraph graphs, agents, PII, Anthropic and OpenAI providers
+│   ├── doc/
+│   │   ├── rag/                 # Governed source PDFs and manifest
+│   │   └── operacion/           # Generated operational documentation
 │   ├── evals/                   # Standalone evaluation harness + judge (own project, own venv)
 │   ├── scripts/                 # OpenAPI export, graph diagrams, operational docs, eval queue reset
 │   ├── seed/                    # Deterministic branch and executive catalog
@@ -116,9 +119,6 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 │   ├── components/              # Product and UI components
 │   ├── lib/                     # API client, realtime logic, domain types
 │   └── tests/                   # Surface isolation and realtime behavior tests
-├── doc/
-│   ├── rag/                     # Governed source PDFs and manifest
-│   └── operacion/               # Generated operational documentation
 ├── docker-compose.yml           # Complete local topology and startup ordering
 └── .env.example                 # The single configuration template (backend, Compose, frontend)
 ```

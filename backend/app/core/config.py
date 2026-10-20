@@ -82,7 +82,7 @@ class Settings(BaseSettings):
     rag_max_context_tokens: int = 3000
     rag_chunk_tokens: int = 600
     rag_chunk_overlap: int = 100
-    rag_corpus_dir: str = "../doc/rag"
+    rag_corpus_dir: str = "doc/rag"
 
     jwt_secret: SecretStr
     identifier_pepper: SecretStr
