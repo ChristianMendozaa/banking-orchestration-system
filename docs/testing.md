@@ -2,10 +2,12 @@
 
 The backend suite covers kiosk state transitions, ambiguity and correction loops, idempotent retries, protected identification, priority rules, PII masking, role boundaries, refresh rotation, realtime-secret containment, RAG ingestion and grounding, executive routing, management metrics, and knowledge-document lifecycle.
 
-`.github/workflows/ci.yml` runs on every pull request and on push to `main`. It skips backend or
-frontend jobs when the corresponding path did not change, runs the backend test suite on Python
-3.12 and 3.14, uploads coverage artifacts, and fails the run if the OpenAPI contract or the
-generated TypeScript types drift from what `generate:api` produces.
+`.github/workflows/ci.yml` runs on every pull request and on push to `main`. A push whose commit
+was merged from a pull request skips every job, since that PR's run already covered it; direct
+pushes to `main` run in full. It skips backend or frontend jobs when the corresponding path did
+not change, runs the backend test suite on Python 3.12 and 3.14, uploads coverage artifacts, and
+fails the run if the OpenAPI contract or the generated TypeScript types drift from what
+`generate:api` produces.
 
 ## Test commands and evidence
 
