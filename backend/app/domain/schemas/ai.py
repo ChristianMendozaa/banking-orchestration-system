@@ -1,6 +1,6 @@
 """Structured model output, and the citations that back a grounded answer.
 
-These are the shapes `responses.parse` is asked to fill -- see
+These are the shapes `messages.parse` is asked to fill (`app.services.anthropic_provider`) -- see
 `app.services.prompts`. They are separate from the kiosk request/response schemas
 because nothing outside the AI path constructs them.
 """

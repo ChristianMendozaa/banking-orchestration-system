@@ -15,6 +15,7 @@ os.environ["BRANCH_NAME"] = "Sucursal de Pruebas"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite://"
 os.environ["CORS_ORIGINS"] = "http://test"
 os.environ["OPENAI_API_KEY"] = ""
+os.environ["ANTHROPIC_API_KEY"] = ""
 os.environ["JWT_SECRET"] = "test-jwt-secret-with-more-than-thirty-two-characters"
 os.environ["IDENTIFIER_PEPPER"] = "test-identifier-pepper-with-more-than-thirty-two-characters"
 os.environ["SEED_EXECUTIVE_PASSWORD"] = "test-executive-password"
@@ -105,7 +106,9 @@ test_orchestrator = OrchestratorService(
     classifier=ClassificationAgent(settings_for_tests, fake_provider),
     prioritizer=PrioritizationAgent(),
     derivation=DerivationAgent(fake_provider),
-    initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, fake_provider)),
+    initial_attention=InitialAttentionAgent(
+        KnowledgeService(settings_for_tests, fake_provider, answerer=fake_provider)
+    ),
 )
 app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
 

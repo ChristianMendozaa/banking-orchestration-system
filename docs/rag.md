@@ -15,7 +15,7 @@ flowchart LR
     QueryEmbed --> Retrieve[Cosine retrieval]
     Index --> Retrieve
     Retrieve --> Policy[Active, current,<br/>category, and score filters]
-    Policy --> Generate[Structured grounded answer]
+    Policy --> Generate[Structured grounded answer<br/>Claude Haiku 5.5]
     Generate --> Verify{All citations belong to<br/>retrieved evidence?}
     Verify -->|Yes| Answer[Answer and citations]
     Verify -->|No| Human[Human fallback]
@@ -28,7 +28,7 @@ An automatic response requires all of the following:
 2. The query has already been masked.
 3. Retrieved documents are active, within their review period, category-compatible, and above the configured similarity threshold.
 4. The prompt context stays within the configured token budget.
-5. The model returns a supported structured response with at least one citation.
+5. The orchestration model (Claude Haiku 5.5) returns a supported structured response with at least one citation.
 6. Every cited chunk belongs to the exact retrieved evidence set.
 
 Every retrieval attempt records its outcome, prompt version, retrieved chunk metadata, and an answer hash when applicable. The raw generated answer is not duplicated in the RAG audit record.

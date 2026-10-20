@@ -34,37 +34,41 @@ class Settings(BaseSettings):
     trusted_proxy_cidrs: Annotated[list[str], NoDecode] = []
     metrics_token: SecretStr = SecretStr("")
 
+    # Classification, confirmation reading and grounded answers.
+    anthropic_api_key: SecretStr = SecretStr("")
+    orchestration_model: str = "claude-haiku-5-5"
+    anthropic_timeout_seconds: float = 20.0
+
+    # Embeddings and the realtime voice channel, which Anthropic does not offer.
     openai_api_key: SecretStr = SecretStr("")
     voice_model: str = "gpt-realtime-2.1-mini"
     transcription_model: str = "gpt-realtime-whisper"
-    orchestration_model: str = "gpt-5.4-mini"
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
     realtime_voice: str = "marin"
 
-    # Reasoning effort for the two orchestration-model calls, split because they are not the
-    # same kind of work and do not deserve the same latency budget. Both sit inside the HTTP
-    # request a customer is waiting on, so every step of effort is dead air a person hears.
-    # The model family accepts none/low/medium/high/xhigh -- "minimal" is rejected with a
-    # 400, confirmed live (see also evals/harness/runner.py, which runs its customer agent at
-    # "none").
+    # Effort for the two orchestration-model calls, split because they are not the same kind
+    # of work and do not deserve the same latency budget. Both sit inside the HTTP request a
+    # customer is waiting on, so every step of effort is dead air a person hears. Claude
+    # Haiku 5.5 accepts low/medium/high/xhigh/max and thinks adaptively at every level;
+    # there is no "none", so "low" is the floor.
     #
-    # Both sit at "low". "none" was tried for classification and reverted on 2026-08-21:
-    # measured in isolation it saved only ~170ms at p50 (1611 -> 1438ms, sequential, no
-    # concurrency), and it cost `transcripcion_pierde_el_riesgo` outright. At "low" the model
-    # marks "Me robaron la carpeta ayer" out_of_scope and the turn ends DECLINED; at "none" it
-    # marks it ambiguous instead, so the turn ends NEEDS_CLARIFICATION while `sensitivity_floor`
-    # pins SENSIBLE on "me robaron" -- failing both session_reached_terminal_state and
-    # sensitive_requires_identification. Over-classification is not a safety risk, which is why
-    # a probe that only looks for under-classification misses it; it is a terminal-state risk.
+    # Both sit at "low". On gpt-5.4-mini, the previous orchestration model, "none" was tried
+    # for classification and reverted on 2026-08-21: it saved only ~170ms at p50 and cost
+    # `transcripcion_pierde_el_riesgo` outright -- "Me robaron la carpeta ayer" became
+    # ambiguous instead of out_of_scope, ending NEEDS_CLARIFICATION while `sensitivity_floor`
+    # pinned SENSIBLE. Over-classification is not a safety risk, which is why a probe that only
+    # looks for under-classification misses it; it is a terminal-state risk. Those numbers
+    # have not been re-measured on Haiku 5.5.
     #
-    # Grounding was never lowered: deciding whether retrieved evidence actually answers the
-    # question is the judgement that keeps invented banking information out of a customer's ear.
+    # Grounding was never lowered below classification: deciding whether retrieved evidence
+    # actually answers the question is the judgement that keeps invented banking information
+    # out of a customer's ear.
     #
     # These stay settings rather than constants because the eval suite is what settles them:
-    # run `make evals-live-codex` after changing either and compare the scorecard.
-    classification_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "low"
-    grounding_reasoning_effort: Literal["none", "low", "medium", "high", "xhigh"] = "low"
+    # run `make evals-live` after changing either and compare the scorecard.
+    classification_reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
+    grounding_reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
 
     rag_top_k: int = 5
     rag_min_score: float = 0.45
@@ -211,6 +215,8 @@ class Settings(BaseSettings):
             raise ValueError("Seed passwords must be at least 12 characters long")
         if self.app_env == "production" and not self.openai_enabled:
             raise ValueError("OPENAI_API_KEY is required in production")
+        if self.app_env == "production" and not self.anthropic_enabled:
+            raise ValueError("ANTHROPIC_API_KEY is required in production")
         if self.app_env == "production" and not self.redis_url:
             raise ValueError("REDIS_URL is required in production")
         if self.app_env == "production" and not self.clamav_host:
@@ -222,6 +228,10 @@ class Settings(BaseSettings):
     @property
     def openai_enabled(self) -> bool:
         return bool(self.openai_api_key.get_secret_value().strip())
+
+    @property
+    def anthropic_enabled(self) -> bool:
+        return bool(self.anthropic_api_key.get_secret_value().strip())
 
 
 @lru_cache

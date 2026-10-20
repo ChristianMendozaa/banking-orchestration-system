@@ -30,6 +30,10 @@ Customer-facing text and domain enums are Spanish; code, comments, and docs are 
   `sensitivity_floor` that only ever raises the level), `PrioritizationAgent` and
   `DerivationAgent` (deterministic rules / weighted ranking), `InitialAttentionAgent`
   (grounded answers for `GENERAL` only). Prompts are policy and live in `services/prompts/`.
+- **Model providers**: decisions (classification, confirmation reading, grounded answers) go
+  to Claude Haiku 5.5 via `services/anthropic_provider.py` (`messages.parse` structured
+  outputs, effort-controlled). Embeddings (pgvector is fixed at 1536 dims) and realtime voice
+  stay on OpenAI via `services/openai_provider.py`.
 - **RAG** is governed: only manifest-registered PDFs in `doc/rag/`, pgvector retrieval,
   citations validated against retrieved chunks; any gap routes to a human.
   → [docs/rag.md](docs/rag.md)
@@ -44,7 +48,7 @@ Customer-facing text and domain enums are Spanish; code, comments, and docs are 
 | Change | Inspect first | Read |
 | --- | --- | --- |
 | API endpoint or contract | `backend/app/main.py` wiring, `app/api/`, shared deps in `api/deps.py`, `domain/enums.py` and `domain/schemas/` | [api.md](docs/api.md) |
-| Kiosk or business orchestration | `api/kiosk.py` → `services/orchestrator/` (`service.py`, `responses.py`, `speech.py`) → `services/graph/`; decisions in `services/agents/`, `prompts/`, `openai_provider.py` | [orchestration.md](docs/orchestration.md) |
+| Kiosk or business orchestration | `api/kiosk.py` → `services/orchestrator/` (`service.py`, `responses.py`, `speech.py`) → `services/graph/`; decisions in `services/agents/`, `prompts/`, `anthropic_provider.py` | [orchestration.md](docs/orchestration.md) |
 | Kiosk voice / client turn logic | `frontend/components/providers/kiosk-provider.tsx`, `frontend/lib/kiosk-realtime.ts`, `kiosk-realtime-agent.ts` | [frontend.md](docs/frontend.md) |
 | Persistence or migration | `db/models/`, repositories/session in `db/`, `backend/alembic/versions/` | [data-model.md](docs/data-model.md) |
 | RAG or knowledge lifecycle | `api/knowledge.py`, `app/knowledge/` (service, repository, indexing, `uploads.py`, `worker.py`), `doc/rag/` | [rag.md](docs/rag.md) |
@@ -70,7 +74,7 @@ Use the root Makefile; don't reconstruct equivalent commands. `make help` lists 
 - `make services-up` / `make services-down` — local PostgreSQL, Redis, ClamAV, backend.
   Needed to exercise a new Alembic revision against real PostgreSQL.
 - **Costs money — only when explicitly intended:** `make check-live` and every
-  `make evals-*` target (live backend + billed OpenAI model calls).
+  `make evals-*` target (live backend + billed Anthropic and OpenAI model calls).
 
 ## Conventions
 

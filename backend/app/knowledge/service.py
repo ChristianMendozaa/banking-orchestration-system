@@ -11,6 +11,7 @@ from app.db.models import RAGInteraction
 from app.domain.enums import Category, GroundingAttemptOutcome
 from app.domain.schemas import GroundedResponse, GroundingAttempt
 from app.knowledge.repository import KnowledgeRepository, RetrievedChunk
+from app.services.anthropic_provider import AnthropicProvider
 from app.services.openai_provider import OpenAIProvider
 
 PROMPT_VERSION = "rag-v3-hybrid"
@@ -22,10 +23,14 @@ class KnowledgeService:
         self,
         settings: Settings,
         provider: OpenAIProvider | None,
+        answerer: AnthropicProvider | None = None,
         repository: KnowledgeRepository | None = None,
     ) -> None:
         self.settings = settings
+        # Retrieval embeds with OpenAI (the pgvector schema is fixed to its vectors) and the
+        # grounded answer comes from the orchestration model; both are needed to answer.
         self.provider = provider
+        self.answerer = answerer
         self.repository = repository or KnowledgeRepository()
 
     async def answer(
@@ -39,7 +44,7 @@ class KnowledgeService:
     ) -> GroundingAttempt:
         queries = self._retrieval_queries(masked_query, retrieval_queries)
         base_diagnostics = {"queries": queries, "category": category.value}
-        if not self.provider:
+        if not self.provider or not self.answerer:
             return await self._finish(
                 db,
                 case_id,
@@ -80,7 +85,7 @@ class KnowledgeService:
                 )
 
             with STAGE_DURATION.labels(stage="ground").time():
-                decision = await self.provider.grounded_answer(masked_query, chunks)
+                decision = await self.answerer.grounded_answer(masked_query, chunks)
             allowed = {index: item for index, item in enumerate(chunks, start=1)}
             cited = list(dict.fromkeys(decision.cited_evidence_refs))
             diagnostics["supported"] = decision.supported

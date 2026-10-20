@@ -5,7 +5,8 @@
 ### Prerequisites
 
 - Docker Engine with Docker Compose v2
-- An OpenAI API key for realtime voice, model-based classification, embeddings, and grounded answers
+- An Anthropic API key for the orchestration model (Claude Haiku 5.5): classification, confirmation reading, and grounded answers
+- An OpenAI API key for realtime voice and embeddings
 - Available local ports `3000`, `3001`, `8000`, and `5432` (or custom values in `.env`)
 
 ### 1. Create local configuration
@@ -24,14 +25,15 @@ POSTGRES_USER=orquestacion
 POSTGRES_PASSWORD=<strong-local-database-password>
 
 # backend/.env
-OPENAI_API_KEY=<your-api-key>
+ANTHROPIC_API_KEY=<your-anthropic-api-key>
+OPENAI_API_KEY=<your-openai-api-key>
 JWT_SECRET=<at-least-32-random-characters>
 IDENTIFIER_PEPPER=<a-different-random-secret>
 SEED_EXECUTIVE_PASSWORD=<at-least-12-characters>
 SEED_MANAGER_PASSWORD=<at-least-12-characters>
 ```
 
-Do not commit `.env` files or expose `OPENAI_API_KEY`. The configured `KIOSK_FRONTEND_ORIGIN` and `STAFF_FRONTEND_ORIGIN` must match the browser-visible origins, including deployments behind reverse proxies.
+Do not commit `.env` files or expose `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. The configured `KIOSK_FRONTEND_ORIGIN` and `STAFF_FRONTEND_ORIGIN` must match the browser-visible origins, including deployments behind reverse proxies.
 
 ### 2. Start the platform
 

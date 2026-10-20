@@ -25,8 +25,8 @@ from app.services.agents.rules.sensitivity import (
     security_incident_category,
     sensitivity_floor,
 )
+from app.services.anthropic_provider import AnthropicProvider
 from app.services.intake import IntakePlanner
-from app.services.openai_provider import OpenAIProvider
 
 logger = structlog.get_logger()
 
@@ -35,7 +35,7 @@ class ClassificationAgent:
     def __init__(
         self,
         settings: Settings,
-        provider: OpenAIProvider | None,
+        provider: AnthropicProvider | None,
         intake_planner: IntakePlanner | None = None,
     ) -> None:
         self.settings = settings

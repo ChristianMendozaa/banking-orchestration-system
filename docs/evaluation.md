@@ -82,9 +82,10 @@ transcription recorded against what the classifier was actually given.
 
 ## Running it
 
-Needs a live backend (`make services-up`, or your own dev server) and `OPENAI_API_KEY`.
-Every run makes real, billed calls on three fronts: the simulated customer, the judge, and
-the backend's own classification, embedding and retrieval.
+Needs a live backend (`make services-up`, or your own dev server) configured with both
+`ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, and `OPENAI_API_KEY` for the harness itself.
+Every run makes real, billed calls on three fronts: the simulated customer and the judge
+(OpenAI), and the backend's own decisions (Claude Haiku 5.5) and embeddings (OpenAI).
 
 ```bash
 cd backend/evals
@@ -283,7 +284,8 @@ here manually before pushing until that's wired up.
 
 ## Who plays the customer and who judges
 
-Chosen per run by the Make target:
+Chosen per run by the Make target. These are the harness's own models; the backend under
+test always decides with its configured `ORCHESTRATION_MODEL` (Claude Haiku 5.5).
 
 | Target | Customer | Judge | Cost |
 | --- | --- | --- | --- |
@@ -295,8 +297,9 @@ Chosen per run by the Make target:
 any target accepts extra harness flags through `EVAL_ARGS="--tag adversarial --repeat 3"`.
 `--rejudge` re-scores an existing report's stored sessions with the current judge at the cost of
 judge tokens only, with no backend or customer-simulator calls. `OPENAI_API_KEY` pays for the
-customer, the judge, and the backend under test's own classification, embedding and retrieval,
-which is the thing being evaluated. Each `make evals-*` target first runs
+customer, the judge, and the backend's embeddings; `ANTHROPIC_API_KEY` pays for the backend's
+classification, confirmation reading and grounded answers on Claude Haiku 5.5, which is the
+thing being evaluated. Each `make evals-*` target first runs
 `backend/scripts/reset_kiosk_queue.py`, because `estimated_wait_minutes` counts every open
 ticket ever created and otherwise reports hundreds of minutes after a few runs, which tells you
 nothing about the session under test.

@@ -1,25 +1,11 @@
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import httpx
 from openai import AsyncOpenAI
 
 from app.core.config import Settings
 from app.core.errors import AppError
-from app.domain.schemas import (
-    ClassificationDecision,
-    ConfirmationReading,
-    GroundedAnswerDecision,
-)
-from app.services.prompts import (
-    CLASSIFICATION_SYSTEM_PROMPT,
-    CONFIRMATION_READING_SYSTEM_PROMPT,
-    GROUNDED_ANSWER_SYSTEM_PROMPT,
-    KIOSK_VOICE_INSTRUCTIONS,
-)
-
-if TYPE_CHECKING:
-    from app.knowledge.repository import RetrievedChunk
-
+from app.services.prompts import KIOSK_VOICE_INSTRUCTIONS
 
 # Re-exported so `app.services.openai_provider.KIOSK_VOICE_INSTRUCTIONS` keeps working for
 # callers and tests that have always imported it from here. The text itself lives in
@@ -28,6 +14,12 @@ __all__ = ["KIOSK_VOICE_INSTRUCTIONS", "OpenAIProvider"]
 
 
 class OpenAIProvider:
+    """Embeddings and the kiosk's realtime voice channel.
+
+    The orchestration decisions themselves -- classification, confirmation reading and
+    grounded answers -- are made by `AnthropicProvider`.
+    """
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         api_key = settings.openai_api_key.get_secret_value()
@@ -117,61 +109,6 @@ class OpenAIProvider:
             session.setdefault("audio_input", audio_input)
         return data
 
-    async def classify(self, masked_text: str) -> ClassificationDecision:
-        system = CLASSIFICATION_SYSTEM_PROMPT
-        response = await self.client.responses.parse(
-            model=self.settings.orchestration_model,
-            input=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": masked_text},
-            ],
-            # This call sits directly between the customer finishing a sentence and the kiosk
-            # answering, so its latency is dead air the person hears -- on every turn, not just
-            # the ones that reach the corpus. Measured on gpt-5.4-mini against this prompt:
-            # 2.43s at the default effort, 1.57s at "low". The floor is "none", not "minimal":
-            # the model rejects "minimal" with a 400 that lists none/low/medium/high/xhigh as
-            # the valid set. See `classification_reasoning_effort` in core/config.py for why
-            # the default sits at the floor and what to re-run before changing it.
-            reasoning={"effort": self.settings.classification_reasoning_effort},
-            text_format=ClassificationDecision,
-        )
-        parsed = response.output_parsed
-        if parsed is None:
-            raise ValueError("OpenAI no devolvio una clasificacion estructurada")
-        return parsed
-
-    async def read_confirmation(
-        self, customer_summary: str, transcript: str
-    ) -> ConfirmationReading:
-        """What a reply to "¿me confirmas que...?" meant, when cue matching cannot say.
-
-        Deliberately not on the hot path: `apply_confirmation` calls this only after
-        `unambiguous_confirmation` returns None, so a plain "sí" still costs zero round
-        trips and only the sentences that were being read wrong pay for a model.
-        """
-        response = await self.client.responses.parse(
-            model=self.settings.orchestration_model,
-            input=[
-                {"role": "system", "content": CONFIRMATION_READING_SYSTEM_PROMPT},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Resumen que el kiosco leyo: {customer_summary}\n"
-                        f"Respuesta de la persona: {transcript}"
-                    ),
-                },
-            ],
-            # A short reading of one sentence against one summary. It sits in the same
-            # blocking turn as everything else, and there is no judgement here that a step
-            # of effort buys -- see `classification_reasoning_effort` in core/config.py.
-            reasoning={"effort": self.settings.classification_reasoning_effort},
-            text_format=ConfirmationReading,
-        )
-        parsed = response.output_parsed
-        if parsed is None:
-            raise ValueError("OpenAI no devolvio una lectura de confirmacion estructurada")
-        return parsed
-
     async def embedding(self, text: str) -> list[float]:
         return (await self.embeddings([text]))[0]
 
@@ -189,38 +126,3 @@ class OpenAIProvider:
                 item.embedding for item in sorted(response.data, key=lambda item: item.index)
             )
         return result
-
-    async def grounded_answer(
-        self, summary: str, chunks: list["RetrievedChunk"]
-    ) -> GroundedAnswerDecision:
-        evidence = "\n\n".join(
-            f'<evidence ref="{index}" document="{item.document.title}" '
-            f'page="{item.chunk.page}">\n{item.chunk.content}\n</evidence>'
-            for index, item in enumerate(chunks, start=1)
-        )
-        response = await self.client.responses.parse(
-            model=self.settings.orchestration_model,
-            input=[
-                {
-                    "role": "system",
-                    "content": GROUNDED_ANSWER_SYSTEM_PROMPT,
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Sucursal actual del kiosco: {self.settings.branch_name}\n"
-                        f"Consulta enmascarada: {summary}\n\nEvidencia:\n{evidence}"
-                    ),
-                },
-            ],
-            # Same blocking turn as `classify`, immediately after it -- but held one step
-            # higher on purpose. This is the call that decides whether the evidence really
-            # answers the question, and a wrong "supported" reads invented banking information
-            # to a customer. See `grounding_reasoning_effort` in core/config.py.
-            reasoning={"effort": self.settings.grounding_reasoning_effort},
-            text_format=GroundedAnswerDecision,
-        )
-        parsed = response.output_parsed
-        if parsed is None:
-            raise ValueError("OpenAI no devolvio una respuesta fundamentada estructurada")
-        return parsed
