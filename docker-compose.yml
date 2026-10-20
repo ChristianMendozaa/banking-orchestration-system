@@ -75,8 +75,8 @@ services:
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     # Published for the "backend runs on the host, dependencies run in Compose" local
     # dev flow (backend/.env points REDIS_URL at localhost, not the compose network).
-    # Not part of the deployment topology diagram or production guidance in the
-    # README's Operational considerations section, which still calls for
+    # Not part of the deployment topology diagram or production guidance in
+    # docs/operations.md, which still calls for
     # internal-network-only access there.
     ports:
       - "${REDIS_PORT:-6379}:6379"

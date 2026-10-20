@@ -1,4 +1,7 @@
-# Kiosk orchestration evaluation harness
+# Evaluation harness
+
+The standalone project in `backend/evals/` (own `pyproject.toml` and venv). Paths below
+are relative to `backend/evals/` unless they start with `backend/`.
 
 An [AutoGen](https://github.com/microsoft/autogen) agent plays a bank customer with a
 specific situation and a specific way of speaking, drives a real kiosk session turn by turn
@@ -62,6 +65,21 @@ report to `CRITICO`; a scheme where charm outranks policy would be worse than no
 > measuring is objectively decidable — tone, comprehension and answer usefulness are not,
 > and they are what a kiosk lives or dies on.
 
+## What this harness does not measure
+
+It drives the kiosk's REST contract with written text.
+It never opens a Realtime session, never produces or consumes audio, and never hears a spoken
+turn, so it grades the orchestrator rather than the kiosk a customer speaks to — in particular
+it never exercises the `SpeechPlan` the voice channel actually receives, only the `speech_text`
+the written channel does. A high score here is not evidence that the voice layer works. Three things narrow that gap: the
+`asr_noise` group feeds transcripts corrupted the way a Spanish speech recogniser corrupts them,
+so a mangled sentence has to be questioned rather than confidently routed; every scorecard
+carries per-operation latency percentiles, so a fast score cannot hide a slow kiosk; and
+`make transcript-fidelity` audits real voice sessions after the fact, comparing what the
+transcription recorded against what the classifier was actually given.
+
+
+
 ## Running it
 
 Needs a live backend (`make services-up`, or your own dev server) and `OPENAI_API_KEY`.
@@ -73,7 +91,7 @@ cd backend/evals
 uv sync
 
 export OPENAI_API_KEY=...
-uv run python -m harness           # 42 scenarios, dashboard at reports/runs/<run_id>/report.html
+uv run python -m harness           # full catalog, dashboard at reports/runs/<run_id>/report.html
 ```
 
 Or from the repository root, which reads `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` out of
@@ -267,7 +285,7 @@ Every run — live or `--rejudge` — is kept forever, not just the last one:
 
 ## The scenario catalog
 
-42 scenarios in `harness/scenarios/`. A **scenario** is the test case; a **persona style**
+47 scenarios in `harness/scenarios/` (`uv run python -m harness --list` prints them). A **scenario** is the test case; a **persona style**
 is only how that customer speaks — distressed, terse, elderly, hostile, rambling — kept
 separate so the same situation can be re-tested through a different mouth, which is what
 makes `tarjeta_robada_angustiado` and `tarjeta_extraviada_calmado` a controlled comparison
@@ -287,6 +305,7 @@ free pass.
 | Conversation flow | `flow` | The clarification limit, the correction loop (`confirmed=false`), a mid-session change of topic, multi-intent, monosyllabic dead ends |
 | Accessibility | `accessibility` | Preferential attention raising priority — and correctly *not* raising it past `CRITICO` — plus comprehension of difficult speech |
 | Adversarial | `adversarial` | Prompt injection, requests to move money, a volunteered PIN, hostility, claimed staff identity, out-of-domain requests |
+| Transcription noise | `asr_noise` | Transcripts corrupted the way a Spanish speech recogniser corrupts them, so a mangled sentence has to be questioned rather than confidently routed |
 | Protocol | `protocol` | State-machine guards driven straight at the API with no LLM customer |
 
 The `protocol` group overlaps `backend/tests/test_kiosk_flow.py` by design and does not
@@ -318,7 +337,7 @@ like two different products.
 ## Testing the harness
 
 ```bash
-uv run pytest      # 242 tests, fully mocked -- no network, no key, no running backend
+uv run pytest      # fully mocked -- no network, no key, no running backend
 uv run ruff check .
 ```
 
@@ -347,3 +366,57 @@ real billed calls on both sides. Run it manually against a `docker compose` back
 The hermetic `pytest` suite here is free and safe to run on every PR, but
 `.github/workflows/ci.yml` does not currently include a job for it — run `uv run pytest`
 here manually before pushing until that's wired up.
+
+## Who plays the customer and who judges
+
+Chosen per run by the Make target:
+
+| Target | Customer | Judge | Cost |
+| --- | --- | --- | --- |
+| `make evals-smoke` | `gpt-5.4-mini` | none -- deterministic checks only | Still a live, billed backend/customer run |
+| `make evals-live` | `gpt-5.4-mini` | `gpt-5.4-mini` at high reasoning effort, skipped for the six judgement-free `protocol` scenarios | Deliberate billed validation |
+| `make evals-deep` | `gpt-5.4-mini` | `gpt-5.4` | Milestone runs |
+| `make evals-live-codex` / `make evals-live-claude-code` | local `codex` / `claude` CLI over the harness's own MCP bridge | the same CLI | Billed against that CLI's own auth, not `OPENAI_API_KEY` |
+
+`make evals-retry[-codex|-claude-code]` re-runs only the scenarios that were not `PASS` in the
+most recent run, and any target accepts extra harness flags through
+`EVAL_ARGS="--tag adversarial --repeat 3"`. `--rejudge` re-scores an existing report's stored
+sessions with the current judge at the cost of judge tokens only, with no backend or
+customer-simulator calls. `OPENAI_API_KEY` is required in **every** mode regardless of who plays
+the customer: it pays for the backend under test's own classification, embedding and retrieval,
+which is the thing being evaluated. Each `make evals-*` target first runs
+`backend/scripts/reset_kiosk_queue.py`, because `estimated_wait_minutes` counts every open
+ticket ever created and otherwise reports hundreds of minutes after a few runs, which tells you
+nothing about the session under test.
+
+## Latest live-evaluation evidence
+
+The latest saved full run --
+[`20260825T210844Z-21fe4bf`](../backend/evals/reports/runs/20260825T210844Z-21fe4bf/report.html)
+(a local generated artifact, excluded from Git) -- was produced on 2026-08-25 at 21:08 UTC.
+Both the customer and judge used the local `codex` CLI. It ran for 538 seconds against commit
+`21fe4bf` with a dirty worktree, `MAX_CLARIFICATIONS=2`, and `RAG_MIN_SCORE=0.45`:
+
+| | |
+| --- | --- |
+| Scenarios | **45 / 45 passed** (0 partial, 0 failed) |
+| Average score | **9.27 / 10** |
+| Policy checks | **446 / 446 passed**, 0 hard failures |
+
+| Group | Average | Group | Average |
+| --- | --- | --- | --- |
+| `asr_noise` | 10.0 | `protocol` | 10.0 |
+| `card_fraud` | 9.83 | `digital_credit` | 9.8 |
+| `flow` | 9.17 | `general_inquiry` | 8.89 |
+| `adversarial` | 8.5 | `accessibility` | 8.25 |
+
+Measured API-call latency was 3.3 s p50 / 7.2 s p95 / 9.3 s max for `send_turn` (46 calls),
+0.5 s / 3.7 s / 4.4 s for protected identification (20 calls), and below 0.1 s at each percentile
+for confirmation (22 calls). Voice interaction additionally includes speech detection and
+text-to-speech time.
+
+Treat this as one measurement, not a guarantee. It evaluates the exact live configuration and
+dirty worktree recorded above; results from another commit, configuration, customer provider, or
+judge model are not directly interchangeable. The local run directory contains the detailed
+scorecard, JSON evidence, and HTML dashboard; this page retains the summary because the
+generated report directory does not travel with commits.

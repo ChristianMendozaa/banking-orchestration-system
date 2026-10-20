@@ -43,8 +43,8 @@ logger = structlog.get_logger()
 DEFAULT_CUSTOMER_MODEL = "gpt-5.4-mini"
 # Mini, not flagship: a `reasoning_effort="high"` mini judge (see `judge.py`) keeps
 # roughly flagship-level discrimination at a fraction of the price, and `--judge-model
-# gpt-5.4` remains available for a deliberate milestone run. See `backend/evals/README.md`
-# for the calibration numbers behind this default.
+# gpt-5.4` remains available for a deliberate milestone run. See `docs/evaluation.md`
+# ("Keeping this affordable") for the reasoning behind this default.
 DEFAULT_JUDGE_MODEL = "gpt-5.4-mini"
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
 LEDGER_PATH = REPORTS_DIR / history.LEDGER_FILENAME

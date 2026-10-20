@@ -1,11 +1,11 @@
-"""Regenerates the orchestration-graph mermaid diagrams embedded in README.md.
+"""Regenerates the orchestration-graph mermaid diagrams embedded in docs/orchestration.md.
 
 Run after any change to app/services/graph/*.py:
 
     uv run python scripts/render_graph_diagrams.py
 
 Diagrams are generated directly from the compiled LangGraph graphs
-(`graph.get_graph().draw_mermaid()`), so this replaces the marked block in README.md
+(`graph.get_graph().draw_mermaid()`), so this replaces the marked block in docs/orchestration.md
 rather than requiring anyone to hand-edit the flowchart. See app/services/graph/builder.py
 for the graphs themselves.
 """
@@ -20,7 +20,7 @@ from app.services.graph.builder import (
 )
 
 ROOT = Path(__file__).resolve().parents[2]
-README = ROOT / "README.md"
+TARGET = ROOT / "docs" / "orchestration.md"
 
 START_MARKER = "<!-- BEGIN GENERATED GRAPH DIAGRAMS -->"
 END_MARKER = "<!-- END GENERATED GRAPH DIAGRAMS -->"
@@ -65,15 +65,15 @@ def render_block() -> str:
 
 
 def main() -> None:
-    text = README.read_text(encoding="utf-8")
+    text = TARGET.read_text(encoding="utf-8")
     if START_MARKER not in text or END_MARKER not in text:
         raise SystemExit(
-            f"README.md is missing {START_MARKER} / {END_MARKER} markers; nothing to replace."
+            f"{TARGET} is missing {START_MARKER} / {END_MARKER} markers; nothing to replace."
         )
     before, rest = text.split(START_MARKER, 1)
     _, after = rest.split(END_MARKER, 1)
-    README.write_text(before + render_block() + after, encoding="utf-8")
-    print(f"Wrote {len(GRAPHS)} diagrams into {README}")
+    TARGET.write_text(before + render_block() + after, encoding="utf-8")
+    print(f"Wrote {len(GRAPHS)} diagrams into {TARGET}")
 
 
 if __name__ == "__main__":
