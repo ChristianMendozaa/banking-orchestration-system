@@ -12,19 +12,16 @@ transient API error would be the worst possible failure mode for a suite this ex
 """
 
 import asyncio
-import contextlib
 import time
 import traceback
 
 import structlog
 
 from harness.agent import build_customer_agent
-from harness.cli_customer import build_cli_customer_backend
 from harness.client import KioskClient
 from harness.evaluator import CheckResult, Evaluator
 from harness.judge import Judge, JudgeVerdict
-from harness.mcp_kiosk_server import KioskMcpServerPool, serve_kiosk_pool
-from harness.model_client import build_model_client, resolve_provider
+from harness.model_client import build_model_client
 from harness.scenarios import SCENARIOS
 from harness.scenarios.models import Scenario
 from harness.scoring import ScenarioResult
@@ -85,7 +82,7 @@ async def _assess_with_retry(
     checks: list[CheckResult],
 ) -> JudgeVerdict:
     """One retry before giving up on the judge. Judge calls are a single long request to a
-    model or a local CLI, and a single slow one is not evidence about the kiosk."""
+    model, and a single slow one is not evidence about the kiosk."""
     try:
         return await asyncio.wait_for(
             judge.assess(
@@ -108,7 +105,6 @@ async def run_scenario(
     scenario: Scenario,
     *,
     model: str,
-    mcp_pool: KioskMcpServerPool | None = None,
     repetition: int = 1,
 ) -> ScenarioResult:
     started = time.monotonic()
@@ -139,30 +135,6 @@ async def run_scenario(
             """
             if scenario.script:
                 return await scenario.script(session)
-            provider, underlying_model = resolve_provider(model)
-            if provider is not None:
-                # Same 3 tools, same session, same INITIAL_TASK -- just handed to a
-                # local CLI over MCP instead of AutoGen's native OpenAI tool-calling.
-                # `session` is mutated in place by the tool calls either way, so nothing
-                # below this branch needs to know which path ran. Borrowed from the
-                # shared pool rather than a fresh per-scenario server -- see
-                # `mcp_kiosk_server.serve_kiosk_pool` for why a fresh server per
-                # scenario doesn't work against these CLIs in practice.
-                if mcp_pool is None:
-                    raise RuntimeError(
-                        f"model={model!r} needs a running kiosk MCP pool "
-                        "(run_all should have started one)"
-                    )
-                backend = build_cli_customer_backend(provider, underlying_model)
-                async with mcp_pool.acquire(session) as mcp_url:
-                    await backend.run(
-                        scenario=scenario,
-                        session=session,
-                        mcp_url=mcp_url,
-                        initial_task=INITIAL_TASK,
-                        timeout_seconds=SCENARIO_TIMEOUT_SECONDS,
-                    )
-                return []
             # The customer is role-play plus picking one of three tools against an
             # explicit next_action instruction -- it does not need deep reasoning, and a
             # customer that reasons less is also less likely to second-guess its way off
@@ -182,9 +154,9 @@ async def run_scenario(
         script_checks = await asyncio.wait_for(conversation(), SCENARIO_TIMEOUT_SECONDS)
         if scenario.script is None and not session.exchanges:
             # The simulated customer never said anything. That is a harness failure, not a
-            # kiosk one -- in the 2026-08-18 run the codex-backed customer silently declined
-            # to utter `prompt_injection`'s injection string, and the empty session was
-            # scored 1/10 as if the kiosk had failed a security test it was never given.
+            # kiosk one -- in the 2026-08-18 run the customer model silently declined to
+            # utter `prompt_injection`'s injection string, and the empty session was scored
+            # 1/10 as if the kiosk had failed a security test it was never given.
             # Retry once, then say plainly what happened instead of blaming the kiosk.
             logger.warning("customer_produced_no_turns", scenario=scenario.name, attempt=1)
             script_checks = await asyncio.wait_for(conversation(), SCENARIO_TIMEOUT_SECONDS)
@@ -298,18 +270,9 @@ async def run_all(
     selected = scenarios if scenarios is not None else SCENARIOS
     concurrency = max(1, concurrency)
     semaphore = asyncio.Semaphore(concurrency)
-    # Only the CLI-customer path (claude-code / codex) needs a kiosk MCP pool -- the
-    # native OpenAI customer calls the same 3 methods directly, no MCP involved. One
-    # pool, sized to `concurrency`, for the whole run: see
-    # `mcp_kiosk_server.serve_kiosk_pool` for why it must be reused across scenarios
-    # rather than rebuilt per scenario.
-    customer_provider, _ = resolve_provider(model)
-    pool_cm = serve_kiosk_pool(concurrency) if customer_provider is not None else None
 
     try:
-        async with contextlib.AsyncExitStack() as stack:
-            client = await stack.enter_async_context(KioskClient(base_url))
-            mcp_pool = await stack.enter_async_context(pool_cm) if pool_cm else None
+        async with KioskClient(base_url) as client:
 
             async def guarded(scenario: Scenario, repetition: int) -> ScenarioResult:
                 async with semaphore:
@@ -319,7 +282,6 @@ async def run_all(
                         judge,
                         scenario,
                         model=model,
-                        mcp_pool=mcp_pool,
                         repetition=repetition,
                     )
 
