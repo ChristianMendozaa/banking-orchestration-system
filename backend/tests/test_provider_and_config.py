@@ -6,7 +6,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Settings
+from app.core.config import ROOT_ENV_FILE, Settings
 from app.core.errors import AppError
 from app.services import retention
 from app.services.openai_provider import OpenAIProvider
@@ -100,6 +100,15 @@ def test_settings_reject_invalid_operational_limits(field: str, value: object) -
     payload[field] = value
     with pytest.raises(ValidationError):
         Settings.model_validate(payload)
+
+
+def test_settings_read_the_single_root_env_file() -> None:
+    # One .env at the repository root serves the backend, Compose and the frontend; it is
+    # located from the module, not the working directory, so `cd backend` is not required.
+    repo_root = ROOT_ENV_FILE.parent
+    assert ROOT_ENV_FILE.name == ".env"
+    assert (repo_root / "docker-compose.yml").is_file()
+    assert (repo_root / "backend" / "pyproject.toml").is_file()
 
 
 def test_settings_default_to_claude_haiku_for_orchestration() -> None:

@@ -86,11 +86,12 @@ The backend owns business state; the browser owns the turn (see
 ## Running and testing
 
 From `frontend/` (one surface at a time when sharing the local `.next` directory; use Docker
-Compose to run both):
+Compose to run both). `next.config.ts` loads the repository's root `.env`, which supplies
+`BACKEND_INTERNAL_URL`; anything set on the command line, such as `APP_SURFACE`, wins over it:
 
 ```bash
-APP_SURFACE=kiosk BACKEND_INTERNAL_URL=http://localhost:8000 pnpm dev
-PORT=3001 APP_SURFACE=staff BACKEND_INTERNAL_URL=http://localhost:8000 pnpm dev
+APP_SURFACE=kiosk pnpm dev
+PORT=3001 APP_SURFACE=staff pnpm dev
 ```
 
 Tests live in `frontend/tests/` as `<feature>.test.ts(x)`, tagged with a `// @module-tag <category>`

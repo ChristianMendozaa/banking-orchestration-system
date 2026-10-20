@@ -42,6 +42,11 @@ Customer-facing text and domain enums are Spanish; code, comments, and docs are 
 - **Persistence**: async SQLAlchemy models grouped by context in `db/models/`
   (`identity`, `kiosk`, `operations`, `knowledge`), explicit Alembic revisions.
   → [docs/data-model.md](docs/data-model.md)
+- **Configuration**: one root `.env` (template `.env.example`, grouped by concern) for the
+  backend, Compose and the frontend dev server. `core/config.py` locates it from the module,
+  `frontend/next.config.ts` loads it without overriding the environment, and Compose's
+  `x-backend-environment` replaces its host-oriented values inside containers. Tests never
+  read it (`APP_ENV=test`). → [docs/development.md](docs/development.md)
 
 ## Where to look
 

@@ -23,7 +23,7 @@ make check-live # deliberate maximum validation: check, then billed live evaluat
 
 `make test` and `make check` need nothing running. `make check` adds the five categorized,
 non-billed suites, linting, typechecking, `next build`, coverage gates, and the OpenAPI
-contract-drift check. It does not require `backend/.env`, Docker, `OPENAI_API_KEY`, or a live
+contract-drift check. It does not require `.env`, Docker, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, or a live
 harness. Its final report is grouped by the five categories and quality gates, then
 shows the newest saved live-evaluation metrics as informational historical evidence. Every suite
 runs despite earlier failures, and the final status is non-zero when a current automated check
@@ -99,8 +99,8 @@ pnpm generate:api
 `generate:api` exports FastAPI's OpenAPI schema and regenerates the TypeScript contracts used by
 the frontend; `make check`'s `contract` target then fails on any drift. Backend and frontend
 suites are hermetic: the backend test environment uses an isolated ephemeral SQLite schema and
-deterministic AI doubles, and does not call OpenAI or read `backend/.env` (`APP_ENV=test` forces
-`Settings` to skip loading it, so a developer's local Redis/ClamAV/OpenAI configuration never
+deterministic AI doubles, and does not call Anthropic or OpenAI or read the root `.env` (`APP_ENV=test`
+forces `Settings` to skip loading it, so a developer's local Redis/ClamAV/model configuration never
 leaks into a test run). None of `make test`, `make lint`, `backend-build`, or `contract` needs
 Docker Compose or any other service running.
 

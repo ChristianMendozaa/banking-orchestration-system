@@ -3,18 +3,25 @@ import ipaddress
 import json
 import os
 from functools import lru_cache
+from pathlib import Path
 from typing import Annotated, Literal
 
 from pydantic import SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+# The repository keeps a single .env at its root, shared by the backend, Docker Compose and
+# the frontend. It is located from this file rather than the working directory so the
+# backend, Alembic and the scripts find it whether they run from backend/ or the root. In
+# a container the path does not exist and Compose injects the variables instead.
+#
 # tests/conftest.py sets APP_ENV=test before importing this module and provides every
 # setting the suite needs via os.environ. Loading .env on top of that would let a
 # developer's local REDIS_URL / CLAMAV_HOST leak into the test process -- swapping in a
 # real RedisRateLimiter or a real malware scan instead of the in-memory/no-op fallbacks
 # the tests assume -- so tests must see the same clean environment CI does (no .env file
 # exists on the runner).
-_ENV_FILE = None if os.getenv("APP_ENV") == "test" else ".env"
+ROOT_ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+_ENV_FILE = None if os.getenv("APP_ENV") == "test" else ROOT_ENV_FILE
 
 
 class Settings(BaseSettings):

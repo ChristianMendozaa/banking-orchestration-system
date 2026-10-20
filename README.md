@@ -38,8 +38,7 @@ The kiosk and staff applications are built from the same Next.js image but run a
 Requires Docker Compose v2, an Anthropic API key (Claude Haiku 5.5 makes the orchestration decisions), and an OpenAI API key (realtime voice and embeddings).
 
 ```bash
-cp .env.example .env
-cp backend/.env.example backend/.env   # replace every placeholder secret
+cp .env.example .env   # the only config file; replace every placeholder secret
 docker compose up --build --remove-orphans
 ```
 

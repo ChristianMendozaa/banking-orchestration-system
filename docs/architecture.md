@@ -120,5 +120,5 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 │   ├── rag/                     # Governed source PDFs and manifest
 │   └── operacion/               # Generated operational documentation
 ├── docker-compose.yml           # Complete local topology and startup ordering
-└── .env.example                 # Compose-level configuration template
+└── .env.example                 # The single configuration template (backend, Compose, frontend)
 ```

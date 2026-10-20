@@ -3,9 +3,9 @@
 `OpenAIChatCompletionClient` looks the model name up in a table baked into the installed
 `autogen-ext`, and raises `ValueError: model_info is required when model name is not a
 valid OpenAI model` for anything it does not recognise. That table only moves when the
-package is upgraded, so a model newer than the pinned release -- including
-`ORCHESTRATION_MODEL` from `backend/.env` -- would fail at construction time, before a
-single request is made.
+package is upgraded, so a model newer than the pinned release -- including the
+`gpt-5.4-mini` default -- would fail at construction time, before a single request is
+made.
 
 Rather than pin the harness to whatever OpenAI models `autogen-ext` happened to know
 about at release, unrecognised names get an explicit `model_info` describing the

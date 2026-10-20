@@ -96,7 +96,7 @@ uv run python -m harness           # full catalog, dashboard at reports/runs/<ru
 ```
 
 Or from the repository root, which reads `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` out of
-`backend/.env` so the harness asserts against the thresholds the evaluated backend actually
+the root `.env` so the harness asserts against the thresholds the evaluated backend actually
 runs with:
 
 ```bash
