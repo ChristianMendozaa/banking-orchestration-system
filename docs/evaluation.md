@@ -254,7 +254,10 @@ which provider is driving the customer.
 **Isolation posture differs between the two CLIs** — worth knowing before trusting either
 with anything beyond this repo's own kiosk tools. Claude Code allowlists tool *and*
 permission access down to exactly the 3 kiosk MCP tools (`--tools`/`--allowedTools`), so
-nothing else — no bash, no file access — is ever reachable. Codex has no equivalent
+nothing else — no bash, no file access — is ever reachable. The Claude customer also
+runs from a fresh, empty temp directory, so `claude` never discovers this repository's
+root `CLAUDE.md` (developer guidance) on its way up from the working directory; the
+judge gets the same isolation from `--safe-mode`. Codex has no equivalent
 per-tool allowlist; auto-approving its MCP tool calls (`--approve-for-me`, required —
 without it every call is silently denied with no TTY to approve it) implies a
 `workspace-write` sandbox, so the harness scopes it to a fresh, empty temp directory per

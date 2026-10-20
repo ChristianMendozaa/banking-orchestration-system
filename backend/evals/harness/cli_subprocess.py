@@ -16,13 +16,17 @@ class CliError(RuntimeError):
     the process's own output to debug from the harness's structured logs alone."""
 
 
-async def run_cli(*args: str, stdin: str | None, timeout_seconds: float, label: str) -> str:
-    """One subprocess, argv-only, stdout captured and returned."""
+async def run_cli(
+    *args: str, stdin: str | None, timeout_seconds: float, label: str, cwd: str | None = None
+) -> str:
+    """One subprocess, argv-only, stdout captured and returned. `cwd` defaults to the
+    harness's own working directory."""
     process = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE if stdin is not None else None,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        cwd=cwd,
     )
     try:
         stdout, stderr = await asyncio.wait_for(

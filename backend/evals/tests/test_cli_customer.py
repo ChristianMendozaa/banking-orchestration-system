@@ -8,6 +8,7 @@ live loop (a real `claude`/`codex` actually driving a real kiosk session over MC
 verified by hand against a running backend -- not repeatable in a hermetic suite.
 """
 
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -77,6 +78,17 @@ async def test_claude_code_customer_excludes_project_and_user_settings_not_safe_
     args = run.call_args.args
     assert "--safe-mode" not in args
     assert args[args.index("--setting-sources") + 1] == ""
+
+
+async def test_claude_code_customer_runs_outside_the_repository() -> None:
+    """`claude` discovers CLAUDE.md by walking up from its working directory; started from
+    inside this repo it would load the root CLAUDE.md (developer guidance) into the
+    simulated customer. It must run from a throwaway directory instead."""
+    run = await _run_claude(ClaudeCodeCustomerBackend())
+    cwd = run.call_args.kwargs["cwd"]
+    assert "kiosk-eval-claude-customer-" in cwd
+    repo_root = Path(__file__).resolve().parents[3]
+    assert not Path(cwd).resolve().is_relative_to(repo_root)
 
 
 async def test_claude_code_customer_allowlists_exactly_the_three_kiosk_tools() -> None:

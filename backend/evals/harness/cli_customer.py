@@ -110,7 +110,18 @@ class ClaudeCodeCustomerBackend:
             "--system-prompt",
             build_system_message(scenario),
         ]
-        await run_cli(*args, stdin=initial_task, timeout_seconds=timeout_seconds, label="claude")
+        # `--setting-sources ""` covers settings files, not necessarily memory: `claude`
+        # still discovers `CLAUDE.md` by walking up from its working directory, and the
+        # harness runs inside this repository, whose root `CLAUDE.md` is developer guidance
+        # the simulated customer must never see. A fresh, empty directory has none above it.
+        with tempfile.TemporaryDirectory(prefix="kiosk-eval-claude-customer-") as scratch:
+            await run_cli(
+                *args,
+                stdin=initial_task,
+                timeout_seconds=timeout_seconds,
+                label="claude",
+                cwd=scratch,
+            )
 
 
 class CodexCustomerBackend:

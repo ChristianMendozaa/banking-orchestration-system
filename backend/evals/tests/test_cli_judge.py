@@ -91,6 +91,14 @@ async def test_run_writes_stdin_when_given() -> None:
     process.communicate.assert_awaited_once_with(b"the dossier")
 
 
+async def test_run_starts_the_process_in_the_given_cwd() -> None:
+    process = _FakeProcess(b"", b"", 0)
+    spawn = AsyncMock(return_value=process)
+    with patch.object(asyncio, "create_subprocess_exec", spawn):
+        await _run("claude", stdin=None, timeout_seconds=5, label="claude", cwd="/tmp/scratch")
+    assert spawn.call_args.kwargs["cwd"] == "/tmp/scratch"
+
+
 # --- ClaudeCodeJudgeBackend -----------------------------------------------------------
 
 
