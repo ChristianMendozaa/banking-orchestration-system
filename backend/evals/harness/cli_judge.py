@@ -12,7 +12,7 @@ Both CLIs are full coding-agent harnesses with their own built-in tools (bash, f
 web), which is exactly what the judge must NOT have: it only ever reads a dossier and
 writes a verdict, and giving it shell access would be a pointless blast-radius increase
 for a scoring call. Every flag below is chosen to turn that off, and to stop either CLI
-from picking up this repository's own `CLAUDE.md` / `AGENTS.md` / project config, which
+from picking up this repository's own `CLAUDE.md` / project config, which
 would otherwise leak unrelated instructions into a call that must only follow
 `JUDGE_SYSTEM_MESSAGE`.
 
