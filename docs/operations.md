@@ -4,7 +4,7 @@ The included Compose topology provides PostgreSQL/pgvector, Redis, ClamAV, migra
 the document worker, API, and isolated web surfaces. Before a production deployment:
 
 - Terminate TLS at a trusted reverse proxy and configure the exact public CORS origins.
-- Store database credentials, `JWT_SECRET`, `IDENTIFIER_PEPPER`, seed passwords, and the OpenAI key in a managed secret store.
+- Store database credentials, `JWT_SECRET`, `IDENTIFIER_PEPPER`, seed passwords, and the Anthropic and OpenAI keys in a managed secret store.
 - Configure a random `METRICS_TOKEN`, scrape `/internal/metrics`, centralize JSON logs,
   and apply the alert thresholds below.
 - Define PostgreSQL backup, restore, migration rollback, and knowledge-file durability procedures.
@@ -14,7 +14,7 @@ the document worker, API, and isolated web surfaces. Before a production deploym
 Keep Redis and ClamAV reachable only from the internal network; neither is meant to be
 publicly exposed. Run `alembic upgrade head` before starting the API, worker, and MCP
 process, then validate `/api/v1/health/ready` and the MCP process's `/healthz`, followed
-by both web surfaces. Production configuration fails at startup if OpenAI, Redis, ClamAV,
+by both web surfaces. Production configuration fails at startup if the Anthropic or OpenAI key, Redis, ClamAV,
 a dedicated identifier-encryption key, or `METRICS_TOKEN` is missing.
 
 ## Services and observability
@@ -72,4 +72,4 @@ the recoverable encrypted CI; its hash, masked value, and audit events remain.
 
 Verify daily that the retention process ran, and document any exceptions.
 
-When OpenAI is intentionally absent in development, deterministic classification fallback remains available, realtime voice returns a controlled `503`, and RAG safely routes the case to a human. Production configuration rejects a missing OpenAI key at startup.
+The two keys are independent. Without `ANTHROPIC_API_KEY` in development, the deterministic keyword classifier takes over, an unclear confirmation is asked again, and RAG routes the case to a human. Without `OPENAI_API_KEY`, realtime voice returns a controlled `503`, executive routing skips semantic similarity, and RAG routes the case to a human because it cannot embed the query. Production configuration rejects either missing key at startup.

@@ -18,7 +18,6 @@ RUN pip install --no-cache-dir uv \
     && chown -R app:app /home/app
 
 COPY --chown=app:app backend ./
-COPY --chown=app:app doc/rag /workspace/doc/rag
 RUN mkdir -p /workspace/data/knowledge \
     && chown -R app:app /workspace/data
 

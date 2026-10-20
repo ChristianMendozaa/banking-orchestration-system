@@ -22,8 +22,8 @@ from reportlab.platypus import (
 
 ROOT = Path(__file__).resolve().parents[2]
 SEED = ROOT / "backend" / "seed" / "operational_seed.json"
-RAG_DIR = ROOT / "doc" / "rag"
-OPERATIONS_DIR = ROOT / "doc" / "operacion"
+RAG_DIR = ROOT / "backend" / "doc" / "rag"
+OPERATIONS_DIR = ROOT / "backend" / "doc" / "operacion"
 # Bumped on every content revision: `KnowledgeIngestionService._ingest_document` refuses
 # to re-ingest a slug whose bytes changed while its version stayed the same, so an
 # edit here without a bump is a failed corpus bootstrap rather than a silent swap.

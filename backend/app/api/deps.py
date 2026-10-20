@@ -21,6 +21,7 @@ from app.services.agents import (
     InitialAttentionAgent,
     PrioritizationAgent,
 )
+from app.services.anthropic_provider import AnthropicProvider
 from app.services.openai_provider import OpenAIProvider
 from app.services.orchestrator import OrchestratorService
 from app.services.pii import PIIMaskingService
@@ -35,16 +36,25 @@ def get_openai_provider() -> OpenAIProvider | None:
 
 
 @lru_cache
+def get_anthropic_provider() -> AnthropicProvider | None:
+    settings = get_settings()
+    return AnthropicProvider(settings) if settings.anthropic_enabled else None
+
+
+@lru_cache
 def get_orchestrator() -> OrchestratorService:
     settings = get_settings()
-    provider = get_openai_provider()
+    openai = get_openai_provider()
+    anthropic = get_anthropic_provider()
     return OrchestratorService(
         settings=settings,
         pii=PIIMaskingService(),
-        classifier=ClassificationAgent(settings, provider),
+        classifier=ClassificationAgent(settings, anthropic),
         prioritizer=PrioritizationAgent(),
-        derivation=DerivationAgent(provider),
-        initial_attention=InitialAttentionAgent(KnowledgeService(settings, provider)),
+        derivation=DerivationAgent(openai),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings, openai, answerer=anthropic)
+        ),
     )
 
 

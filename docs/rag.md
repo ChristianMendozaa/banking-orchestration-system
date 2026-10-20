@@ -15,7 +15,7 @@ flowchart LR
     QueryEmbed --> Retrieve[Cosine retrieval]
     Index --> Retrieve
     Retrieve --> Policy[Active, current,<br/>category, and score filters]
-    Policy --> Generate[Structured grounded answer]
+    Policy --> Generate[Structured grounded answer<br/>Claude Haiku 5.5]
     Generate --> Verify{All citations belong to<br/>retrieved evidence?}
     Verify -->|Yes| Answer[Answer and citations]
     Verify -->|No| Human[Human fallback]
@@ -28,12 +28,12 @@ An automatic response requires all of the following:
 2. The query has already been masked.
 3. Retrieved documents are active, within their review period, category-compatible, and above the configured similarity threshold.
 4. The prompt context stays within the configured token budget.
-5. The model returns a supported structured response with at least one citation.
+5. The orchestration model (Claude Haiku 5.5) returns a supported structured response with at least one citation.
 6. Every cited chunk belongs to the exact retrieved evidence set.
 
 Every retrieval attempt records its outcome, prompt version, retrieved chunk metadata, and an answer hash when applicable. The raw generated answer is not duplicated in the RAG audit record.
 
-The corpus itself is eight manifest-managed PDFs (`doc/rag/`), currently at version
+The corpus itself is eight manifest-managed PDFs (`backend/doc/rag/`), currently at version
 `2026.08.2` -- regenerated in August 2026 with the sections the eval runs showed missing
 (agency hours, accounts for minors, periodic-payment deposits, among others), each with a
 fresh `sha256`, `verified_at`, and `review_after` date that the ingestion CLI verifies before
@@ -43,7 +43,7 @@ Managers can list, upload, update, version, download, reindex, and archive knowl
 
 ## Knowledge base CLI and worker
 
-Bootstrap consumes exclusively `doc/rag/manifest.json`; documents are never generated at
+Bootstrap consumes exclusively `backend/doc/rag/manifest.json`; documents are never generated at
 runtime. The managed PDFs and the manifest are themselves generated: after changing their
 sources run `cd backend && uv run python scripts/render_operational_documents.py`.
 

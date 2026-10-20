@@ -11,6 +11,7 @@ from app.db.session import SessionFactory
 from app.domain.enums import Category, ConsultationLevel
 from app.knowledge.ingestion import KnowledgeIngestionService
 from app.knowledge.repository import KnowledgeRepository
+from app.services.anthropic_provider import AnthropicProvider
 from app.services.openai_provider import OpenAIProvider
 
 
@@ -45,9 +46,12 @@ async def evaluate() -> None:
     settings = get_settings()
     if not settings.openai_enabled:
         raise RuntimeError("OPENAI_API_KEY is required to evaluate retrieval")
+    if not settings.anthropic_enabled:
+        raise RuntimeError("ANTHROPIC_API_KEY is required to evaluate classification")
     cases_path = Path(__file__).parents[2] / "tests" / "fixtures" / "rag_eval_cases.json"
     cases = json.loads(cases_path.read_text(encoding="utf-8"))
     provider = OpenAIProvider(settings)
+    classifier = AnthropicProvider(settings)
     allowed = [case for case in cases if case["automatic_allowed"]]
     disallowed = [case for case in cases if not case["automatic_allowed"]]
     embeddings = await provider.embeddings([case["query"] for case in allowed])
@@ -72,7 +76,7 @@ async def evaluate() -> None:
                     }
                 )
         for case in disallowed:
-            decision = await provider.classify(case["query"])
+            decision = await classifier.classify(case["query"])
             policy_would_allow = (
                 decision.consultation_level == ConsultationLevel.GENERAL
                 and not decision.ambiguous

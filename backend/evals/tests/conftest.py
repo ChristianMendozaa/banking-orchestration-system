@@ -1,6 +1,6 @@
 """Shared fixtures.
 
-Every test here is hermetic: no network, no OpenAI key, no running backend. The live
+Every test here is hermetic: no network, no Anthropic key, no running backend. The live
 run (`python -m harness`) is the behavioural verification; this suite verifies the wiring,
 the scoring rules and the renderers.
 """
@@ -22,10 +22,10 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _fake_openai_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """`OpenAIChatCompletionClient` checks for a credential when constructed. The fake key
-    satisfies that check; no test in this suite makes a network call."""
-    monkeypatch.setenv("OPENAI_API_KEY", "fake-key-for-wiring-checks")
+def _fake_anthropic_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`AsyncAnthropic` checks for a credential when constructed. The fake key satisfies
+    that check; no test in this suite makes a network call."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key-for-wiring-checks")
 
 
 def make_session(

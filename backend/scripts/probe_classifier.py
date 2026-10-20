@@ -1,4 +1,4 @@
-"""Measure how stable `OpenAIProvider.classify` is on the utterances that broke it.
+"""Measure how stable `AnthropicProvider.classify` is on the utterances that broke it.
 
 The eval run of 2026-08-18 (`backend/evals/reports/runs/20260818T060910Z-db8608e`) has the
 classifier returning GENERAL at 0.99 confidence for "Me robaron mi tarjeta de débito hace
@@ -14,7 +14,7 @@ Two things it answers that the eval reports cannot:
 - what `security_incident` / `distress_detected` actually return, which nothing persists in
   the report and which `turn_nodes.requires_confirmation` now depends on.
 
-Usage (from `backend/`, with OPENAI_API_KEY set):
+Usage (from `backend/`, with ANTHROPIC_API_KEY set):
 
     uv run python scripts/probe_classifier.py
     uv run python scripts/probe_classifier.py --repeat 5 --run <run_id>
@@ -29,7 +29,7 @@ from pathlib import Path
 from app.core.config import get_settings
 from app.domain.enums import Category
 from app.services.agents import _LEVEL_ORDER, sensitivity_floor
-from app.services.openai_provider import OpenAIProvider
+from app.services.anthropic_provider import AnthropicProvider
 
 RUNS_DIR = Path(__file__).parents[1] / "evals" / "reports" / "runs"
 
@@ -68,11 +68,11 @@ async def main() -> None:
     args = parser.parse_args()
 
     settings = get_settings()
-    if not settings.openai_enabled:
-        raise SystemExit("OPENAI_API_KEY is required to probe the classifier")
+    if not settings.anthropic_enabled:
+        raise SystemExit("ANTHROPIC_API_KEY is required to probe the classifier")
     run = RUNS_DIR / args.run if args.run else _latest_run()
     openers = [row for row in _openers(run) if not args.only or args.only in row[0]]
-    provider = OpenAIProvider(settings)
+    provider = AnthropicProvider(settings)
     print(f"run={run.name} utterances={len(openers)} repeat={args.repeat}\n")
 
     unstable = 0

@@ -28,7 +28,8 @@ flowchart LR
     Queue --> Documents[(Versioned PDF storage)]
     Knowledge --> Scanner[ClamAV]
     API --> Redis[(Redis rate limits)]
-    Agents -->|Masked text only| OpenAI[OpenAI Responses<br/>and Embeddings]
+    Agents -->|Masked text only| Claude[Claude Haiku 5.5<br/>Messages API]
+    Agents -->|Masked text only| OpenAI[OpenAI Embeddings]
 
     MCPClients[Authenticated external<br/>MCP clients] -->|Streamable HTTP /mcp<br/>staff JWT| MCP[MCP server<br/>read-only domain tools]
     MCP --> PostgreSQL
@@ -70,7 +71,8 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | `app/services/graph` | The state machine itself -- turn/confirmation/identification graphs, the shared `finalize` subgraph, the auto-resolve branch, guard and idempotency logic (see [Orchestration policy](orchestration.md#orchestration-policy)) |
 | `app/services/agents` | One module per agent -- `classification`, `prioritization`, `derivation`, `initial_attention` -- over `rules/`, the deterministic leaf modules holding the category keywords, the sensitivity floor and the naturalness checks |
 | `app/services/prompts` | The model-facing text as policy in its own right: the voice persona, the consultation-level rules, the grounding rules |
-| `app/services/openai_provider.py` | Transport only: structured model calls, embeddings, grounded generation, and realtime client-secret creation |
+| `app/services/anthropic_provider.py` | Transport only: structured Claude calls for classification, confirmation reading, and grounded generation |
+| `app/services/openai_provider.py` | Transport only: embeddings and realtime client-secret creation |
 | `app/services/pii.py` | Local PII detection and masking before downstream AI processing |
 | `app/knowledge` | PDF extraction, chunking, ingestion, retrieval, grounding validation, evaluation, and management lifecycle; `uploads.py` holds the gate a PDF passes before it may become a document |
 | `app/mcp_server` | Read-only MCP tools for authenticated external clients -- bearer-authenticated, streamable-HTTP, never called by the frontends (see [MCP server](mcp.md)) |
@@ -86,7 +88,7 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | --- | --- |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, OpenAI Agents SDK, Zod |
 | Backend | Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2 async, Uvicorn, Structlog |
-| AI | OpenAI Realtime, structured Responses API calls, text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools), AutoGen (offline REST-based evaluation: simulated customer and LLM judge) |
+| AI | Claude Haiku 5.5 (Messages API structured outputs) for orchestration decisions, OpenAI Realtime, OpenAI text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools), Anthropic SDK evaluation harness (offline REST-based evaluation: simulated customer and LLM judge) |
 | Data | PostgreSQL 17, pgvector, HNSW cosine index, Alembic |
 | Security | Argon2, JWT access tokens, rotating opaque refresh tokens, HMAC identifier protection |
 | Tooling | Docker Compose, `uv`, `pnpm`, Ruff, Pytest, Vitest, ESLint |
@@ -104,7 +106,10 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 │   │   ├── domain/              # Enums and Pydantic contracts
 │   │   ├── knowledge/           # Ingestion, retrieval, RAG, document management
 │   │   ├── mcp_server/          # Read-only MCP tools for authenticated external clients
-│   │   └── services/            # Orchestrator adapter, LangGraph graphs, agents, PII, OpenAI provider
+│   │   └── services/            # Orchestrator adapter, LangGraph graphs, agents, PII, Anthropic and OpenAI providers
+│   ├── doc/
+│   │   ├── rag/                 # Governed source PDFs and manifest
+│   │   └── operacion/           # Generated operational documentation
 │   ├── evals/                   # Standalone evaluation harness + judge (own project, own venv)
 │   ├── scripts/                 # OpenAPI export, graph diagrams, operational docs, eval queue reset
 │   ├── seed/                    # Deterministic branch and executive catalog
@@ -114,9 +119,6 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 │   ├── components/              # Product and UI components
 │   ├── lib/                     # API client, realtime logic, domain types
 │   └── tests/                   # Surface isolation and realtime behavior tests
-├── doc/
-│   ├── rag/                     # Governed source PDFs and manifest
-│   └── operacion/               # Generated operational documentation
 ├── docker-compose.yml           # Complete local topology and startup ordering
-└── .env.example                 # Compose-level configuration template
+└── .env.example                 # The single configuration template (backend, Compose, frontend)
 ```

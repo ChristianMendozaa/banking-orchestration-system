@@ -5,33 +5,31 @@
 ### Prerequisites
 
 - Docker Engine with Docker Compose v2
-- An OpenAI API key for realtime voice, model-based classification, embeddings, and grounded answers
+- An Anthropic API key for the orchestration model (Claude Haiku 5.5): classification, confirmation reading, and grounded answers
+- An OpenAI API key for realtime voice and embeddings
 - Available local ports `3000`, `3001`, `8000`, and `5432` (or custom values in `.env`)
 
 ### 1. Create local configuration
 
 ```bash
 cp .env.example .env
-cp backend/.env.example backend/.env
 ```
 
-Replace every placeholder password and secret in both files. At minimum, configure:
+The root `.env` is the only configuration file: the backend, Docker Compose, and the frontend dev server all read it. It is grouped by concern (application, Anthropic, OpenAI, Compose, backend on the host, secrets, knowledge, kiosk policy, frontend). Values under *Backend on the host* describe a backend running directly on your machine; the Compose containers replace them with in-network values, so the same file serves both. Replace every placeholder password and secret. At minimum, configure:
 
 ```dotenv
-# .env
 POSTGRES_DB=orquestacion
 POSTGRES_USER=orquestacion
 POSTGRES_PASSWORD=<strong-local-database-password>
-
-# backend/.env
-OPENAI_API_KEY=<your-api-key>
+ANTHROPIC_API_KEY=<your-anthropic-api-key>
+OPENAI_API_KEY=<your-openai-api-key>
 JWT_SECRET=<at-least-32-random-characters>
 IDENTIFIER_PEPPER=<a-different-random-secret>
 SEED_EXECUTIVE_PASSWORD=<at-least-12-characters>
 SEED_MANAGER_PASSWORD=<at-least-12-characters>
 ```
 
-Do not commit `.env` files or expose `OPENAI_API_KEY`. The configured `KIOSK_FRONTEND_ORIGIN` and `STAFF_FRONTEND_ORIGIN` must match the browser-visible origins, including deployments behind reverse proxies.
+Do not commit `.env` files or expose `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`. The configured `KIOSK_FRONTEND_ORIGIN` and `STAFF_FRONTEND_ORIGIN` must match the browser-visible origins, including deployments behind reverse proxies.
 
 ### 2. Start the platform
 
@@ -79,7 +77,7 @@ In another terminal, start the document job processor:
 uv run python -m app.knowledge.worker
 ```
 
-The backend reads `backend/.env`. `DATABASE_URL` is used by the async application, while `DATABASE_MIGRATION_URL` can provide a separate migration connection.
+The backend reads the root `.env` (located from `app/core/config.py`, so it does not matter whether you run from `backend/` or the root). `DATABASE_URL` is used by the async application, while `DATABASE_MIGRATION_URL` can provide a separate migration connection.
 
 The application requires `APP_NAME`, `BANK_NAME`, `BRANCH_NAME`, `CORS_ORIGINS`,
 `DATABASE_URL`, `JWT_SECRET`, `IDENTIFIER_PEPPER`, and the seed passwords from `.env`;
@@ -102,11 +100,11 @@ Run either development surface from `frontend/`:
 
 ```bash
 pnpm install --frozen-lockfile
-APP_SURFACE=kiosk BACKEND_INTERNAL_URL=http://localhost:8000 pnpm dev
+APP_SURFACE=kiosk pnpm dev
 ```
 
 ```bash
-PORT=3001 APP_SURFACE=staff BACKEND_INTERNAL_URL=http://localhost:8000 pnpm dev
+PORT=3001 APP_SURFACE=staff pnpm dev
 ```
 
 Run one surface at a time when using the shared local `.next` directory. Use Docker Compose to run both isolated surfaces simultaneously.

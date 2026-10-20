@@ -16,7 +16,7 @@ from tests.conftest import TestSession, fake_provider, settings_for_tests
 
 pytestmark = [pytest.mark.functional, pytest.mark.integration, pytest.mark.regression]
 
-CORPUS_DIR = Path(__file__).parents[2] / "doc" / "rag"
+CORPUS_DIR = Path(__file__).parents[1] / "doc" / "rag"
 
 
 def test_generated_pdfs_are_searchable_and_split_by_section() -> None:
@@ -86,7 +86,7 @@ async def test_ingestion_retires_replaced_managed_versions(tmp_path: Path) -> No
 
 
 async def test_no_semantic_evidence_is_logged_and_routes_to_human() -> None:
-    service = KnowledgeService(settings_for_tests, fake_provider)
+    service = KnowledgeService(settings_for_tests, fake_provider, answerer=fake_provider)
     async with TestSession() as db:
         attempt = await service.answer(
             db,
@@ -118,7 +118,8 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
                 cited_evidence_refs=[999],
             )
 
-    service = KnowledgeService(settings_for_tests, InvalidCitationProvider())
+    provider = InvalidCitationProvider()
+    service = KnowledgeService(settings_for_tests, provider, answerer=provider)
     async with TestSession() as db:
         attempt = await service.answer(
             db,
@@ -148,7 +149,8 @@ async def test_model_evidence_references_are_resolved_to_real_chunk_ids() -> Non
                 cited_evidence_refs=[1, 1],
             )
 
-    service = KnowledgeService(settings_for_tests, AliasProvider())
+    provider = AliasProvider()
+    service = KnowledgeService(settings_for_tests, provider, answerer=provider)
     async with TestSession() as db:
         attempt = await service.answer(
             db,
@@ -190,7 +192,7 @@ async def test_alternative_phrasings_are_searched_in_one_embedding_call() -> Non
             return await fake_provider.grounded_answer(query, chunks)
 
     provider = CountingProvider()
-    service = KnowledgeService(settings_for_tests, provider)
+    service = KnowledgeService(settings_for_tests, provider, answerer=provider)
     vague = "Necesita ayuda con algo que todavia no describe"
     sharp = "Necesita el horario de atencion de la sucursal"
 
@@ -229,7 +231,8 @@ async def test_hybrid_retrieval_recovers_ordinary_asr_spelling_noise() -> None:
         async def grounded_answer(self, query, chunks):
             return await fake_provider.grounded_answer(query, chunks)
 
-    service = KnowledgeService(settings_for_tests, NoisyVectorProvider())
+    provider = NoisyVectorProvider()
+    service = KnowledgeService(settings_for_tests, provider, answerer=provider)
     async with TestSession() as db:
         attempt = await service.answer(
             db,
@@ -261,7 +264,7 @@ async def test_retrieval_queries_are_deduplicated_and_default_to_the_question() 
 
     question = "Necesita el horario de atencion"
     provider = CountingProvider()
-    service = KnowledgeService(settings_for_tests, provider)
+    service = KnowledgeService(settings_for_tests, provider, answerer=provider)
     async with TestSession() as db:
         await service.answer(
             db,
@@ -315,3 +318,24 @@ def test_principal_need_leaves_a_single_need_summary_alone() -> None:
     assert principal_need("Necesita saber los requisitos y documentos para abrir una cuenta.") is (
         None
     )
+
+
+@pytest.mark.parametrize(
+    ("provider", "answerer"),
+    [(fake_provider, None), (None, fake_provider)],
+    ids=["no-orchestration-model", "no-embeddings"],
+)
+async def test_grounding_needs_both_the_embedder_and_the_answerer(provider, answerer) -> None:
+    # Embeddings stay on OpenAI and the grounded answer moved to Claude, so the two keys can
+    # be configured independently. Either one missing must route to a person, not crash
+    # mid-turn on a None.
+    service = KnowledgeService(settings_for_tests, provider, answerer=answerer)
+    async with TestSession() as db:
+        attempt = await service.answer(
+            db,
+            case_id=None,
+            category=Category.CONSULTA_GENERAL,
+            masked_query="¿cuál es el horario de atención?",
+        )
+    assert attempt.outcome == GroundingAttemptOutcome.PROVIDER_UNAVAILABLE
+    assert attempt.response is None

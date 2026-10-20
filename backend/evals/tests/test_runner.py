@@ -54,7 +54,7 @@ def _session_that_spoke(final_state: dict | None = None) -> ConversationSession:
     return session
 
 
-async def _run(scenario, *, session=None, judge=None, model="gpt-5.4-mini"):
+async def _run(scenario, *, session=None, judge=None, model="claude-haiku-5-5"):
     session = session or _session()
     with patch.object(ConversationSession, "start", AsyncMock(return_value=session)):
         return await run_scenario(AsyncMock(), Evaluator(), judge, scenario, model=model)
@@ -85,8 +85,8 @@ async def test_a_conversational_scenario_drives_the_customer_agent() -> None:
         build.return_value.run = AsyncMock()
         result = await _run(scenario, session=_session_that_spoke())
     build.assert_called_once()
-    client = build.call_args.kwargs["model_client"]
-    assert client.model_info is not None  # the caller owns the client's lifecycle now
+    assert build.call_args.kwargs["model"] == "claude-haiku-5-5"
+    assert build.call_args.kwargs["scenario"] is scenario
     assert result.final_status == "ASSIGNED"
     assert any(check.name == "expected_category" for check in result.checks)
 
@@ -135,7 +135,7 @@ async def test_run_all_runs_every_scenario_in_catalog_order() -> None:
         build_agent.return_value.run = AsyncMock()
         results = await run_all(
             base_url="http://unused",
-            model="gpt-5.4-mini",
+            model="claude-haiku-5-5",
             judge_model=None,
             max_clarifications=2,
             scenarios=scenarios,
@@ -218,8 +218,9 @@ def test_actual_summary_falls_back_to_the_session_status() -> None:
 
 
 async def test_a_hung_conversation_times_out_instead_of_stalling_the_run() -> None:
-    """Neither the OpenAI client nor AutoGen bounds a scenario's total wall clock, so one
-    stalled request would otherwise hold its semaphore slot for the rest of the run."""
+    """Neither the Anthropic client nor the customer's tool loop bounds a scenario's total
+    wall clock, so one stalled request would otherwise hold its semaphore slot for the rest
+    of the run."""
     import harness.runner as runner_module
 
     async def never_returns(*_args, **_kwargs):

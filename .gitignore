@@ -21,15 +21,8 @@ Thumbs.db
 .idea/
 .vscode/
 
-# El documento fuente se mantiene local; solo se versionan los entregables.
-doc/*
-!doc/operacion/
-doc/operacion/*
-!doc/operacion/catalogo_perfiles_ejecutivos.pdf
-!doc/rag/
-doc/rag/*
-!doc/rag/*.pdf
-!doc/rag/manifest.json
+# Material de taller/tesis: se mantiene local, nunca se versiona.
+/taller/
 
 # make check / make test report
 .make-report.tsv

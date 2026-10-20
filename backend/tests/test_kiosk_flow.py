@@ -854,7 +854,9 @@ async def test_out_of_scope_request_is_declined_without_case_or_ticket(
         classifier=ClassificationAgent(settings_for_tests, provider),
         prioritizer=PrioritizationAgent(),
         derivation=DerivationAgent(provider),
-        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
     )
     app.dependency_overrides[get_orchestrator] = lambda: declining_orchestrator
     try:
@@ -935,7 +937,9 @@ def declining_orchestrator():
         classifier=ClassificationAgent(settings_for_tests, provider),
         prioritizer=PrioritizationAgent(),
         derivation=DerivationAgent(provider),
-        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
     )
     app.dependency_overrides[get_orchestrator] = lambda: orchestrator
     yield orchestrator
@@ -1032,7 +1036,9 @@ async def test_general_label_on_a_fraud_report_still_requires_identification(
         classifier=ClassificationAgent(settings_for_tests, provider),
         prioritizer=PrioritizationAgent(),
         derivation=DerivationAgent(provider),
-        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
     )
     app.dependency_overrides[get_orchestrator] = lambda: orchestrator
     try:
@@ -1114,7 +1120,9 @@ async def test_one_turn_creates_separate_tickets_for_every_independent_need(
         classifier=ClassificationAgent(settings_for_tests, provider),
         prioritizer=PrioritizationAgent(),
         derivation=DerivationAgent(provider),
-        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
     )
     app.dependency_overrides[get_orchestrator] = lambda: orchestrator
     try:
@@ -1222,7 +1230,9 @@ async def test_related_security_actions_share_one_ticket_and_warn_about_spoken_p
         classifier=ClassificationAgent(settings_for_tests, provider),
         prioritizer=PrioritizationAgent(),
         derivation=DerivationAgent(provider),
-        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
     )
     app.dependency_overrides[get_orchestrator] = lambda: orchestrator
     try:
@@ -1359,7 +1369,9 @@ async def test_repeated_comprehension_failure_routes_an_anonymous_truthful_hando
         classifier=ClassificationAgent(settings_for_tests, provider),
         prioritizer=PrioritizationAgent(),
         derivation=DerivationAgent(provider),
-        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
     )
     app.dependency_overrides[get_orchestrator] = lambda: orchestrator
     try:
@@ -1447,7 +1459,9 @@ async def test_a_follow_up_question_reaches_the_classifier_with_its_context(
         classifier=ClassificationAgent(settings_for_tests, provider),
         prioritizer=PrioritizationAgent(),
         derivation=DerivationAgent(provider),
-        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
     )
     app.dependency_overrides[get_orchestrator] = lambda: orchestrator
     try:
@@ -1537,7 +1551,9 @@ async def test_the_resolved_restatement_is_what_retrieval_searches_with(
         classifier=ClassificationAgent(settings_for_tests, provider),
         prioritizer=PrioritizationAgent(),
         derivation=DerivationAgent(provider),
-        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
     )
     app.dependency_overrides[get_orchestrator] = lambda: orchestrator
     try:
@@ -1594,7 +1610,9 @@ def _orchestrator_with(provider) -> OrchestratorService:
         classifier=ClassificationAgent(settings_for_tests, provider),
         prioritizer=PrioritizationAgent(),
         derivation=DerivationAgent(provider),
-        initial_attention=InitialAttentionAgent(KnowledgeService(settings_for_tests, provider)),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
     )
 
 

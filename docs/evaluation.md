@@ -3,11 +3,11 @@
 The standalone project in `backend/evals/` (own `pyproject.toml` and venv). Paths below
 are relative to `backend/evals/` unless they start with `backend/`.
 
-An [AutoGen](https://github.com/microsoft/autogen) agent plays a bank customer with a
-specific situation and a specific way of speaking, drives a real kiosk session turn by turn
-against a **live backend**, and the finished session is then scored twice: once by
-deterministic policy checks, and once by a second AutoGen agent — the judge — that grades
-the things a rule cannot see and explains itself in writing.
+A simulated customer on Claude Haiku 5.5 plays a bank
+customer with a specific situation and a specific way of speaking, drives a real kiosk
+session turn by turn against a **live backend**, and the finished session is then scored
+twice: once by deterministic policy checks, and once by a second Claude model — the judge —
+that grades the things a rule cannot see and explains itself in writing.
 
 The output is a scorecard, a JSON dump, and an HTML dashboard — and, since every run is
 also recorded to an append-only history ledger, a second dashboard showing the trend
@@ -17,7 +17,7 @@ across every run that's ever been made.
 
 The kiosk takes one natural-language Spanish request and must land it in exactly one of two
 places: an **evidence-grounded automatic answer** built from the approved corpus in
-`doc/rag/`, or a **human handoff** with a ticket, a deterministic priority and a
+`backend/doc/rag/`, or a **human handoff** with a ticket, a deterministic priority and a
 skill-matched executive. Everything between those poles is policy it must not get wrong —
 masking PII before any model call, at most `MAX_CLARIFICATIONS` questions before giving up
 to a human, explicit confirmation of a summary the customer would recognise, protected
@@ -82,26 +82,27 @@ transcription recorded against what the classifier was actually given.
 
 ## Running it
 
-Needs a live backend (`make services-up`, or your own dev server) and `OPENAI_API_KEY`.
-Every run makes real, billed calls on three fronts: the simulated customer, the judge, and
-the backend's own classification, embedding and retrieval.
+Needs a live backend (`make services-up`, or your own dev server) configured with both
+`ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, and `ANTHROPIC_API_KEY` for the harness itself.
+Every run makes real, billed calls on three fronts: the simulated customer and the judge
+(Anthropic), and the backend's own decisions (Claude Haiku 5.5) and embeddings (OpenAI).
 
 ```bash
 cd backend/evals
 uv sync
 
-export OPENAI_API_KEY=...
+export ANTHROPIC_API_KEY=...
 uv run python -m harness           # full catalog, dashboard at reports/runs/<run_id>/report.html
 ```
 
 Or from the repository root, which reads `MAX_CLARIFICATIONS` and `RAG_MIN_SCORE` out of
-`backend/.env` so the harness asserts against the thresholds the evaluated backend actually
+the root `.env` so the harness asserts against the thresholds the evaluated backend actually
 runs with:
 
 ```bash
 make evals-smoke   # full catalog, no judge -- still a billed live customer/backend run
-make evals-live    # full catalog, mini judge -- the default, billed but cheap
-make evals-deep    # full catalog, flagship judge -- billed at the original, higher rate
+make evals-live    # full catalog, Claude Haiku 5.5 judge -- the default, billed but cheap
+make evals-deep    # full catalog, Claude Sonnet 5.5 judge -- milestone runs, higher rate
 ```
 
 Exits non-zero if any scenario did not pass, so any of these still works as a manually
@@ -134,7 +135,7 @@ make evals-smoke EVAL_ARGS="--tag adversarial --repeat 3"
 | `--rejudge REPORT.json` | Re-score a stored report's sessions with the current judge — no backend, no docker, no customer simulator, no new customer-side billing |
 | `--repeat N` | Run the selection N times to see score variance |
 | `--concurrency N` | Sessions in flight at once (default 4) |
-| `--model` / `--judge-model` | Default `gpt-5.4-mini` for both — see [Keeping this affordable](#keeping-this-affordable) |
+| `--model` / `--judge-model` | Default `claude-haiku-5-5` for both — see [Keeping this affordable](#keeping-this-affordable) and [Who plays the customer and who judges](#who-plays-the-customer-and-who-judges) |
 | `--html [PATH]` / `--json-output PATH` / `--output PATH` | *Extra* copy of the dashboard, JSON dump or markdown scorecard, in addition to the ones every run already writes (see below) |
 | `--rebuild-index` | Rebuild `reports/index.html` from `reports/history.jsonl` and exit — runs nothing |
 
@@ -142,7 +143,8 @@ make evals-smoke EVAL_ARGS="--tag adversarial --repeat 3"
 the harness asserts against them.
 
 Every scenario is bounded by a wall-clock timeout (5 minutes for the conversation, 3 for
-the judge). Neither the OpenAI client nor AutoGen bounds the total, and a single stalled
+the judge). The customer's tool loop caps its number of requests (12) but not how long each
+takes, the Anthropic client does not bound the total either, and a single stalled
 request would otherwise hold its concurrency slot for the rest of the run — an expensive
 way to find out that one call hung. A timeout is a scored failure like any other, so the
 remaining scenarios still report.
@@ -151,16 +153,17 @@ remaining scenarios still report.
 
 A full run makes real, billed calls on three fronts: the simulated customer, the judge,
 and the backend's own classification, embedding and retrieval. The judge used to be the
-dominant cost — a flagship model (`gpt-5.4`), a ~2.6k-token dossier, once per scenario,
-including six `protocol` scenarios that have no free text for it to actually assess.
+dominant cost — a flagship model, a ~2.6k-token dossier, once per scenario, including six
+`protocol` scenarios that have no free text for it to actually assess.
 
 Three changes cut that without cutting what the suite catches:
 
-- **The judge defaults to `gpt-5.4-mini`** with `reasoning_effort="high"` — a mini model
-  asked to think hard rather than answer fast holds close to flagship-level discrimination
-  at a fraction of the price. Run `--judge-model gpt-5.4` for a deliberate milestone run,
-  or `--rejudge` an existing report to compare the two without paying for the backend or
-  the customer simulator twice.
+- **The judge defaults to Claude Haiku 5.5** at `high` effort — a small model asked to
+  think hard rather than answer fast keeps most of a larger model's discrimination at a
+  fraction of the price. Its ~1.1k-token rubric is prompt-cached, so after the first
+  scenario it is billed as a cache read. Run `--judge-model claude-sonnet-5-5`
+  (`make evals-deep`) for a deliberate milestone run, or `--rejudge` an existing report to
+  compare the two without paying for the backend or the customer simulator twice.
 - **`protocol` scenarios skip the judge entirely.** They have no LLM customer and no
   free-text kiosk speech — their script's own checks are the whole evidence, and a judge
   call there is pure restatement. `judged: false` in the JSON report marks these apart
@@ -255,21 +258,21 @@ uv run pytest      # fully mocked -- no network, no key, no running backend
 uv run ruff check .
 ```
 
-Covers the REST client, transcript capture, every deterministic check, the score-capping
-rules, the judge's dossier and its failure mode, all three renderers (including asserting
+Covers the REST client, transcript capture, the customer's tool loop (against scripted
+model replies), every deterministic check, the score-capping rules, the judge's dossier and its failure mode, all three renderers (including asserting
 the dashboard is genuinely self-contained), the runner's crash containment, and the
 catalog's structural integrity — the last of which is worth more than it sounds: a scenario
 whose expected `IDENTIFICADO` refers to an identity-card number missing from the seed would
 quietly test the `FALLIDO` path instead, and nobody would notice for the price of a full
 billed run.
 
-It never calls `agent.run()` or `judge.assess()` against a real model. The live command
+It never sends a request to a real model. The live command
 above is the actual behavioural verification.
 
 ## Why this is a separate project
 
-There is no hard dependency conflict — `autogen-agentchat` installs and imports cleanly
-alongside `backend/`. It is kept separate so its coverage never counts against `backend/`'s
+There is no dependency conflict — its only model dependency is the same `anthropic` SDK
+`backend/` uses. It is kept separate so its coverage never counts against `backend/`'s
 `fail_under=90` gate, and so it can only ever be triggered deliberately.
 
 ## CI
@@ -283,20 +286,34 @@ here manually before pushing until that's wired up.
 
 ## Who plays the customer and who judges
 
-Chosen per run by the Make target:
+Chosen per run by the Make target. These are the harness's own models; the backend under
+test always decides with its configured `ORCHESTRATION_MODEL` (Claude Haiku 5.5).
 
 | Target | Customer | Judge | Cost |
 | --- | --- | --- | --- |
-| `make evals-smoke` | `gpt-5.4-mini` | none -- deterministic checks only | Still a live, billed backend/customer run |
-| `make evals-live` | `gpt-5.4-mini` | `gpt-5.4-mini` at high reasoning effort, skipped for the six judgement-free `protocol` scenarios | Deliberate billed validation |
-| `make evals-deep` | `gpt-5.4-mini` | `gpt-5.4` | Milestone runs |
+| `make evals-smoke` | `claude-haiku-5-5` | none -- deterministic checks only | Still a live, billed backend/customer run |
+| `make evals-live` | `claude-haiku-5-5` | `claude-haiku-5-5` at `high` effort, skipped for the six judgement-free `protocol` scenarios | Deliberate billed validation |
+| `make evals-deep` | `claude-haiku-5-5` | `claude-sonnet-5-5` at `high` effort | Milestone runs |
+
+The customer is a plain tool loop over `messages.create` in `harness/agent.py` — no agent
+framework. Each of its three tools dispatches to the `ConversationSession` method of the same
+name, one call per response (`disable_parallel_tool_use`), because the kiosk is a state
+machine and two concurrent turns on one session would test the harness rather than the
+kiosk. It runs with thinking off: it is role-play plus one of three tools, and every earlier
+report ran that way, so runs stay comparable. Thinking off is a 400 on Sonnet 5.5 and
+Opus 5.5, so `--model` is meant to stay on Haiku. The judge calls `messages.parse` for
+structured output — one request per scenario with only the rubric and that scenario's
+dossier.
+Reports from earlier runs whose metadata names `gpt-5.4*` came from the previous OpenAI
+harness; `--rejudge` re-scores them with the current Claude judge.
 
 `make evals-retry` re-runs only the scenarios that were not `PASS` in the most recent run, and
 any target accepts extra harness flags through `EVAL_ARGS="--tag adversarial --repeat 3"`.
 `--rejudge` re-scores an existing report's stored sessions with the current judge at the cost of
-judge tokens only, with no backend or customer-simulator calls. `OPENAI_API_KEY` pays for the
-customer, the judge, and the backend under test's own classification, embedding and retrieval,
-which is the thing being evaluated. Each `make evals-*` target first runs
+judge tokens only, with no backend or customer-simulator calls. `ANTHROPIC_API_KEY` pays for
+the customer, the judge, and the backend's classification, confirmation reading and grounded
+answers on Claude Haiku 5.5, which is the thing being evaluated; `OPENAI_API_KEY` pays for the
+backend's embeddings. The Make targets skip unless both are set in the root `.env`. Each `make evals-*` target first runs
 `backend/scripts/reset_kiosk_queue.py`, because `estimated_wait_minutes` counts every open
 ticket ever created and otherwise reports hundreds of minutes after a few runs, which tells you
 nothing about the session under test.

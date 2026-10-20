@@ -1,7 +1,7 @@
 """CLI entrypoint: `python -m harness [options]`.
 
-Requires a live backend and, unless `--no-judge` is passed, `OPENAI_API_KEY` for both the
-simulated customer and the judge -- real, billed API calls on both sides plus the
+Requires a live backend and `ANTHROPIC_API_KEY` for the simulated customer and, unless
+`--no-judge` is passed, the judge -- real, billed API calls on both sides plus the
 backend's own classification, embedding and retrieval.
 
 Exits non-zero if any scenario did not pass, so it still works as a manually triggered CI
@@ -40,12 +40,12 @@ from harness.session import ConversationSession, ExchangeRecord
 
 logger = structlog.get_logger()
 
-DEFAULT_CUSTOMER_MODEL = "gpt-5.4-mini"
-# Mini, not flagship: a `reasoning_effort="high"` mini judge (see `judge.py`) keeps
-# roughly flagship-level discrimination at a fraction of the price, and `--judge-model
-# gpt-5.4` remains available for a deliberate milestone run. See `docs/evaluation.md`
-# ("Keeping this affordable") for the reasoning behind this default.
-DEFAULT_JUDGE_MODEL = "gpt-5.4-mini"
+DEFAULT_CUSTOMER_MODEL = "claude-haiku-5-5"
+# Haiku, not Sonnet or Opus: a "high" effort Haiku judge (see `judge.py`) keeps most of a
+# larger model's discrimination at a fraction of the price, and `--judge-model
+# claude-sonnet-5-5` (`make evals-deep`) remains available for a deliberate milestone run.
+# See `docs/evaluation.md` ("Keeping this affordable") for the reasoning behind this default.
+DEFAULT_JUDGE_MODEL = "claude-haiku-5-5"
 REPORTS_DIR = Path(__file__).resolve().parent.parent / "reports"
 LEDGER_PATH = REPORTS_DIR / history.LEDGER_FILENAME
 
