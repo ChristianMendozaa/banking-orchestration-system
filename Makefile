@@ -165,6 +165,7 @@ services-down: ## Stop docker compose services
 # "@" already written at each call site below, so an embedded one here would reach the
 # shell as literal text instead of being stripped by make.
 define run_evals
+anthropic_key=$$(grep -m1 '^ANTHROPIC_API_KEY=' .env 2>/dev/null | cut -d= -f2-); \
 openai_key=$$(grep -m1 '^OPENAI_API_KEY=' .env 2>/dev/null | cut -d= -f2-); \
 max_clar=$$(grep -m1 '^MAX_CLARIFICATIONS=' .env 2>/dev/null | cut -d= -f2-); \
 rag_min=$$(grep -m1 '^RAG_MIN_SCORE=' .env 2>/dev/null | cut -d= -f2-); \
@@ -172,23 +173,23 @@ backend_port=$$(grep -m1 '^BACKEND_PORT=' .env 2>/dev/null | cut -d= -f2-); \
 max_clar=$${max_clar:-2}; \
 rag_min=$${rag_min:-0.45}; \
 backend_port=$${backend_port:-8000}; \
-if [ -z "$$openai_key" ]; then \
+if [ -z "$$anthropic_key" ] || [ -z "$$openai_key" ]; then \
 	printf '\n\033[1m==> $(1)\033[0m\n'; \
-	echo "OPENAI_API_KEY not set in .env -- skipping (harness and knowledge-bootstrap both need it)"; \
+	echo "ANTHROPIC_API_KEY or OPENAI_API_KEY not set in .env -- skipping (the harness and the backend's decisions need Anthropic; embeddings and knowledge-bootstrap need OpenAI)"; \
 	printf '%s\t%s\t%s\t%s\t%s\n' "$(3)" "$(1)" "SKIP" "0" "" >> $(REPORT); \
 else \
-	$(call run_suite,$(1),docker compose up -d --build --wait backend && (cd backend && PYTHONPATH=. uv run python scripts/reset_kiosk_queue.py) && cd backend/evals && OPENAI_API_KEY="$$openai_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md $(2) $(EVAL_ARGS),$(3)); \
+	$(call run_suite,$(1),docker compose up -d --build --wait backend && (cd backend && PYTHONPATH=. uv run python scripts/reset_kiosk_queue.py) && cd backend/evals && ANTHROPIC_API_KEY="$$anthropic_key" uv run python -m harness --base-url http://localhost:$$backend_port --max-clarifications $$max_clar --rag-min-score $$rag_min --output scorecard.md $(2) $(EVAL_ARGS),$(3)); \
 fi
 endef
 
 evals-smoke: ## Live catalog without LLM judge -- still needs Docker and billed backend/customer calls
 	@$(call run_evals,evals:smoke,--no-judge,LIVE EVALUATION)
 
-evals-live: ## Full catalog, mini judge (default) -- billed, but ~90% cheaper than evals-deep's judge
+evals-live: ## Full catalog, Claude Haiku 5.5 judge (default) -- billed, far cheaper than evals-deep's judge
 	@$(call run_evals,evals:live,,LIVE EVALUATION)
 
-evals-deep: ## Full catalog, flagship judge -- billed at the harness's original (pre-cost-cut) rate
-	@$(call run_evals,evals:deep,--judge-model gpt-5.4,LIVE EVALUATION)
+evals-deep: ## Full catalog, Claude Sonnet 5.5 judge -- billed, for milestone runs
+	@$(call run_evals,evals:deep,--judge-model claude-sonnet-5-5,LIVE EVALUATION)
 
 # --only-failing reads a prior JSON report and runs (or --rejudge's) just the scenarios
 # that were not PASS in it. There's no reports/latest.json alias (see cli.py::_record_run),
@@ -199,7 +200,7 @@ evals-deep: ## Full catalog, flagship judge -- billed at the harness's original 
 #   make evals-retry EVAL_ARGS="--only-failing reports/runs/<run_id>/report.json"
 LATEST_RUN_REPORT = reports/runs/$$(ls -1 reports/runs 2>/dev/null | sort | tail -1)/report.json
 
-evals-retry: ## Re-run only the scenarios that weren't PASS in the most recent run, mini judge
+evals-retry: ## Re-run only the scenarios that weren't PASS in the most recent run, Haiku judge
 	@$(call run_evals,evals:retry,--only-failing $(LATEST_RUN_REPORT),LIVE EVALUATION)
 
 ## --- Aggregates. Each runs its suites through a nested `make -k` (keep-going): every

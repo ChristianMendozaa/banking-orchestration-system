@@ -54,7 +54,7 @@ def _session_that_spoke(final_state: dict | None = None) -> ConversationSession:
     return session
 
 
-async def _run(scenario, *, session=None, judge=None, model="gpt-5.4-mini"):
+async def _run(scenario, *, session=None, judge=None, model="claude-haiku-5-5"):
     session = session or _session()
     with patch.object(ConversationSession, "start", AsyncMock(return_value=session)):
         return await run_scenario(AsyncMock(), Evaluator(), judge, scenario, model=model)
@@ -135,7 +135,7 @@ async def test_run_all_runs_every_scenario_in_catalog_order() -> None:
         build_agent.return_value.run = AsyncMock()
         results = await run_all(
             base_url="http://unused",
-            model="gpt-5.4-mini",
+            model="claude-haiku-5-5",
             judge_model=None,
             max_clarifications=2,
             scenarios=scenarios,

@@ -31,7 +31,7 @@ failed.
 
 The five required categories intentionally overlap, so the Makefile totals are test executions,
 not a count of unique tests. All category commands are deterministic and local: they need neither
-Docker, a running backend, `OPENAI_API_KEY`, nor a model call.
+Docker, a running backend, `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`, nor a model call.
 
 | Command | Runs | Cost and use |
 | --- | --- | --- |

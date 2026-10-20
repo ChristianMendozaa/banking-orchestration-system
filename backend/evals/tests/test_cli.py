@@ -124,7 +124,7 @@ async def test_rejudge_reconstructs_results_without_touching_a_client(
 ) -> None:
     report_path = tmp_path / "source.json"
     report_path.write_text(json.dumps(_stored_report(_entry(real_scenario_name))), encoding="utf-8")
-    args = cli._parse_args(["--rejudge", str(report_path), "--judge-model", "gpt-5.4-mini"])
+    args = cli._parse_args(["--rejudge", str(report_path), "--judge-model", "claude-haiku-5-5"])
 
     with patch("harness.judge.Judge.assess", AsyncMock(return_value=_verdict(8))) as assess:
         results, metadata = await cli._rejudge(args)
@@ -132,7 +132,7 @@ async def test_rejudge_reconstructs_results_without_touching_a_client(
     assert len(results) == 1
     assert results[0].scenario == real_scenario_name
     assert results[0].verdict.overall_score == 8
-    assert metadata["judge_model"] == "gpt-5.4-mini"
+    assert metadata["judge_model"] == "claude-haiku-5-5"
     assert metadata["rejudged_from"] == str(report_path)
     # the dossier the (patched) judge received was built from the *reconstructed* session
     session = assess.await_args.kwargs["session"]

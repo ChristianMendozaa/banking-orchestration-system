@@ -57,9 +57,9 @@ def build_run_record(
     git_dirty: bool,
 ) -> dict:
     """The row appended to the ledger. `judge_model` is recorded per run -- and the
-    dashboard marks where it changes -- because scores from a mini judge and a flagship
-    judge are not the same measurement, and a trend line that pretends otherwise would be
-    the harness lying about its own numbers."""
+    dashboard marks where it changes -- because scores from a Haiku judge and a Sonnet
+    judge (or the earlier OpenAI ones) are not the same measurement, and a trend line
+    that pretends otherwise would be the harness lying about its own numbers."""
     summary = summarize(results, duration_seconds=metadata.get("duration_seconds", 0))
     judged = sum(1 for result in results if result.verdict is not None)
     return {

@@ -7,7 +7,7 @@ FAIL instead of vanishing.
 """
 
 import json
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 from conftest import make_scenario, make_session, make_verdict
@@ -165,12 +165,34 @@ def test_a_score_outside_one_to_ten_is_rejected() -> None:
         DimensionScore(score=11, reasoning="A long enough reason to pass validation.")
 
 
-def test_a_dimension_reasoning_over_the_length_cap_is_rejected() -> None:
-    """The cap on visible judge output is enforced by the schema, not just requested in
-    the prompt -- a model that ignores the 'one or two sentences' instruction must not be
-    able to blow the output-token budget anyway."""
+def test_a_dimension_reasoning_over_the_length_cap_is_clipped_not_rejected() -> None:
+    """Regression: the first Claude judge run rejected whole verdicts over a
+    `policy_compliance.reasoning` a few characters past the cap. Anthropic does not
+    enforce the cap while decoding, so the tokens were already spent; rejecting only paid
+    for a retry and risked scoring a correct kiosk 1/10."""
+    dimension = DimensionScore(score=5, reasoning="x" * 400)
+    assert len(dimension.reasoning) == 240
+    assert dimension.reasoning.endswith("…")
+
+
+def test_a_dimension_reasoning_at_the_cap_is_kept_whole() -> None:
+    reasoning = "x" * 240
+    assert DimensionScore(score=5, reasoning=reasoning).reasoning == reasoning
+
+
+def test_an_over_long_verdict_from_the_model_still_parses() -> None:
+    """The path the SDK takes: JSON from the model validated against `JudgeVerdict`."""
+    payload = make_verdict().model_dump()
+    payload["policy_compliance"]["reasoning"] = "It confirmed before the handoff. " * 10
+    payload["failures"] = [f"failure {index}" for index in range(8)]
+    verdict = JudgeVerdict.model_validate_json(json.dumps(payload))
+    assert len(verdict.policy_compliance.reasoning) == 240
+    assert verdict.failures == [f"failure {index}" for index in range(5)]
+
+
+def test_a_too_short_dimension_reasoning_is_still_rejected() -> None:
     with pytest.raises(ValidationError):
-        DimensionScore(score=5, reasoning="x" * 241)
+        DimensionScore(score=5, reasoning="ok")
 
 
 def test_the_verdict_requires_substantive_reasoning() -> None:
@@ -197,29 +219,66 @@ def test_an_unavailable_judge_is_a_recorded_failure_not_a_silent_gap() -> None:
     assert "RateLimitError: slow down" in verdict.reasoning
 
 
-# --- the agent ----------------------------------------------------------------------
+# --- the model call -----------------------------------------------------------
 
 
-def test_the_judge_agent_requests_structured_output() -> None:
-    agent = Judge("gpt-5.4").build_agent()
-    assert agent._output_content_type is JudgeVerdict
+def _response(verdict=None, stop_reason="end_turn"):
+    return type("R", (), {"parsed_output": verdict, "stop_reason": stop_reason})()
 
 
-def test_every_assessment_gets_a_fresh_agent_on_one_shared_client() -> None:
-    """Fresh agent: `AssistantAgent` accumulates conversation state, so one scenario's
-    verdict must not colour the next. Shared client: it owns an HTTP connection pool, and
-    one per call would leak a pool per scenario across a 41-scenario run."""
-    judge = Judge("gpt-5.4")
-    first, second = judge.build_agent(), judge.build_agent()
-    assert first is not second
-    assert first._model_client is second._model_client
+def _judge_returning(*responses) -> Judge:
+    judge = Judge("claude-haiku-5-5")
+    judge._client.messages.parse = AsyncMock(side_effect=list(responses))
+    return judge
 
 
-async def test_closing_the_judge_closes_its_model_client() -> None:
-    judge = Judge("gpt-5.4")
-    judge._model_client = AsyncMock()
+async def _assess(judge: Judge) -> JudgeVerdict:
+    return await judge.assess(
+        scenario=make_scenario(),
+        session=make_session(),
+        final_state=FINAL_STATE,
+        checks=[],
+    )
+
+
+async def test_the_judge_requests_a_structured_verdict_at_high_effort() -> None:
+    judge = _judge_returning(_response(make_verdict(9)))
+    await _assess(judge)
+    kwargs = judge._client.messages.parse.await_args.kwargs
+    assert kwargs["model"] == "claude-haiku-5-5"
+    assert kwargs["output_format"] is JudgeVerdict
+    assert kwargs["output_config"] == {"effort": "high"}
+    assert "Review this kiosk session" in kwargs["messages"][0]["content"]
+
+
+async def test_the_judge_caches_its_constant_rubric() -> None:
+    from harness.judge import JUDGE_SYSTEM_MESSAGE
+
+    judge = _judge_returning(_response(make_verdict(9)))
+    await _assess(judge)
+    [system] = judge._client.messages.parse.await_args.kwargs["system"]
+    assert system["text"] == JUDGE_SYSTEM_MESSAGE
+    assert system["cache_control"] == {"type": "ephemeral"}
+
+
+async def test_every_assessment_is_an_independent_request_on_one_shared_client() -> None:
+    """Shared client: it owns an HTTP connection pool, and one per call would leak a pool
+    per scenario across a 41-scenario run. Independent request: one scenario's verdict
+    must not colour the next, so each call carries only the rubric and its own dossier."""
+    judge = _judge_returning(_response(make_verdict(9)), _response(make_verdict(7)))
+    client = judge._client
+    await _assess(judge)
+    await _assess(judge)
+    assert judge._client is client
+    for call in client.messages.parse.await_args_list:
+        assert len(call.kwargs["messages"]) == 1
+
+
+async def test_closing_the_judge_closes_its_client() -> None:
+    judge = Judge("claude-haiku-5-5")
+    judge._client = AsyncMock()
     await judge.close()
-    judge._model_client.close.assert_awaited_once()
+    judge._client.close.assert_awaited_once()
 
 
 def test_the_judge_prompt_states_it_grades_the_kiosk_not_the_customer() -> None:
@@ -231,43 +290,35 @@ def test_the_judge_prompt_states_it_grades_the_kiosk_not_the_customer() -> None:
 
 async def test_assess_returns_the_structured_verdict() -> None:
     verdict = make_verdict(9)
-    run = AsyncMock(return_value=type("R", (), {"messages": [type("M", (), {"content": verdict})]}))
-    with patch.object(Judge, "build_agent") as build:
-        build.return_value.run = run
-        result = await Judge("gpt-5.4").assess(
-            scenario=make_scenario(),
-            session=make_session(),
-            final_state=FINAL_STATE,
-            checks=[],
-        )
+    result = await _assess(_judge_returning(_response(verdict)))
     assert result is verdict
 
 
 async def test_assess_retries_once_then_records_the_failure() -> None:
-    with patch.object(Judge, "build_agent") as build:
-        build.return_value.run = AsyncMock(side_effect=RuntimeError("upstream is down"))
-        result = await Judge("gpt-5.4").assess(
-            scenario=make_scenario(),
-            session=make_session(),
-            final_state=FINAL_STATE,
-            checks=[],
-        )
-    assert build.call_count == 2
+    judge = _judge_returning(RuntimeError("upstream is down"), RuntimeError("upstream is down"))
+    result = await _assess(judge)
+    assert judge._client.messages.parse.await_count == 2
     assert result.verdict == "FAIL"
     assert "upstream is down" in result.reasoning
 
 
-async def test_a_judge_that_returns_the_wrong_type_is_not_trusted() -> None:
-    run = AsyncMock(
-        return_value=type("R", (), {"messages": [type("M", (), {"content": "just a string"})]})
-    )
-    with patch.object(Judge, "build_agent") as build:
-        build.return_value.run = run
-        result = await Judge("gpt-5.4").assess(
-            scenario=make_scenario(),
-            session=make_session(),
-            final_state=FINAL_STATE,
-            checks=[],
-        )
+async def test_a_failed_first_attempt_is_recovered_by_the_retry() -> None:
+    verdict = make_verdict(8)
+    result = await _assess(_judge_returning(RuntimeError("overloaded"), _response(verdict)))
+    assert result is verdict
+
+
+@pytest.mark.parametrize("stop_reason", ["refusal", "max_tokens"])
+async def test_a_refused_or_truncated_verdict_is_not_trusted(stop_reason: str) -> None:
+    """Either stop reason can still leave a `parsed_output` from an earlier text block, or
+    none at all; neither is a verdict the judge finished giving."""
+    judge = _judge_returning(_response(make_verdict(9), stop_reason), _response(None, stop_reason))
+    result = await _assess(judge)
     assert result.verdict == "FAIL"
-    assert "unexpected judge output type" in result.reasoning
+    assert f"stop_reason={stop_reason}" in result.reasoning
+
+
+async def test_a_response_without_a_parsed_verdict_is_not_trusted() -> None:
+    result = await _assess(_judge_returning(_response(None), _response(None)))
+    assert result.verdict == "FAIL"
+    assert "judge returned no verdict" in result.reasoning

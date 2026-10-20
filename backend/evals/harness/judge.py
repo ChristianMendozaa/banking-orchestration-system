@@ -1,4 +1,4 @@
-"""The Orchestration Judge: a second AutoGen agent that scores what rules cannot see.
+"""The Orchestration Judge: a second Claude model that scores what rules cannot see.
 
 The deterministic checks in `evaluator.py` answer questions that are decidable from
 recorded state -- did fraud reach `CRITICO`, was the answer cited, was the identity-card
@@ -25,11 +25,10 @@ import json
 from typing import Literal
 
 import structlog
-from autogen_agentchat.agents import AssistantAgent
-from pydantic import BaseModel, Field
+from anthropic import AsyncAnthropic
+from pydantic import BaseModel, Field, field_validator
 
 from harness.evaluator import CheckResult
-from harness.model_client import build_model_client
 from harness.scenarios.models import Scenario
 from harness.session import ConversationSession
 
@@ -114,12 +113,26 @@ figure as a service-quality failure of the kiosk.
 """
 
 
+DIMENSION_REASONING_MAX_CHARS = 240
+VERDICT_LIST_MAX_ITEMS = 5
+
+
 class DimensionScore(BaseModel):
     score: int = Field(ge=1, le=10)
-    # Capped, not just prompted-down: the prompt already asks for one or two sentences,
-    # but a schema constraint is what actually keeps output tokens (and cost) bounded
-    # regardless of what the model feels like writing on a given call.
-    reasoning: str = Field(min_length=20, max_length=240)
+    # The prompt asks for one or two sentences and the schema states this cap to the model,
+    # but Anthropic's structured outputs carry length limits as schema descriptions rather
+    # than enforcing them while decoding. By the time the SDK validates the verdict the
+    # tokens are already spent, so an over-long reason is clipped (see `_clip_reasoning`)
+    # instead of rejected: rejecting would discard the whole verdict, pay for a retry, and
+    # score the kiosk 1/10 if the retry ran long too.
+    reasoning: str = Field(min_length=20, max_length=DIMENSION_REASONING_MAX_CHARS)
+
+    @field_validator("reasoning", mode="before")
+    @classmethod
+    def _clip_reasoning(cls, value: object) -> object:
+        if isinstance(value, str) and len(value) > DIMENSION_REASONING_MAX_CHARS:
+            return value[: DIMENSION_REASONING_MAX_CHARS - 1].rstrip() + "…"
+        return value
 
 
 class JudgeVerdict(BaseModel):
@@ -130,9 +143,18 @@ class JudgeVerdict(BaseModel):
     resolution_quality: DimensionScore
     overall_score: int = Field(ge=1, le=10)
     reasoning: str = Field(min_length=50)
-    failures: list[str] = Field(default_factory=list, max_length=5)
-    strengths: list[str] = Field(default_factory=list, max_length=5)
+    failures: list[str] = Field(default_factory=list, max_length=VERDICT_LIST_MAX_ITEMS)
+    strengths: list[str] = Field(default_factory=list, max_length=VERDICT_LIST_MAX_ITEMS)
     verdict: Literal["PASS", "PARTIAL", "FAIL"]
+
+    @field_validator("failures", "strengths", mode="before")
+    @classmethod
+    def _keep_the_first_items(cls, value: object) -> object:
+        # Same reasoning as `DimensionScore._clip_reasoning`: the model sees the cap but is
+        # not held to it, and a sixth item is no reason to throw away the verdict.
+        if isinstance(value, list):
+            return value[:VERDICT_LIST_MAX_ITEMS]
+        return value
 
     @property
     def dimensions(self) -> dict[str, DimensionScore]:
@@ -304,39 +326,57 @@ def build_dossier(
     )
 
 
-class Judge:
-    """One model client, a fresh agent per assessment.
+# Adaptive thinking is on and its tokens count toward `max_tokens`. A "high" effort verdict
+# thinks first and then writes five dimension reasons plus the overall argument, so the cap
+# is sized for both -- one tuned to the JSON alone would stop inside the thinking block and
+# leave nothing to parse.
+JUDGE_MAX_TOKENS = 16000
+# What keeps a Haiku judge's discrimination close to a larger model's despite the price
+# gap: it is asked to think hard, not to answer fast. `--judge-model claude-sonnet-5-5`
+# (`make evals-deep`) keeps the same effort on the larger model for a milestone run.
+JUDGE_EFFORT = "high"
 
-    The split matters in both directions: `AssistantAgent` accumulates conversation state,
-    so reusing one agent would let a scenario's verdict colour the next one's, while the
-    model client owns an HTTP connection pool, so building one per call would leak a pool
-    per scenario across a 41-scenario run.
+
+class Judge:
+    """One Anthropic client, one independent request per assessment.
+
+    The client owns an HTTP connection pool, so building one per call would leak a pool
+    per scenario across a 41-scenario run. Each request carries only the constant system
+    prompt and that scenario's dossier, so no verdict can colour the next one's.
+
+    This is a direct `messages.parse` call rather than an AutoGen agent: the judge has no
+    tools and a single turn, and AutoGen's Anthropic client rejects structured output.
     """
 
     def __init__(self, model: str) -> None:
         self.model = model
-        # `reasoning_effort="high"` is what keeps a mini model's judgement close to a
-        # flagship model's despite the price gap -- it is asked to think hard, not to
-        # answer fast. `verbosity="low"` trims prose around the (already length-capped)
-        # schema fields. `prompt_cache_key` gives every call in a run the same cache
-        # bucket for the ~1.1k-token constant `JUDGE_SYSTEM_MESSAGE` prefix.
-        self._model_client = build_model_client(
-            model,
-            reasoning_effort="high",
-            verbosity="low",
-            prompt_cache_key="kiosk-eval-judge",
-        )
-
-    def build_agent(self) -> AssistantAgent:
-        return AssistantAgent(
-            name="orchestration_judge",
-            model_client=self._model_client,
-            system_message=JUDGE_SYSTEM_MESSAGE,
-            output_content_type=JudgeVerdict,
-        )
+        self._client = AsyncAnthropic()
 
     async def close(self) -> None:
-        await self._model_client.close()
+        await self._client.close()
+
+    async def _ask(self, dossier: str) -> JudgeVerdict:
+        response = await self._client.messages.parse(
+            model=self.model,
+            max_tokens=JUDGE_MAX_TOKENS,
+            # The ~1.1k-token rubric is identical on every call in a run, so after the
+            # first scenario it is a cache read rather than full-price input.
+            system=[
+                {
+                    "type": "text",
+                    "text": JUDGE_SYSTEM_MESSAGE,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+            messages=[{"role": "user", "content": dossier}],
+            output_config={"effort": JUDGE_EFFORT},
+            output_format=JudgeVerdict,
+        )
+        # A refusal or a response cut at `max_tokens` carries no complete verdict; raising
+        # lets `assess` retry it and, failing that, record it as an unavailable judge.
+        if response.stop_reason in {"refusal", "max_tokens"} or response.parsed_output is None:
+            raise ValueError(f"judge returned no verdict (stop_reason={response.stop_reason})")
+        return response.parsed_output
 
     async def assess(
         self,
@@ -352,11 +392,7 @@ class Judge:
         last_error = "unknown error"
         for attempt in range(2):
             try:
-                result = await self.build_agent().run(task=dossier)
-                content = result.messages[-1].content
-                if isinstance(content, JudgeVerdict):
-                    return content
-                last_error = f"unexpected judge output type: {type(content).__name__}"
+                return await self._ask(dossier)
             except Exception as exc:  # noqa: BLE001 - any failure becomes a scored FAIL
                 last_error = f"{type(exc).__name__}: {exc}"
                 logger.warning(
