@@ -1,7 +1,7 @@
 [project]
 name = "sistema-orquestacion-evals"
 version = "0.1.0"
-description = "End-to-end orchestration policy evaluation harness (AutoGen)"
+description = "End-to-end orchestration policy evaluation harness (Claude)"
 # No hard dependency conflict with backend/ -- confirmed via `uv pip install --dry-run`
 # and a real 3.12/3.14 import check before writing any code.
 # Kept as its own project anyway so its coverage never counts against backend's
@@ -10,14 +10,9 @@ description = "End-to-end orchestration policy evaluation harness (AutoGen)"
 requires-python = ">=3.12"
 dependencies = [
   "anthropic>=1.16.0",
-  "autogen-agentchat>=0.7.5",
-  "autogen-ext[anthropic]>=0.7.5",
   "httpx>=0.28.0",
   "pydantic>=2.10.0",
   "structlog>=25.4.0",
-  # `autogen_ext.models.anthropic` imports tiktoken at module load, but the
-  # `autogen-ext[anthropic]` extra does not declare it (the `openai` extra did).
-  "tiktoken>=0.13.0",
 ]
 
 [dependency-groups]

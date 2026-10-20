@@ -1,8 +1,8 @@
 """Stateful wrapper around one kiosk session.
 
-Its three bound async methods are handed directly to `AssistantAgent(tools=[...])` --
-AutoGen derives each tool's schema from the type hints and docstring, same pattern as
-the MCP SDK.
+Its three async methods are the simulated customer's tools: `harness/agent.py` dispatches
+each tool call to the method of the same name, and each method's docstring is the tool
+description the model reads.
 
 It records two things the rest of the harness depends on:
 

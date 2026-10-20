@@ -1,41 +1,105 @@
-"""The simulated customer's wiring.
+"""The simulated customer's wiring and its tool loop.
 
-Does not call `agent.run()` -- that needs a real key and costs money. The fake key in
-`conftest` only satisfies the client's construction-time credential check.
+The loop runs against a patched `AsyncMessages.create` -- a real request needs a real key
+and costs money. The fake key in `conftest` only satisfies the client's construction-time
+credential check.
 """
 
+import inspect
 from unittest.mock import AsyncMock, patch
 
+from anthropic import AsyncAnthropic
 from anthropic.resources.messages import AsyncMessages
-from anthropic.types import Message, TextBlock, Usage
-from autogen_core.models import SystemMessage, UserMessage
-from autogen_core.tools import FunctionTool
+from anthropic.types import Message, TextBlock, ToolUseBlock, Usage
 from conftest import make_scenario
 
-from harness.agent import build_customer_agent, build_system_message
-from harness.client import KioskClient, SessionHandle
-from harness.model_client import build_customer_client
-from harness.scenarios import SCENARIOS
+from harness.agent import (
+    CUSTOMER_TOOLS,
+    MAX_TOOL_ITERATIONS,
+    build_customer_agent,
+    build_system_message,
+)
+from harness.client import SessionHandle
 from harness.scenarios.models import ANGUSTIADO
 from harness.session import ConversationSession
 
+KIOSK_CONFIRMS = {
+    "next_action": "CONFIRM",
+    "requirement_id": "req-1",
+    "speech_text": "¿Quieres bloquear tu tarjeta?",
+}
+
 
 def _session() -> ConversationSession:
-    return ConversationSession(KioskClient("http://fake"), SessionHandle("sid", "tok"))
+    client = AsyncMock()
+    client.send_turn.return_value = KIOSK_CONFIRMS
+    return ConversationSession(client, SessionHandle("sid", "tok"))
 
 
-def test_agent_binds_exactly_the_three_kiosk_tools() -> None:
-    agent = build_customer_agent(
-        model_client=build_customer_client("claude-haiku-5-5"),
-        session=_session(),
-        scenario=SCENARIOS[0],
+def _reply(*content, stop_reason: str = "end_turn") -> Message:
+    return Message(
+        id="msg",
+        type="message",
+        role="assistant",
+        model="claude-haiku-5-5",
+        content=list(content),
+        stop_reason=stop_reason,
+        stop_sequence=None,
+        usage=Usage(input_tokens=1, output_tokens=1),
     )
-    assert agent.name == "cliente_simulado"
-    assert {tool.name for tool in agent._tools} == {
+
+
+def _tool_use(name: str, arguments: dict, tool_use_id: str = "toolu_1") -> Message:
+    block = ToolUseBlock(type="tool_use", id=tool_use_id, name=name, input=arguments)
+    return _reply(block, stop_reason="tool_use")
+
+
+TERMINATE = _reply(TextBlock(type="text", text="TERMINATE"))
+SEND_TURN = _tool_use(
+    "send_turn", {"transcript": "Me robaron la tarjeta", "is_clarification": False}
+)
+
+
+async def _run(session: ConversationSession, *replies: Message) -> list[dict]:
+    """Runs the customer against scripted model replies and returns each request as it was
+    sent. The loop keeps appending to one `messages` list, so each request's list is copied
+    when it is made -- reading `call_args` afterwards would show only the final history."""
+    requests: list[dict] = []
+    remaining = iter(replies)
+
+    async def create(_self, **request):
+        requests.append({**request, "messages": list(request["messages"])})
+        return next(remaining)
+
+    agent = build_customer_agent(
+        client=AsyncAnthropic(),
+        model="claude-haiku-5-5",
+        session=session,
+        scenario=make_scenario(identifier="6735666"),
+    )
+    # `create` is wrapped by the SDK's argument-checking decorator, so autospec does not
+    # see it as a coroutine function; the async side effect makes the call awaitable. The
+    # autospec holds every request to the installed SDK's real signature, which a
+    # hand-written mock would not.
+    with patch.object(AsyncMessages, "create", autospec=True, side_effect=create):
+        await agent.run(task="Empieza.")
+    return requests
+
+
+def test_each_declared_tool_matches_a_session_method() -> None:
+    """The schemas are written by hand, so this is what stops one drifting from the method
+    it dispatches to: same name, and exactly the method's parameters, all required."""
+    assert {tool["name"] for tool in CUSTOMER_TOOLS} == {
         "send_turn",
         "send_confirmation",
         "send_identification",
     }
+    for tool in CUSTOMER_TOOLS:
+        method = getattr(ConversationSession, tool["name"])
+        parameters = [name for name in inspect.signature(method).parameters if name != "self"]
+        assert tool["input_schema"]["required"] == parameters
+        assert set(tool["input_schema"]["properties"]) == set(parameters)
+        assert tool["description"] == inspect.getdoc(method)
 
 
 def test_system_message_combines_the_situation_and_the_speaking_style() -> None:
@@ -76,53 +140,67 @@ def test_the_persona_is_told_to_follow_next_action_to_the_end() -> None:
     assert "No dejes" in message
 
 
-def test_a_model_missing_from_autogens_table_still_builds_a_client() -> None:
-    """`autogen-ext`'s Anthropic table stops at the Claude 4 models and would reject the
-    `claude-haiku-5-5` default at construction time without an explicit `model_info`."""
-    client = build_customer_client("claude-haiku-5-5")
-    assert client.model_info["function_calling"] is True
-    assert client.model_info["structured_output"] is False
+async def test_a_tool_call_reaches_the_kiosk_and_its_answer_goes_back_to_the_model() -> None:
+    session = _session()
+    requests = await _run(session, SEND_TURN, TERMINATE)
+
+    session._client.send_turn.assert_awaited_once()
+    assert session.customer_utterances == ["Me robaron la tarjeta"]
+    assert len(requests) == 2
+    assistant, tool_results = requests[1]["messages"][1:]
+    assert assistant == {"role": "assistant", "content": SEND_TURN.content}
+    [result] = tool_results["content"]
+    assert result["tool_use_id"] == "toolu_1"
+    assert "next_action=CONFIRM" in result["content"]
+    assert "is_error" not in result
 
 
-def test_the_customer_runs_without_thinking() -> None:
-    """AutoGen's Anthropic client does not send thinking blocks back with tool results, so
-    the customer's tool loop runs with thinking off rather than relying on that replay."""
-    client = build_customer_client("claude-haiku-5-5")
-    assert client._create_args["thinking"] == {"type": "disabled"}
-
-
-async def _send_turn(text: str) -> str:
-    """Envia un turno al kiosco."""
-    return "ok"
+async def test_the_customer_stops_when_the_model_stops_calling_tools() -> None:
+    requests = await _run(_session(), TERMINATE)
+    assert len(requests) == 1
 
 
 async def test_the_customer_request_matches_the_installed_sdk_signature() -> None:
-    """Regression: `autogen-ext` always sends `temperature`, which `anthropic` 1.x removed
-    from `messages.create`, so every conversational scenario failed with a TypeError
-    before reaching the API. `autospec` holds the call to the real SDK signature, which a
-    hand-written mock would not have."""
-    reply = Message(
-        id="msg",
-        type="message",
-        role="assistant",
-        model="claude-haiku-5-5",
-        content=[TextBlock(type="text", text="Hola")],
-        stop_reason="end_turn",
-        stop_sequence=None,
-        usage=Usage(input_tokens=1, output_tokens=1),
-    )
-    client = build_customer_client("claude-haiku-5-5")
-    # `create` is wrapped by the SDK's argument-checking decorator, so autospec does not
-    # see it as a coroutine function; the async side effect makes the call awaitable.
-    with patch.object(
-        AsyncMessages, "create", autospec=True, side_effect=AsyncMock(return_value=reply)
-    ) as create:
-        result = await client.create(
-            [SystemMessage(content="sys"), UserMessage(content="hola", source="cliente")],
-            tools=[FunctionTool(_send_turn, description="Envia un turno al kiosco.")],
-        )
-    assert result.content == "Hola"
-    request = create.call_args.kwargs
+    """Regression: the AutoGen client this replaced always sent `temperature`, which
+    `anthropic` 1.x removed from `messages.create`, so every conversational scenario failed
+    with a TypeError before reaching the API."""
+    [request] = await _run(_session(), TERMINATE)
     assert "temperature" not in request
+    assert request["model"] == "claude-haiku-5-5"
     assert request["thinking"] == {"type": "disabled"}
-    assert request["tool_choice"] == {"type": "auto"}
+    assert request["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
+    assert request["tools"] == CUSTOMER_TOOLS
+    assert request["system"] == build_system_message(make_scenario(identifier="6735666"))
+    assert request["messages"] == [{"role": "user", "content": "Empieza."}]
+
+
+async def test_a_customer_that_never_stops_calling_tools_is_cut_off() -> None:
+    requests = await _run(_session(), *[SEND_TURN] * (MAX_TOOL_ITERATIONS + 5))
+    assert len(requests) == MAX_TOOL_ITERATIONS
+
+
+async def test_an_unknown_tool_is_reported_to_the_model_and_the_loop_continues() -> None:
+    session = _session()
+    requests = await _run(session, _tool_use("send_payment", {"amount": 10}), TERMINATE)
+    [result] = requests[1]["messages"][-1]["content"]
+    assert result["is_error"] is True
+    assert "send_payment" in result["content"]
+    assert session.exchanges == []
+
+
+async def test_a_tool_that_raises_is_reported_to_the_model_and_the_loop_continues() -> None:
+    session = _session()
+    session._client.send_turn.side_effect = ValueError("respuesta ilegible")
+    requests = await _run(session, SEND_TURN, TERMINATE)
+    [result] = requests[1]["messages"][-1]["content"]
+    assert result["is_error"] is True
+    assert "ValueError: respuesta ilegible" in result["content"]
+    assert len(requests) == 2
+
+
+async def test_a_reply_cut_off_at_max_tokens_runs_no_tool() -> None:
+    session = _session()
+    block = ToolUseBlock(type="tool_use", id="toolu_1", name="send_turn", input={})
+    requests = await _run(session, _reply(block, stop_reason="max_tokens"))
+    assert len(requests) == 1
+    session._client.send_turn.assert_not_awaited()

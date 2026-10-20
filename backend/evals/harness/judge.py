@@ -344,8 +344,8 @@ class Judge:
     per scenario across a 41-scenario run. Each request carries only the constant system
     prompt and that scenario's dossier, so no verdict can colour the next one's.
 
-    This is a direct `messages.parse` call rather than an AutoGen agent: the judge has no
-    tools and a single turn, and AutoGen's Anthropic client rejects structured output.
+    The judge has no tools and a single turn, so it is one `messages.parse` call whose
+    structured output is validated straight into a `JudgeVerdict`.
     """
 
     def __init__(self, model: str) -> None:

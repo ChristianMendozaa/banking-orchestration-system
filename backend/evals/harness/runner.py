@@ -16,12 +16,12 @@ import time
 import traceback
 
 import structlog
+from anthropic import AsyncAnthropic
 
 from harness.agent import build_customer_agent
 from harness.client import KioskClient
 from harness.evaluator import CheckResult, Evaluator
 from harness.judge import Judge, JudgeVerdict
-from harness.model_client import build_customer_client
 from harness.scenarios import SCENARIOS
 from harness.scenarios.models import Scenario
 from harness.scoring import ScenarioResult
@@ -32,10 +32,11 @@ logger = structlog.get_logger()
 INITIAL_TASK = "Empieza a contarle al kiosco tu situacion."
 
 # Wall-clock ceiling for one scenario: the customer agent's whole tool-calling loop plus
-# the judge call. Neither the Anthropic client nor AutoGen bounds the total, so without this
-# a single stalled request holds its semaphore slot forever and the run never finishes --
-# an expensive way to learn that one call hung. A timeout is a scored failure like any
-# other, so the other 40 scenarios still report.
+# the judge call. The loop caps its number of requests but not how long each one takes, and
+# the Anthropic client does not bound the total either, so without this a single stalled
+# request holds its semaphore slot forever and the run never finishes -- an expensive way
+# to learn that one call hung. A timeout is a scored failure like any other, so the other
+# 40 scenarios still report.
 SCENARIO_TIMEOUT_SECONDS = 300
 JUDGE_TIMEOUT_SECONDS = 180
 
@@ -135,15 +136,11 @@ async def run_scenario(
             """
             if scenario.script:
                 return await scenario.script(session)
-            # Thinking is off for the customer; see `build_customer_client` for why.
-            model_client = build_customer_client(model)
-            agent = build_customer_agent(
-                model_client=model_client, session=session, scenario=scenario
-            )
-            try:
+            async with AsyncAnthropic() as anthropic_client:
+                agent = build_customer_agent(
+                    client=anthropic_client, model=model, session=session, scenario=scenario
+                )
                 await agent.run(task=INITIAL_TASK)
-            finally:
-                await model_client.close()
             return []
 
         script_checks = await asyncio.wait_for(conversation(), SCENARIO_TIMEOUT_SECONDS)

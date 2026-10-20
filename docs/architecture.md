@@ -88,7 +88,7 @@ The backend is a modular monolith: deployment remains simple, while API, domain,
 | --- | --- |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4, Recharts, OpenAI Agents SDK, Zod |
 | Backend | Python 3.12, FastAPI, Pydantic 2, SQLAlchemy 2 async, Uvicorn, Structlog |
-| AI | Claude Haiku 5.5 (Messages API structured outputs) for orchestration decisions, OpenAI Realtime, OpenAI text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools), AutoGen (offline REST-based evaluation: simulated customer and LLM judge) |
+| AI | Claude Haiku 5.5 (Messages API structured outputs) for orchestration decisions, OpenAI Realtime, OpenAI text embeddings, LangGraph on LangChain Core (kiosk state machine), MCP (external read-only domain tools), Anthropic SDK evaluation harness (offline REST-based evaluation: simulated customer and LLM judge) |
 | Data | PostgreSQL 17, pgvector, HNSW cosine index, Alembic |
 | Security | Argon2, JWT access tokens, rotating opaque refresh tokens, HMAC identifier protection |
 | Tooling | Docker Compose, `uv`, `pnpm`, Ruff, Pytest, Vitest, ESLint |

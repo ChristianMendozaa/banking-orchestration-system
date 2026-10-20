@@ -3,7 +3,7 @@
 The standalone project in `backend/evals/` (own `pyproject.toml` and venv). Paths below
 are relative to `backend/evals/` unless they start with `backend/`.
 
-An [AutoGen](https://github.com/microsoft/autogen) agent on Claude Haiku 5.5 plays a bank
+A simulated customer on Claude Haiku 5.5 plays a bank
 customer with a specific situation and a specific way of speaking, drives a real kiosk
 session turn by turn against a **live backend**, and the finished session is then scored
 twice: once by deterministic policy checks, and once by a second Claude model — the judge —
@@ -143,7 +143,8 @@ make evals-smoke EVAL_ARGS="--tag adversarial --repeat 3"
 the harness asserts against them.
 
 Every scenario is bounded by a wall-clock timeout (5 minutes for the conversation, 3 for
-the judge). Neither the Anthropic client nor AutoGen bounds the total, and a single stalled
+the judge). The customer's tool loop caps its number of requests (12) but not how long each
+takes, the Anthropic client does not bound the total either, and a single stalled
 request would otherwise hold its concurrency slot for the rest of the run — an expensive
 way to find out that one call hung. A timeout is a scored failure like any other, so the
 remaining scenarios still report.
@@ -257,21 +258,21 @@ uv run pytest      # fully mocked -- no network, no key, no running backend
 uv run ruff check .
 ```
 
-Covers the REST client, transcript capture, every deterministic check, the score-capping
-rules, the judge's dossier and its failure mode, all three renderers (including asserting
+Covers the REST client, transcript capture, the customer's tool loop (against scripted
+model replies), every deterministic check, the score-capping rules, the judge's dossier and its failure mode, all three renderers (including asserting
 the dashboard is genuinely self-contained), the runner's crash containment, and the
 catalog's structural integrity — the last of which is worth more than it sounds: a scenario
 whose expected `IDENTIFICADO` refers to an identity-card number missing from the seed would
 quietly test the `FALLIDO` path instead, and nobody would notice for the price of a full
 billed run.
 
-It never calls `agent.run()` or `judge.assess()` against a real model. The live command
+It never sends a request to a real model. The live command
 above is the actual behavioural verification.
 
 ## Why this is a separate project
 
-There is no hard dependency conflict — `autogen-agentchat` and `autogen-ext[anthropic]`
-install and import cleanly alongside `backend/`, on the same `anthropic` SDK. It is kept separate so its coverage never counts against `backend/`'s
+There is no dependency conflict — its only model dependency is the same `anthropic` SDK
+`backend/` uses. It is kept separate so its coverage never counts against `backend/`'s
 `fail_under=90` gate, and so it can only ever be triggered deliberately.
 
 ## CI
@@ -294,14 +295,15 @@ test always decides with its configured `ORCHESTRATION_MODEL` (Claude Haiku 5.5)
 | `make evals-live` | `claude-haiku-5-5` | `claude-haiku-5-5` at `high` effort, skipped for the six judgement-free `protocol` scenarios | Deliberate billed validation |
 | `make evals-deep` | `claude-haiku-5-5` | `claude-sonnet-5-5` at `high` effort | Milestone runs |
 
-The customer runs on AutoGen's `AnthropicChatCompletionClient` with thinking off: it is
-role-play plus one of three tools, and that client neither sends thinking blocks back with
-tool results nor forwards `output_config.effort`. `harness/model_client.py` also drops the
-`temperature` that client puts on every request, which the `anthropic` 1.x SDK no longer
-accepts. Thinking off is a 400 on Sonnet 5.5 and
-Opus 5.5, so `--model` is meant to stay on Haiku. The judge needs structured output, which
-that client rejects for Anthropic models, so it calls `messages.parse` on the Anthropic SDK
-directly — one request per scenario with only the rubric and that scenario's dossier.
+The customer is a plain tool loop over `messages.create` in `harness/agent.py` — no agent
+framework. Each of its three tools dispatches to the `ConversationSession` method of the same
+name, one call per response (`disable_parallel_tool_use`), because the kiosk is a state
+machine and two concurrent turns on one session would test the harness rather than the
+kiosk. It runs with thinking off: it is role-play plus one of three tools, and every earlier
+report ran that way, so runs stay comparable. Thinking off is a 400 on Sonnet 5.5 and
+Opus 5.5, so `--model` is meant to stay on Haiku. The judge calls `messages.parse` for
+structured output — one request per scenario with only the rubric and that scenario's
+dossier.
 Reports from earlier runs whose metadata names `gpt-5.4*` came from the previous OpenAI
 harness; `--rejudge` re-scores them with the current Claude judge.
 
