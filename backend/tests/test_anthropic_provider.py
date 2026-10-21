@@ -122,6 +122,17 @@ async def test_grounded_answer_sends_branch_and_numbered_evidence() -> None:
     assert call["output_config"] == {"effort": "medium"}
 
 
+async def test_classification_feedback_rides_in_the_user_turn() -> None:
+    provider = _provider()
+    provider.client.messages.parse.return_value = _message(_decision())
+
+    await provider.classify("horarios", feedback="Devuelve cada necesidad.")
+
+    call = provider.client.messages.parse.call_args.kwargs
+    assert call["system"][0]["text"] == CLASSIFICATION_SYSTEM_PROMPT
+    assert call["messages"][0]["content"] == "horarios\n\nDevuelve cada necesidad."
+
+
 async def test_each_call_logs_its_tokens_and_latency() -> None:
     provider = _provider()
     message = _message(_decision())

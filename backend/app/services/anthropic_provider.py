@@ -47,7 +47,11 @@ class AnthropicProvider:
         api_key = settings.anthropic_api_key.get_secret_value()
         self.client = AsyncAnthropic(api_key=api_key, timeout=settings.anthropic_timeout_seconds)
 
-    async def classify(self, masked_text: str) -> ClassificationDecision:
+    async def classify(
+        self, masked_text: str, *, feedback: str | None = None
+    ) -> ClassificationDecision:
+        """`feedback` is why a previous decision for this same turn was discarded. It rides
+        in the user turn, after the turn itself, so the cached system prompt is untouched."""
         # This call sits directly between the customer finishing a sentence and the kiosk
         # answering, so its latency is dead air the person hears -- on every turn, not just
         # the ones that reach the corpus. See `classification_reasoning_effort` in
@@ -57,7 +61,12 @@ class AnthropicProvider:
             model=self.settings.orchestration_model,
             max_tokens=CLASSIFICATION_MAX_TOKENS,
             system=_cached_system(CLASSIFICATION_SYSTEM_PROMPT),
-            messages=[{"role": "user", "content": masked_text}],
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"{masked_text}\n\n{feedback}" if feedback else masked_text,
+                }
+            ],
             output_config={"effort": self.settings.classification_reasoning_effort},
             output_format=ClassificationDecision,
         )

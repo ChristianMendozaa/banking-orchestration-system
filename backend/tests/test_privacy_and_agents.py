@@ -191,6 +191,89 @@ def test_grounded_answer_naturalness_still_rejects_third_person_customer_referen
     assert grounded_answer_is_natural("Usted debe presentar su documento de identidad.") is False
 
 
+_BOTH_NEEDS = (
+    "Necesitas reportar un cargo en tu tarjeta que no reconoces, y también saber a qué hora "
+    "abre la sucursal."
+)
+
+
+def _fraud_decision(customer_summary: str, *, with_hours: bool) -> ClassificationDecision:
+    return ClassificationDecision(
+        summary="Reporta un cargo que no reconoce",
+        customer_summary=customer_summary,
+        category=Category.REPORTE_FRAUDE,
+        consultation_level=ConsultationLevel.SENSIBLE,
+        confidence=0.93,
+        ambiguous=False,
+        security_incident=True,
+        additional_needs=(
+            [
+                ClassifiedNeed(
+                    summary="Necesita el horario de la sucursal",
+                    customer_summary="Quieres saber a qué hora abre la sucursal.",
+                    category=Category.CONSULTA_GENERAL,
+                    consultation_level=ConsultationLevel.GENERAL,
+                    confidence=0.9,
+                )
+            ]
+            if with_hours
+            else []
+        ),
+    )
+
+
+class _ScriptedClassifier:
+    def __init__(self, *replies) -> None:
+        self.replies = list(replies)
+        self.feedback: list[str | None] = []
+
+    async def classify(self, _payload: str, *, feedback: str | None = None):
+        self.feedback.append(feedback)
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+@pytest.mark.regression
+async def test_a_summary_listing_a_need_it_did_not_return_is_classified_again(settings) -> None:
+    """`multi_intencion` (eval 2026-10-21): the read-back promised the hours, nothing
+    carried them, and the person confirmed a request the kiosk then dropped."""
+    provider = _ScriptedClassifier(
+        _fraud_decision(_BOTH_NEEDS, with_hours=False),
+        _fraud_decision(_BOTH_NEEDS, with_hours=True),
+    )
+    decision, _ = await ClassificationAgent(settings, provider).run_with_source("texto")
+    assert len(decision.additional_needs) == 1
+    assert provider.feedback[0] is None
+    assert "additional_needs" in provider.feedback[1]
+
+
+async def test_a_consistent_decision_costs_one_call(settings) -> None:
+    provider = _ScriptedClassifier(_fraud_decision(_BOTH_NEEDS, with_hours=True))
+    await ClassificationAgent(settings, provider).run_with_source("texto")
+    assert provider.feedback == [None]
+
+
+async def test_the_consistency_retry_happens_once_and_never_falls_back(settings) -> None:
+    """A model that insists it is one need is believed, and a retry that errors keeps the
+    first decision rather than dropping to the keyword classifier."""
+    insists = _ScriptedClassifier(
+        _fraud_decision(_BOTH_NEEDS, with_hours=False),
+        _fraud_decision(_BOTH_NEEDS, with_hours=False),
+    )
+    decision, source = await ClassificationAgent(settings, insists).run_with_source("texto")
+    assert len(insists.feedback) == 2
+    assert source != "FALLBACK"
+
+    errors = _ScriptedClassifier(
+        _fraud_decision(_BOTH_NEEDS, with_hours=False), RuntimeError("timeout")
+    )
+    decision, source = await ClassificationAgent(settings, errors).run_with_source("texto")
+    assert source != "FALLBACK"
+    assert decision.category is Category.REPORTE_FRAUDE
+
+
 async def test_fallback_classifier_is_conservative(settings) -> None:
     agent = ClassificationAgent(settings, provider=None)
     result = await agent.run("Tengo un movimiento no reconocido y posible fraude")

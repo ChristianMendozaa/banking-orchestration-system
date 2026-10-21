@@ -171,3 +171,14 @@ tarjeta perdida -- el intent es CONFIRM y esa preocupacion va en added_need, con
 No la pierdas y no la mezcles con el resumen aceptado.
 Deja corrected_request y added_need en null cuando no correspondan. No los rellenes con
 suposiciones."""
+
+
+# Sent on the one retry `ClassificationAgent` makes when a decision contradicts itself: a
+# customer_summary that reads back two needs with additional_needs empty would have the person
+# confirm a request the kiosk then silently drops (`multi_intencion`, 2026-10-21).
+CLASSIFICATION_NEEDS_FEEDBACK = (
+    "Una clasificación anterior de este mismo turno se descartó porque su customer_summary "
+    "nombraba más de una necesidad y additional_needs estaba vacío. Si la persona pidió cosas "
+    "distintas, devuelve cada una en additional_needs, como indica <varias_necesidades>. Si es "
+    "un mismo trámite, redacta customer_summary sin presentarlo como dos pedidos."
+)

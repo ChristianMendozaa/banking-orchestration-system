@@ -141,6 +141,13 @@ topic personal ("el saldo" after "algo de mi cuenta" resolves to "el saldo de mi
 When this changes what the floor would have enforced, the requirement's source is
 `MODEL+SCOPED`; a reply with no useful detail keeps the opener's signal.
 
+A decision that contradicts itself is classified once more before any floor runs: a
+`customer_summary` that reads back a further need ("…y también saber a qué hora abre") with
+`additional_needs` empty would have the person confirm a request the kiosk then drops. The
+retry tells the model what was inconsistent and its answer stands; the text is never split
+deterministically, because "bloquear tu tarjeta y también que te devuelvan el dinero" is one
+incident.
+
 Both loop counters are bounded, and neither ends in a dead session. When the clarification
 budget (`MAX_CLARIFICATIONS`) runs out, `force_human` drops the level to `GENERAL` -- asking
 for an identity card for a request nobody understood is the over-identification the policy

@@ -77,6 +77,18 @@ def grounded_answer_is_natural(text: str) -> bool:
     return not (_UNNATURAL_THIRD_PERSON_REFERENCE.search(text) or _CORPUS_REFERENCE.search(text))
 
 
+# A customer_summary reading back a further need: "...y también saber a qué hora abre". The
+# classification prompt asks the summary to enumerate every need it returns, so this next to
+# an empty additional_needs is the decision contradicting itself.
+_ENUMERATED_NEED = re.compile(
+    r"\s+(?:y|e)\s*,?\s*(?:luego|despu[eé]s|aparte|adem[aá]s|tambi[eé]n)\b", re.IGNORECASE
+)
+
+
+def summary_lists_an_unreturned_need(customer_summary: str, additional_needs: int) -> bool:
+    return additional_needs == 0 and bool(_ENUMERATED_NEED.search(customer_summary))
+
+
 def clarification_is_simple(text: str | None) -> bool:
     """A comprehension retry must be one short question about one concept."""
     if not text:

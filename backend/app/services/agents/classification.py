@@ -19,6 +19,7 @@ from app.services.agents.rules.language import (
     _SUMMARY_IS_A_QUESTION,
     customer_facing_text_is_natural,
     customer_summary_for,
+    summary_lists_an_unreturned_need,
 )
 from app.services.agents.rules.sensitivity import (
     _LEVEL_ORDER,
@@ -29,6 +30,7 @@ from app.services.agents.rules.sensitivity import (
 )
 from app.services.anthropic_provider import AnthropicProvider
 from app.services.intake import IntakePlanner
+from app.services.prompts import CLASSIFICATION_NEEDS_FEEDBACK
 
 logger = structlog.get_logger()
 
@@ -63,9 +65,8 @@ class ClassificationAgent:
         kiosk asked, as opposed to the accumulated `masked_text` it was appended to."""
         if self.provider:
             try:
-                decision = self._ensure_customer_language(
-                    await self.provider.classify(classification_input or masked_text)
-                )
+                decision = await self._classify_consistently(classification_input or masked_text)
+                decision = self._ensure_customer_language(decision)
                 decision, source = self._enforce_sensitivity(decision, masked_text, latest_reply)
                 decision = self._recover_omitted_security_need(decision, masked_text)
                 return self.intake_planner.plan(decision), source
@@ -77,6 +78,29 @@ class ClassificationAgent:
         # `_fallback` derives the level from the same keyword tables the floor uses, so
         # running the floor over it again would be a no-op.
         return self._fallback(masked_text), "FALLBACK"
+
+    async def _classify_consistently(self, payload: str) -> ClassificationDecision:
+        """One model decision, retried once when it contradicts itself.
+
+        A customer_summary that reads back a second need ("...y también saber a qué hora
+        abre") with no additional_needs gets confirmed by the person and then delivers only
+        the first need: `multi_intencion` lost the hours question this way in one of three
+        repetitions on 2026-10-21, on the exact sentence the other two split correctly. The
+        retry says what was wrong and lets the model decide again; the text is never split
+        here, because "bloquear tu tarjeta y también que te devuelvan el dinero" is one
+        incident, and a second answer that still disagrees with itself is kept as it is.
+        """
+        decision = await self.provider.classify(payload)
+        if not summary_lists_an_unreturned_need(
+            decision.customer_summary, len(decision.additional_needs)
+        ):
+            return decision
+        logger.info("classification_needs_retried", category=decision.category.value)
+        try:
+            return await self.provider.classify(payload, feedback=CLASSIFICATION_NEEDS_FEEDBACK)
+        except Exception as exc:
+            logger.warning("classification_needs_retry_failed", error_type=type(exc).__name__)
+            return decision
 
     @staticmethod
     def _enforce_sensitivity(
