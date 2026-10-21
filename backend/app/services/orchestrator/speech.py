@@ -71,6 +71,11 @@ VOICE_PRIVACY_NOTICE = (
     "Por seguridad, no digas números de tarjeta ni datos financieros en voz alta."
 )
 _VOICE_FINANCIAL_PII = {"TARJETA", "MONTO", "CUENTA"}
+# A volunteered PIN or password is a different warning from a card number read aloud: the
+# number is sensitive, the secret is something nobody -- the bank included -- may ever hear.
+CREDENTIAL_PRIVACY_NOTICE = (
+    "Por seguridad, nunca compartas tu PIN ni tus claves con nadie, ni siquiera con el banco."
+)
 
 
 def with_privacy_notice(
@@ -78,15 +83,21 @@ def with_privacy_notice(
     plan: SpeechPlan,
     pii_types: list[str],
 ) -> tuple[str, SpeechPlan]:
-    """Prepend immediate voice-safety guidance when this turn contained financial PII."""
-    if not _VOICE_FINANCIAL_PII.intersection(pii_types):
+    """Prepend immediate voice-safety guidance when this turn contained financial PII or a
+    credential, so the warning lands on the turn the person said it rather than later."""
+    notices = []
+    if "CREDENCIAL" in pii_types:
+        notices.append(CREDENTIAL_PRIVACY_NOTICE)
+    if _VOICE_FINANCIAL_PII.intersection(pii_types):
+        notices.append(VOICE_PRIVACY_NOTICE)
+    if not notices:
         return speech, plan
-    warned_speech = f"{VOICE_PRIVACY_NOTICE} {speech}"
+    warned_speech = " ".join([*notices, speech])
     return warned_speech, plan.model_copy(
         update={
-            "verbatim": list(dict.fromkeys([VOICE_PRIVACY_NOTICE, *plan.verbatim])),
+            "verbatim": list(dict.fromkeys([*notices, *plan.verbatim])),
             "guidance": (
-                "Primero repite la advertencia de `verbatim` sobre datos en voz alta. "
+                "Primero repite tal cual las advertencias de seguridad de `verbatim`. "
                 f"Después sigue esta instrucción: {plan.guidance}"
             ),
             "fallback_text": warned_speech,

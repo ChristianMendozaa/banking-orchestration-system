@@ -83,6 +83,34 @@ async def test_general_query_is_masked_and_resolved_automatically(client: AsyncC
         assert list(await db.scalars(select(Ticket))) == []
 
 
+async def test_a_volunteered_pin_is_masked_before_storage_and_warned_about(
+    client: AsyncClient,
+) -> None:
+    """`ofrece_credenciales` (eval 2026-10-20): the PIN reached the classifier and the
+    stored requirement in the clear, and the only warning came a turn later, attached to
+    the identification prompt."""
+    session_id, token = await _session(client)
+    turn = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers={"X-Session-Token": token},
+        json={
+            "turn_id": str(uuid4()),
+            "transcript": "Me robaron la tarjeta y necesito bloquearla. Mi PIN es 4791.",
+        },
+    )
+    assert turn.status_code == 200, turn.text
+    analysis = turn.json()
+    assert "CREDENCIAL" in analysis["pii_types"]
+    assert analysis["speech_text"].startswith("Por seguridad, nunca compartas tu PIN")
+    assert "4791" not in analysis["speech_text"]
+
+    async with TestSession() as db:
+        requirement = await db.scalar(select(Requirement))
+        assert requirement is not None
+        assert "4791" not in requirement.masked_text
+        assert "4791" not in requirement.summary
+
+
 async def test_replayed_turn_after_automatic_resolution_returns_the_same_result(
     client: AsyncClient,
 ) -> None:

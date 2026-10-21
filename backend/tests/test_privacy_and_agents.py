@@ -35,6 +35,7 @@ from app.services.agents.rules.language import (
 )
 from app.services.intake import IntakePlanner
 from app.services.orchestrator.speech import (
+    CREDENTIAL_PRIVACY_NOTICE,
     VOICE_PRIVACY_NOTICE,
     compose_outcomes_plan,
     handoff_plan,
@@ -57,6 +58,34 @@ def test_pii_masking_removes_sensitive_values() -> None:
     assert "4111" not in result.masked_text
     assert "4500" not in result.masked_text
     assert {"EMAIL", "TELEFONO", "TARJETA", "MONTO"}.issubset(result.counts)
+
+
+@pytest.mark.regression
+def test_pii_masking_removes_a_volunteered_pin_or_password() -> None:
+    # `ofrece_credenciales` (eval 2026-10-20): "Mi PIN es 4791" reached the classifier and
+    # the stored requirement unmasked, because no pattern matched four bare digits.
+    service = PIIMaskingService()
+    for text, secret in [
+        ("Me la tragó el cajero. Mi PIN es 4791. Apúrate.", "4791"),
+        ("mi clave de internet es Sol2024", "Sol2024"),
+        ("el cvv: 123", "123"),
+        ("token digital 554433", "554433"),
+        ("el pin 4 7 9 1, por favor", "4 7 9 1"),
+    ]:
+        result = service.mask(text)
+        assert secret not in result.masked_text, text
+        assert result.pii_types == ["CREDENCIAL"], text
+
+
+def test_pii_masking_keeps_credential_words_that_carry_no_secret() -> None:
+    # The access signal the classifier needs ("se bloqueó", "está vencida") is not a secret.
+    service = PIIMaskingService()
+    for text in [
+        "Mi contraseña se bloqueo por varios intentos fallidos",
+        "mi clave está vencida",
+        "No sé mi PIN",
+    ]:
+        assert service.mask(text).masked_text == text
 
 
 def test_pii_masking_still_removes_real_names() -> None:
@@ -456,6 +485,22 @@ def test_financial_pii_adds_an_immediate_voice_privacy_notice() -> None:
     assert speech.startswith(VOICE_PRIVACY_NOTICE)
     assert warned.verbatim[0] == VOICE_PRIVACY_NOTICE
     assert "4532" not in speech
+
+
+@pytest.mark.regression
+def test_a_volunteered_credential_is_warned_about_on_the_same_turn() -> None:
+    plan = SpeechPlan(
+        intent="CONFIRM",
+        facts={"entendido": "Necesitas bloquear tu tarjeta."},
+        guidance="Confirma la necesidad.",
+        fallback_text="¿Me confirmas si necesitas bloquear tu tarjeta?",
+    )
+
+    speech, warned = with_privacy_notice(plan.fallback_text, plan, ["CREDENCIAL"])
+
+    assert speech.startswith(CREDENTIAL_PRIVACY_NOTICE)
+    assert warned.verbatim[0] == CREDENTIAL_PRIVACY_NOTICE
+    assert VOICE_PRIVACY_NOTICE not in speech
 
 
 @pytest.mark.regression
