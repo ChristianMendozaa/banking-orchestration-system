@@ -285,6 +285,11 @@ def _chat(result: ScenarioResult) -> str:
                 f'<div class="msg kiosk"><span class="who">Kiosk</span>'
                 f"{_e(exchange.kiosk_speech)}</div>"
             )
+        if exchange.screen_text:
+            bubbles.append(
+                f'<div class="msg kiosk"><span class="who">Kiosk · screen</span>'
+                f"{_e(exchange.screen_text)}</div>"
+            )
         if exchange.error:
             bubbles.append(
                 f'<div class="msg error"><span class="who">API error</span>'

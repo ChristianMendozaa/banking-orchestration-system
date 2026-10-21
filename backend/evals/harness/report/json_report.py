@@ -99,6 +99,7 @@ def _result_to_dict(result: ScenarioResult) -> dict:
                 "action": exchange.tool,
                 "customer": exchange.customer_text,
                 "kiosk": exchange.kiosk_speech,
+                "screen": exchange.screen_text,
                 "latency_ms": exchange.latency_ms,
                 "error": exchange.error,
                 "decided": {

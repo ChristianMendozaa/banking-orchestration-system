@@ -108,6 +108,46 @@ def _correction_produced_a_new_requirement(
     ]
 
 
+async def drive_thanks_after_an_answer(session: ConversationSession) -> list[CheckResult]:
+    """Scripted so the goodbye is always said, word for word.
+
+    On 2026-10-20 the simulated customer happened to answer an automatic reply with "Ya
+    está, muchas gracias, eso era todo", and the kiosk opened a ticket for it. Whether the
+    customer model says goodbye is its own business; whether the kiosk handles a goodbye
+    is the kiosk's, so this scenario does not leave it to chance.
+    """
+    await session.send_turn(
+        "Buenas, ¿cuál es el horario de atención de esta sucursal?", is_clarification=False
+    )
+    answered = session.exchanges[-1].response if session.exchanges else {}
+    first_result = answered.get("result") or {}
+    await session.send_turn("Listo, muchas gracias, eso era todo.", is_clarification=False)
+    goodbye = session.exchanges[-1].response if len(session.exchanges) > 1 else {}
+    result = goodbye.get("result") or {}
+    plan = goodbye.get("speech_plan") or {}
+    return [
+        CheckResult(
+            "question_is_answered_before_the_goodbye",
+            first_result.get("resolution_type") == "AUTOMATIC",
+            f"resolution={first_result.get('resolution_type')}",
+        ),
+        CheckResult(
+            "goodbye_opens_nothing",
+            goodbye.get("next_action") == "COMPLETE"
+            and result.get("ticket") is None
+            and len(session.outcomes) == 1,
+            f"next_action={goodbye.get('next_action')} ticket={result.get('ticket')} "
+            f"casos={len(session.outcomes)}",
+        ),
+        CheckResult(
+            "goodbye_is_answered_with_a_goodbye",
+            plan.get("intent") == "FAREWELL" and result.get("conversation_can_continue") is False,
+            f"intent={plan.get('intent')} "
+            f"puede_continuar={result.get('conversation_can_continue')}",
+        ),
+    ]
+
+
 SCENARIOS = [
     Scenario(
         name="ambiguo_persistente",
@@ -267,5 +307,29 @@ SCENARIOS = [
             ),
         ),
         expectation_checks=_second_question_was_also_answered,
+    ),
+    Scenario(
+        name="despedida_tras_respuesta",
+        tags=("flow", "rag", "closing"),
+        description="The customer says thanks and goodbye after an automatic answer.",
+        goal=(
+            "Preguntas el horario de la sucursal y, cuando el kiosco responde, das las "
+            "gracias y te despides. Guionizado: ver drive_thanks_after_an_answer."
+        ),
+        style=CALMADO,
+        script=drive_thanks_after_an_answer,
+        expected=ExpectedOutcome(
+            consultation_level=("GENERAL",),
+            resolution_type="AUTOMATIC",
+            grounding_status=("GROUNDED",),
+            requires_citations=True,
+            identification="NONE",
+            policy_notes=(
+                "A thank-you after an answered question is the end of the conversation, not "
+                "a new request. The kiosk must answer the question from the corpus, then "
+                "say goodbye without opening a second case, a ticket or another question, "
+                "and without reading the answer again."
+            ),
+        ),
     ),
 ]

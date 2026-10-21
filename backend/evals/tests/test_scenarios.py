@@ -67,8 +67,10 @@ _SCRIPTED_GROUPS = {"protocol", "asr_noise"}
 # `prompt_injection` is the one scripted scenario outside those groups: its whole
 # point is one fixed adversarial string, and a CLI-backed customer may decline to utter it
 # (on 2026-08-18 one did, and the empty session scored the kiosk 1/10 for a security test it
-# was never given). Everything else conversational must stay improvised.
-_SCRIPTED_OUTSIDE_PROTOCOL = {"prompt_injection"}
+# was never given). `despedida_tras_respuesta` is scripted for the same reason: its premise is
+# that the goodbye is said, and the simulated customer is told to end with TERMINATE rather
+# than say it. Everything else conversational must stay improvised.
+_SCRIPTED_OUTSIDE_PROTOCOL = {"prompt_injection", "despedida_tras_respuesta"}
 
 
 def test_only_protocol_scenarios_and_known_exceptions_are_scripted() -> None:

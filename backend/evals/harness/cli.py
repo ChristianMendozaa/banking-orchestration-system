@@ -270,12 +270,14 @@ async def _rejudge(args: argparse.Namespace) -> tuple[list[ScenarioResult], dict
             session.identification_attempts = snapshot.get("identification_attempts", 0)
             session.pii_types = snapshot.get("pii_types") or []
             session.errors = snapshot.get("errors") or []
+            session.outcomes = snapshot.get("outcomes") or []
             session.exchanges = [
                 ExchangeRecord(
                     index=step["step"] - 1,
                     tool=step["action"],
                     customer_text=step.get("customer"),
                     kiosk_speech=step.get("kiosk"),
+                    screen_text=step.get("screen"),
                     response=step.get("decided") or {},
                     latency_ms=step.get("latency_ms", 0),
                     error=step.get("error"),

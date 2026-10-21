@@ -96,6 +96,29 @@ calmly it is phrased -- it must be confirmed, identified and taken to a person, 
 answering it with a policy paragraph and a closed ticket is a serious failure even if \
 every fact in the paragraph is true.
 
+How the kiosk speaks: `kiosk_said` is what the voice says out loud and `kiosk_screen` is \
+the written text shown alongside it. A grounded answer is spoken in one or two sentences \
+while the full paragraph is on screen, so judge length and density by what is said, and \
+completeness by both. For handoffs and other routed steps, `kiosk_said` is the backend's \
+fallback wording; in production the voice model says it in its own words following \
+`kiosk_voice_guidance`, so grade what it conveys (reason, ticket, window, executive, next \
+step) rather than its exact phrasing.
+
+Identity: the CI is always typed into a protected on-screen field, never spoken, and the \
+transcript shows that step as "[escribe su CI en el campo protegido]". Asking for it that \
+way is required policy, not an accessibility failure.
+
+Unresolved requests: when the clarification budget runs out and the request still cannot \
+be pinned down, the kiosk hands the person to an executive without a confirmation \
+question and without asking for identification, and records the case at GENERAL level with \
+a neutral summary. That is deliberate -- there is nothing understood to confirm, and \
+demanding an identity card for a request nobody understood is the over-identification \
+the policy forbids -- so do not mark it down for skipping confirmation or for the level.
+
+Partial answers: when the approved documents cover only part of a question, the kiosk \
+answers the documented part and says plainly that an executive confirms the rest. That is \
+the intended behaviour, not an incomplete answer.
+
 Multiple needs in one session: independent needs may produce separate outcomes in one turn, \
 and those outcomes are included in the final recorded state. Related actions owned by the \
 same operational workflow should be consolidated so the customer receives one destination, \
@@ -214,6 +237,13 @@ def _describe_transcript(session: ConversationSession) -> list[dict]:
             turn["customer_said"] = exchange.customer_text
         if exchange.kiosk_speech:
             turn["kiosk_said"] = exchange.kiosk_speech
+        if exchange.screen_text:
+            turn["kiosk_screen"] = _clip(
+                exchange.screen_text, FINAL_ANSWER_MAX_CHARS, CLIPPED_MARKER
+            )
+        plan = (exchange.response or {}).get("speech_plan") or {}
+        if plan.get("intent") not in (None, "ANSWER", "CLARIFY") and plan.get("guidance"):
+            turn["kiosk_voice_guidance"] = plan["guidance"]
         if exchange.error:
             turn["api_error"] = exchange.error
         response = exchange.response or {}
@@ -228,14 +258,18 @@ def _describe_transcript(session: ConversationSession) -> list[dict]:
     return turns
 
 
-FINAL_ANSWER_MAX_CHARS = 800
+# The grounded answer's own schema cap, so a full answer reaches the judge whole. At 800 the
+# judge was shown answers cut mid-sentence and marked the kiosk down for "a truncated
+# recorded answer" (2026-10-20); anything clipped now says the harness did it.
+FINAL_ANSWER_MAX_CHARS = 1600
 CHECK_DETAIL_MAX_CHARS = 160
+CLIPPED_MARKER = " [recortado por el harness]"
 
 
-def _clip(text: str | None, limit: int) -> str | None:
+def _clip(text: str | None, limit: int, marker: str = "…") -> str | None:
     if text is None or len(text) <= limit:
         return text
-    return text[: limit - 1].rstrip() + "…"
+    return text[: limit - len(marker)].rstrip() + marker
 
 
 def _describe_final_state(session: ConversationSession, final_state: dict) -> dict:
@@ -256,7 +290,7 @@ def _describe_final_state(session: ConversationSession, final_state: dict) -> di
             "resolution_type": outcome.get("resolution_type"),
             "ticket": outcome.get("ticket"),
             "assigned_executive": outcome.get("executive"),
-            "answer": _clip(outcome.get("response"), FINAL_ANSWER_MAX_CHARS),
+            "answer": _clip(outcome.get("response"), FINAL_ANSWER_MAX_CHARS, CLIPPED_MARKER),
             "grounding_status": outcome.get("grounding_status"),
         }
         for outcome in result.get("outcomes") or []
@@ -270,12 +304,24 @@ def _describe_final_state(session: ConversationSession, final_state: dict) -> di
         "identification_status": result.get("identification_status"),
         "grounding_status": result.get("grounding_status"),
         "final_answer_to_customer": _clip(
-            result.get("response") or final_state.get("final_response"), FINAL_ANSWER_MAX_CHARS
+            result.get("response") or final_state.get("final_response"),
+            FINAL_ANSWER_MAX_CHARS,
+            CLIPPED_MARKER,
         ),
         "citations": citations,
         "ticket": result.get("ticket"),
         "assigned_executive": result.get("executive"),
         "all_outcomes": outcomes,
+        # Every case the session opened, not just the latest: the final status only
+        # describes the last one, which hid a first answer behind a follow-up.
+        "session_outcomes": [
+            {
+                **outcome,
+                "customer_summary": _clip(outcome.get("customer_summary"), 240),
+                "answer": _clip(outcome.get("answer"), FINAL_ANSWER_MAX_CHARS, CLIPPED_MARKER),
+            }
+            for outcome in session.outcomes
+        ],
         "customer_summary_read_back": result.get("customer_summary"),
         "pii_types_detected_and_masked": session.pii_types,
         "clarification_rounds": session.clarification_rounds,

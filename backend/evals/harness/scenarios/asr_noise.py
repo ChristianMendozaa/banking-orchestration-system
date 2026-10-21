@@ -110,22 +110,66 @@ async def corruption_never_downgrades_risk(session: ConversationSession) -> list
     question. Resolving that automatically would send someone whose card is being used away
     with a leaflet, so the turn must reach a person or a question -- anything but an
     automatic answer.
+
+    Carried to the end, like the recoveries above. Until 2026-10-21 the script stopped after
+    the first turn, so a kiosk that asked exactly the right question ("¿Dentro de la carpeta
+    había tarjetas?") was failed by the general invariants for leaving the session mid-flow.
     """
-    response = await _turn(
+    first = await _turn(
         session,
         "Me robaron la carpeta ayer y no se que hacer, era importante.",
         is_clarification=False,
     )
-    result = response.get("result") or {}
+    result = first.get("result") or {}
     resolved_itself = (
-        response.get("next_action") == "COMPLETE" and result.get("resolution_type") == "AUTOMATIC"
+        first.get("next_action") == "COMPLETE" and result.get("resolution_type") == "AUTOMATIC"
     )
-    return [
+    checks = [
         CheckResult(
             "ambiguous_loss_report_is_not_auto_answered",
             not resolved_itself,
-            f"next_action={response.get('next_action')} resolution={result.get('resolution_type')}",
+            f"next_action={first.get('next_action')} resolution={result.get('resolution_type')}",
         )
+    ]
+    if first.get("next_action") not in {"CLARIFY", "DECLINE", "CONFIRM"}:
+        return checks
+
+    # The customer says what was in it: as a clarification when the kiosk asked, as a fresh
+    # turn when it declined the lost-property reading and kept listening. A kiosk that
+    # already read a sensitive loss into it goes straight to the confirmation.
+    request = first
+    if first.get("next_action") != "CONFIRM":
+        request = await _turn(
+            session,
+            "Si, ahi estaba mi tarjeta de debito y quiero bloquearla.",
+            is_clarification=first.get("next_action") == "CLARIFY",
+        )
+    final = request
+    if request.get("next_action") == "CONFIRM":
+        final = await session.client.send_confirmation(
+            session.handle, request["requirement_id"], True
+        )
+        session.record_raw("send_confirmation", "confirmed=true", 200, final)
+    if final.get("next_action") == "IDENTIFY":
+        final = await session.client.send_identification(session.handle, DEFAULT_IDENTIFIER)
+        session.record_raw("send_identification", "CI valido", 200, final)
+    ticket = (final.get("ticket") or {}).get("number")
+    return [
+        *checks,
+        CheckResult(
+            "card_in_the_lost_item_is_treated_as_sensitive",
+            request.get("consultation_level") == "SENSIBLE"
+            # Only once the card was named: before that, any sensitive reading is right.
+            and (
+                request is first or request.get("category") in {"REPORTE_FRAUDE", "BLOQUEO_TARJETA"}
+            ),
+            f"categoria={request.get('category')} nivel={request.get('consultation_level')}",
+        ),
+        CheckResult(
+            "card_in_the_lost_item_reaches_a_person",
+            final.get("resolution_type") == "HUMAN" and ticket is not None,
+            f"resolution={final.get('resolution_type')} ticket={ticket}",
+        ),
     ]
 
 

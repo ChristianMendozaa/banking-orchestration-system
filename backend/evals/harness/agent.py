@@ -32,13 +32,13 @@ CUSTOMER_MAX_TOKENS = 4096
 # identification, a second requirement -- needs about half of this; the cap only stops a
 # customer that keeps calling tools after the kiosk has nothing left to say.
 MAX_TOOL_ITERATIONS = 12
-# Thinking is off. The customer is role-play plus picking one of three tools against an
-# explicit next_action instruction -- it does not need deep reasoning, and a customer that
-# reasons less is also less likely to second-guess its way off the persona's script. It
-# also keeps runs comparable with every earlier report, all of which ran without it.
-# `{"type": "disabled"}` is accepted by Claude Haiku 5.5 at its default effort, but is a
-# 400 on Claude Sonnet 5.5 and Claude Opus 5.5 -- the customer is meant to stay on Haiku.
-CUSTOMER_THINKING = {"type": "disabled"}
+# Adaptive thinking at the lowest effort, rather than thinking turned off. The customer is
+# role-play plus picking one of three tools, so it needs little reasoning -- but effort is
+# the control Claude Haiku 5.5 is built around, and with thinking disabled the 2026-10-20
+# run's customer answered "the session is still open, re-read your goal" with a goodbye
+# through `send_turn` instead of TERMINATE. Effort also keeps working if `--customer-model`
+# points at a model that rejects `{"type": "disabled"}`.
+CUSTOMER_EFFORT = "low"
 
 
 def _tool(name: str, properties: dict[str, dict]) -> ToolParam:
@@ -88,17 +88,18 @@ aunque creas que ya dijiste todo:
 - CAPTURE: el kiosco pide que vuelvas a describir tu situacion; responde con send_turn \
 e is_clarification=false (no es una aclaracion, es un requerimiento nuevo).
 - IDENTIFY: responde con send_identification.
-- COMPLETE: el kiosco resolvio o encamino lo que pediste. Si la herramienta te dice que \
-la sesion termino, responde exactamente TERMINATE. Si te dice que la sesion sigue abierta, \
-relee tu objetivo antes de terminar: si incluye algo que todavia no planteaste, plantealo \
-ahora con send_turn e is_clarification=false. Solo responde TERMINATE cuando hayas cubierto \
-todo tu objetivo.
+- COMPLETE: el kiosco resolvio o encamino lo que pediste. Si la sesion termino, responde \
+exactamente TERMINATE. Si sigue abierta, relee tu objetivo: si incluye algo que todavia no \
+planteaste, plantealo ahora con send_turn e is_clarification=false; si ya lo cubriste todo, \
+responde exactamente TERMINATE. Despedirte o agradecer no es parte de tu objetivo: no lo \
+hagas con send_turn.
 - DECLINE: el kiosco no puede ayudarte con esto y la sesion termino; responde exactamente \
 TERMINATE. No insistas ni vuelvas a llamar send_turn.
 
 No llames a send_confirmation ni a send_identification si el kiosco no lo pidio. No dejes \
 la conversacion a medias: solo respondes TERMINATE cuando una herramienta indique COMPLETE \
-o informe un error.
+o informe un error. Despues de cada herramienta puede llegarte un mensaje de sistema del \
+entorno de prueba con la siguiente indicacion; siguela.
 """
 
 _WITH_CI = """\
@@ -136,6 +137,7 @@ class SimulatedCustomer:
         self._client = client
         self._model = model
         self._scenario = scenario
+        self._session = session
         self._system = build_system_message(scenario)
         self._handlers = {tool["name"]: getattr(session, tool["name"]) for tool in CUSTOMER_TOOLS}
 
@@ -153,7 +155,7 @@ class SimulatedCustomer:
                 # One call per response: two `send_turn`s racing on one kiosk session
                 # would test the harness's concurrency, not the kiosk.
                 tool_choice={"type": "auto", "disable_parallel_tool_use": True},
-                thinking=CUSTOMER_THINKING,
+                output_config={"effort": CUSTOMER_EFFORT},
                 messages=messages,
             )
             # The whole content goes back, not just the text, so tool_use blocks (and any
@@ -173,6 +175,12 @@ class SimulatedCustomer:
                 if block.type == "tool_use"
             ]
             messages.append({"role": "user", "content": results})
+            # The tool result carries only what the kiosk did. What the harness wants next
+            # goes in its own mid-conversation system message: the model reads instructions
+            # inside a tool result as possibly injected text and may not follow them.
+            directive = self._session.take_directive()
+            if directive:
+                messages.append({"role": "system", "content": directive})
 
     async def _call_tool(
         self, tool_use_id: str, name: str, arguments: dict[str, Any]

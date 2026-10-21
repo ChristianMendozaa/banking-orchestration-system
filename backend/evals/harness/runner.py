@@ -167,6 +167,7 @@ async def run_scenario(
             "pii_types": session.pii_types,
             "errors": session.errors,
             "grounding_detail": (final_state.get("result") or {}).get("grounding_detail", {}),
+            "outcomes": session.outcomes,
         }
         result.checks = [
             *evaluator.evaluate(scenario=scenario, session=session, final_state=final_state),
