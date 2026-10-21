@@ -89,5 +89,6 @@ es otro asunto del mismo producto.
 # Sent on the one retry `KnowledgeService.answer` makes when an answer used usted.
 GROUNDED_ANSWER_LANGUAGE_FEEDBACK = (
     "Una versión anterior de esta respuesta se descartó porque trataba de usted a quien "
-    "pregunta. Escribe `answer` y `spoken` de tú, como indica <como_hablar>."
+    "pregunta o mencionaba la evidencia o los documentos. Escribe `answer` y `spoken` de tú "
+    "y da los datos directamente, como indica <como_hablar>."
 )

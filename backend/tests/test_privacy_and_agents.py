@@ -168,6 +168,22 @@ def test_grounded_answer_naturalness_allows_third_person_verbs_about_the_bank() 
     assert grounded_answer_is_natural(plausible_credit_answer) is True
 
 
+def test_grounded_answer_naturalness_rejects_usted_imperatives_and_corpus_talk() -> None:
+    for text in [
+        "Recuerde presentar primero el reclamo.",
+        "Así que confirme antes de venir.",
+        "La evidencia documenta transferencias y pagos.",
+        "Según lo publicado, atienden hasta las 19:00.",
+    ]:
+        assert not grounded_answer_is_natural(text), text
+    for text in [
+        "Recuerda presentar primero el reclamo.",
+        "El banco puede pedir tu documento.",
+        "Trae los documentos que te piden para abrir la cuenta.",
+    ]:
+        assert grounded_answer_is_natural(text), text
+
+
 def test_grounded_answer_naturalness_still_rejects_third_person_customer_references() -> None:
     assert grounded_answer_is_natural("El cliente debe presentar su documento de identidad.") is (
         False

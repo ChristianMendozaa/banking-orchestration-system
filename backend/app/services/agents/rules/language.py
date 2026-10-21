@@ -64,8 +64,17 @@ def customer_facing_text_is_natural(text: str) -> bool:
     return not _UNNATURAL_CUSTOMER_LANGUAGE.search(text)
 
 
+# The person at the kiosk does not know a corpus exists, so an answer that cites "la
+# evidencia" reads like an internal note ("La evidencia documenta...", 2026-10-21).
+_CORPUS_REFERENCE = re.compile(
+    r"\b(?:la|esta|seg[uú]n\s+la)\s+evidencia\b|\bseg[uú]n\s+lo\s+publicado\b|"
+    r"\b(?:los|estos)\s+documentos\s+(?:indican|se[nñ]alan|documentan|dicen|mencionan)\b",
+    re.IGNORECASE,
+)
+
+
 def grounded_answer_is_natural(text: str) -> bool:
-    return not _UNNATURAL_THIRD_PERSON_REFERENCE.search(text)
+    return not (_UNNATURAL_THIRD_PERSON_REFERENCE.search(text) or _CORPUS_REFERENCE.search(text))
 
 
 def clarification_is_simple(text: str | None) -> bool:
