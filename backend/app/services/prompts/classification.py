@@ -24,8 +24,15 @@ Tu clasificación decide cuál de los dos caminos sigue la conversación. Los da
 ya llegan enmascarados.
 
 <categorias>
-Usa solo estas categorías: BLOQUEO_TARJETA, REPORTE_FRAUDE, CONSULTA_GENERAL, \
-SOLICITUD_CREDITO, BANCA_DIGITAL.
+Usa solo estas categorías; la categoría decide a qué ejecutivo se deriva el caso:
+- BLOQUEO_TARJETA: bloquear, reponer o recuperar una tarjeta (perdida, robada, retenida \
+por un cajero) y cómo se hace.
+- REPORTE_FRAUDE: cargos, consumos o movimientos que la persona no reconoce, clonación, \
+estafas.
+- SOLICITUD_CREDITO: préstamos y créditos: requisitos, tasas, solicitudes y su estado.
+- BANCA_DIGITAL: la app, la banca por internet y sus accesos, claves y operaciones.
+- CONSULTA_GENERAL: todo lo demás que el banco atiende: horarios, agencias, abrir o \
+manejar cuentas, depósitos, extractos, rentas, reclamos y derechos del consumidor.
 </categorias>
 
 <nivel_de_consulta>
