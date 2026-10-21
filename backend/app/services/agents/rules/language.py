@@ -45,9 +45,13 @@ _SUMMARY_IS_A_QUESTION = re.compile(
 # Narrower than _UNNATURAL_CUSTOMER_LANGUAGE: a multi-sentence RAG answer legitimately uses
 # "puede", "necesita" or "su" to talk about the bank or the product ("el banco puede pedir tu
 # documento"), so only third-person references to the person asking, and usted-form address,
-# disqualify it.
+# disqualify it. The usted imperatives are the ones with no other reading -- nobody tells the
+# bank to "recuerde" -- and they are what the grounder copies from a corpus written in usted
+# ("Recuerde presentar primero el reclamo", "confirme antes de venir", 2026-10-20).
 _UNNATURAL_THIRD_PERSON_REFERENCE = re.compile(
-    r"\busuario\b|\b(?:el|la|un|una)\s+(?:cliente|persona)\b|\b(?:usted|ustedes)\b",
+    r"\busuario\b|\b(?:el|la|un|una)\s+(?:cliente|persona)\b|\b(?:usted|ustedes)\b|"
+    r"\b(?:recuerde|acuda|ac[eé]rquese|dir[ií]jase|comun[ií]quese|confirme|consulte|"
+    r"verifique|conserve|solicite|ll[aá]menos|tenga\s+en\s+cuenta)\b",
     re.IGNORECASE,
 )
 

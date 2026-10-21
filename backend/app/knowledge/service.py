@@ -9,12 +9,13 @@ from app.core.config import Settings
 from app.core.metrics import GROUNDING_ATTEMPTS, STAGE_DURATION
 from app.db.models import RAGInteraction
 from app.domain.enums import Category, GroundingAttemptOutcome
-from app.domain.schemas import GroundedResponse, GroundingAttempt
+from app.domain.schemas import GroundedAnswerDecision, GroundedResponse, GroundingAttempt
 from app.knowledge.repository import KnowledgeRepository, RetrievedChunk
 from app.services.anthropic_provider import AnthropicProvider
 from app.services.openai_provider import OpenAIProvider
+from app.services.prompts import GROUNDED_ANSWER_LANGUAGE_FEEDBACK
 
-PROMPT_VERSION = "rag-v3-hybrid"
+PROMPT_VERSION = "rag-v4-coverage"
 logger = structlog.get_logger()
 
 
@@ -86,14 +87,25 @@ class KnowledgeService:
 
             with STAGE_DURATION.labels(stage="ground").time():
                 decision = await self.answerer.grounded_answer(masked_query, chunks)
+            if answer_validator and not _reads_naturally(decision, answer_validator):
+                # One more try with the reason spelled out. The grounder copies the register
+                # of the evidence, and the corpus is written in usted; rejecting outright
+                # would send a question the corpus answers to a queue over a verb ending.
+                diagnostics["answer_language_retried"] = True
+                with STAGE_DURATION.labels(stage="ground").time():
+                    decision = await self.answerer.grounded_answer(
+                        masked_query, chunks, language_feedback=GROUNDED_ANSWER_LANGUAGE_FEEDBACK
+                    )
             allowed = {index: item for index, item in enumerate(chunks, start=1)}
             cited = list(dict.fromkeys(decision.cited_evidence_refs))
-            diagnostics["supported"] = decision.supported
+            diagnostics["coverage"] = decision.coverage.value
+            diagnostics["missing"] = decision.missing
+            diagnostics["supported"] = decision.answers_something
             diagnostics["cited_evidence_refs"] = cited
             diagnostics["cited_chunk_ids"] = [
                 str(allowed[ref].chunk.id) for ref in cited if ref in allowed
             ]
-            if not decision.supported:
+            if not decision.answers_something:
                 return await self._finish(
                     db,
                     case_id,
@@ -120,7 +132,7 @@ class KnowledgeService:
                 spoken=decision.spoken.strip() or decision.answer.strip(),
                 citations=[allowed[ref].citation() for ref in cited],
             )
-            if answer_validator and not answer_validator(response.answer):
+            if answer_validator and not _reads_naturally(response, answer_validator):
                 diagnostics["answer_language_rejected"] = True
                 return await self._finish(
                     db,
@@ -257,3 +269,10 @@ class KnowledgeService:
             )
         )
         return GroundingAttempt(outcome=outcome, response=response, diagnostics=diagnostics)
+
+
+def _reads_naturally(
+    answer: GroundedAnswerDecision | GroundedResponse, validator: Callable[[str], bool]
+) -> bool:
+    # Both renderings: the spoken one is what the person actually hears.
+    return validator(answer.answer) and (not answer.spoken or validator(answer.spoken))

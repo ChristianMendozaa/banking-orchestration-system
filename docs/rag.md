@@ -28,8 +28,9 @@ An automatic response requires all of the following:
 2. The query has already been masked.
 3. Retrieved documents are active, within their review period, category-compatible, and above the configured similarity threshold.
 4. The prompt context stays within the configured token budget.
-5. The orchestration model (Claude Haiku 5.5) returns a supported structured response with at least one citation.
+5. The orchestration model (Claude Haiku 5.5) returns a structured response with at least one citation and a `coverage` verdict of `FULL` or `PARTIAL`. `PARTIAL` means the question has several parts and the evidence answers some of them: the answer gives the documented part and says, in one sentence, that an executive confirms the rest. A `PARTIAL` that does not name its gap in `missing` is refused, and `NONE` (including evidence about a neighbouring matter) routes to a person.
 6. Every cited chunk belongs to the exact retrieved evidence set.
+7. Both renderings — the screen `answer` and the `spoken` one — address the person as *tú*. An answer in *usted* (the corpus's own register) is regenerated once with the reason spelled out, and rejected as `ANSWER_LANGUAGE_REJECTED` if it comes back in *usted* again.
 
 Every retrieval attempt records its outcome, prompt version, retrieved chunk metadata, and an answer hash when applicable. The raw generated answer is not duplicated in the RAG audit record.
 

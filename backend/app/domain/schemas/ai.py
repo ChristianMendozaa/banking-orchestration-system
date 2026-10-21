@@ -15,6 +15,7 @@ from app.domain.enums import (
     ConfirmationIntent,
     ConsultationLevel,
     GroundingAttemptOutcome,
+    GroundingCoverage,
 )
 
 
@@ -29,18 +30,33 @@ class KnowledgeCitation(BaseModel):
 
 
 class GroundedAnswerDecision(BaseModel):
+    # The verdict comes first, before any answer text, so the answer is written to fit the
+    # verdict rather than the verdict rationalising an answer already written. It is three
+    # ways rather than a boolean because "documents and income are published, the credit
+    # bureau is not" is neither supported nor unsupported, and a boolean made the model
+    # throw the documented half away along with the gap.
+    coverage: GroundingCoverage
+    # What the evidence does not answer, when coverage is PARTIAL -- the answer says so out
+    # loud, and the knowledge service refuses a PARTIAL that cannot name its own gap.
+    missing: str | None = Field(default=None, max_length=300)
+    # Request-local ordinal references, never database identifiers. Asking a model to copy
+    # UUIDs made a one-character transcription error turn an otherwise grounded answer into
+    # INVALID_CITATIONS. The knowledge service maps these small integers back to the real
+    # chunk IDs and remains the only authority that can construct a KnowledgeCitation.
+    cited_evidence_refs: list[int] = Field(default_factory=list)
     answer: str = Field(min_length=1, max_length=1600)
     # The same answer said out loud. A kiosk is a conversation, not a document: the full
     # `answer` belongs on screen and in the audit trail, and reading it aloud word for word
     # is what made the voice channel sound like a document reader. Both come out of the one
     # grounding call, so brevity costs no extra round trip and stays bound to the evidence.
     spoken: str = Field(min_length=1, max_length=400)
-    supported: bool
-    # Request-local ordinal references, never database identifiers. Asking a model to copy
-    # UUIDs made a one-character transcription error turn an otherwise grounded answer into
-    # INVALID_CITATIONS. The knowledge service maps these small integers back to the real
-    # chunk IDs and remains the only authority that can construct a KnowledgeCitation.
-    cited_evidence_refs: list[int] = Field(default_factory=list)
+
+    @property
+    def answers_something(self) -> bool:
+        """Whether there is a grounded answer to give at all."""
+        if self.coverage is GroundingCoverage.PARTIAL:
+            return bool((self.missing or "").strip())
+        return self.coverage is GroundingCoverage.FULL
 
 
 class GroundedResponse(BaseModel):

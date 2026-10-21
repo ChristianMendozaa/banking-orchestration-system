@@ -89,8 +89,15 @@ class AnthropicProvider:
         return _parsed(response, "Claude no devolvio una lectura de confirmacion estructurada")
 
     async def grounded_answer(
-        self, summary: str, chunks: list["RetrievedChunk"]
+        self,
+        summary: str,
+        chunks: list["RetrievedChunk"],
+        *,
+        language_feedback: str | None = None,
     ) -> GroundedAnswerDecision:
+        """`language_feedback` is the reason a previous answer to this same question was
+        discarded. It goes in the user turn, after the evidence, so the cached system prompt
+        stays byte-identical on the retry."""
         evidence = "\n\n".join(
             f'<evidence ref="{index}" document="{item.document.title}" '
             f'page="{item.chunk.page}">\n{item.chunk.content}\n</evidence>'
@@ -106,12 +113,13 @@ class AnthropicProvider:
                     "content": (
                         f"Sucursal actual del kiosco: {self.settings.branch_name}\n"
                         f"Consulta enmascarada: {summary}\n\nEvidencia:\n{evidence}"
+                        + (f"\n\n{language_feedback}" if language_feedback else "")
                     ),
                 }
             ],
             # Same blocking turn as `classify`, immediately after it. This is the call that
-            # decides whether the evidence really answers the question, and a wrong
-            # "supported" reads invented banking information to a customer. See
+            # decides how much of the question the evidence answers, and a wrong coverage
+            # verdict reads invented banking information to a customer. See
             # `grounding_reasoning_effort` in core/config.py.
             output_config={"effort": self.settings.grounding_reasoning_effort},
             output_format=GroundedAnswerDecision,

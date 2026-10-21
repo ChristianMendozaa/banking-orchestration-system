@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from app.domain.enums import Category, ConfirmationIntent, ConsultationLevel
+from app.domain.enums import Category, ConfirmationIntent, ConsultationLevel, GroundingCoverage
 from app.domain.schemas import (
     ClassificationDecision,
     ConfirmationReading,
@@ -103,14 +103,14 @@ async def test_grounded_answer_sends_branch_and_numbered_evidence() -> None:
         GroundedAnswerDecision(
             answer="Atención de lunes a viernes.",
             spoken="Atención de lunes a viernes.",
-            supported=True,
+            coverage=GroundingCoverage.FULL,
             cited_evidence_refs=[1],
         )
     )
 
     grounded = await provider.grounded_answer("horarios", [_chunk()])
 
-    assert grounded.supported is True
+    assert grounded.coverage is GroundingCoverage.FULL
     call = provider.client.messages.parse.call_args.kwargs
     assert call["system"][0]["text"] == GROUNDED_ANSWER_SYSTEM_PROMPT
     content = call["messages"][0]["content"]
@@ -119,6 +119,24 @@ async def test_grounded_answer_sends_branch_and_numbered_evidence() -> None:
     assert '<evidence ref="1" document="Horarios" page="3">' in content
     assert call["output_format"] is GroundedAnswerDecision
     assert call["output_config"] == {"effort": "medium"}
+
+
+async def test_language_feedback_rides_in_the_user_turn_not_the_cached_system() -> None:
+    provider = _provider()
+    provider.client.messages.parse.return_value = _message(
+        GroundedAnswerDecision(
+            coverage=GroundingCoverage.FULL,
+            cited_evidence_refs=[1],
+            answer="Atención de lunes a viernes.",
+            spoken="Atención de lunes a viernes.",
+        )
+    )
+
+    await provider.grounded_answer("horarios", [_chunk()], language_feedback="Habla de tú.")
+
+    call = provider.client.messages.parse.call_args.kwargs
+    assert call["system"][0]["text"] == GROUNDED_ANSWER_SYSTEM_PROMPT
+    assert call["messages"][0]["content"].endswith("\n\nHabla de tú.")
 
 
 @pytest.mark.parametrize(

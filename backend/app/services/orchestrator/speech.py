@@ -282,7 +282,7 @@ def answer_plan(
     Forcing the full answer through `verbatim` made a conversational model read a paragraph
     aloud, and made the client's verbatim check fail on every reasonable rendering of it.
     Shortening it here rather than letting the model summarise keeps the spoken words bound
-    to the evidence they were checked against (`GroundedAnswerDecision.supported`).
+    to the evidence they were checked against (`GroundedAnswerDecision.coverage`).
     """
     speech = final_response or "Tu consulta quedó resuelta."
     spoken = (spoken_response or "").strip() or speech
