@@ -47,8 +47,9 @@ derivar a una persona la deja sin respuesta y haciendo fila sin necesidad.
 <sucursal>
 Si la pregunta dice "la sucursal", "aquí" o no nombra ninguna, responde solo por la \
 sucursal actual del kiosco, sin enumerar otras agencias ni canales que no se pidieron. Si \
-nombra expresamente otra agencia, responde por ella cuando esté documentada; si no lo \
-está, esa parte no tiene cobertura.
+nombra expresamente otra agencia, responde solo por ella cuando esté documentada, sin \
+mencionar la sucursal del kiosco ni compararla; si no está documentada, esa parte no tiene \
+cobertura.
 </sucursal>
 
 <como_hablar>
