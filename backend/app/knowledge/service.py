@@ -3,6 +3,7 @@ from collections.abc import Callable, Sequence
 from uuid import UUID
 
 import structlog
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
@@ -160,6 +161,13 @@ class KnowledgeService:
                 "rag_provider_error",
                 case_id=str(case_id) if case_id else None,
                 error_type=type(exc).__name__,
+                # Which fields failed, never their values: enough to tell a length overrun
+                # from a missing field without copying answer text into the logs.
+                invalid_fields=[
+                    ".".join(str(part) for part in error["loc"]) for error in exc.errors()
+                ]
+                if isinstance(exc, ValidationError)
+                else None,
             )
             return await self._finish(
                 db,

@@ -437,3 +437,27 @@ async def test_grounding_needs_both_the_embedder_and_the_answerer(provider, answ
         )
     assert attempt.outcome == GroundingAttemptOutcome.PROVIDER_UNAVAILABLE
     assert attempt.response is None
+
+
+def test_a_grounded_answer_over_its_length_is_cut_at_a_sentence_not_rejected() -> None:
+    """Structured outputs do not enforce `max_length`; a few characters over the cap failed
+    validation and discarded a grounded answer as PROVIDER_ERROR (2026-10-21)."""
+    sentence = "Puedes abrir la cuenta en cualquier agencia con tu carnet vigente. "
+    decision = GroundedAnswerDecision.model_validate(
+        {
+            "coverage": "FULL",
+            "answer": sentence * 40,
+            "spoken": sentence * 10,
+            "cited_evidence_refs": [1],
+        }
+    )
+    assert len(decision.answer) <= 1600
+    assert decision.answer.endswith("vigente.")
+    assert len(decision.spoken) <= 400
+    assert decision.spoken.endswith("vigente.")
+
+
+def test_cited_evidence_refs_are_required_in_the_grounding_schema() -> None:
+    """With a default the field was optional in the JSON schema the model is constrained
+    to, and FULL verdicts came back with no references (INVALID_CITATIONS, 2026-10-21)."""
+    assert "cited_evidence_refs" in GroundedAnswerDecision.model_json_schema()["required"]

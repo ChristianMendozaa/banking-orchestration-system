@@ -62,8 +62,6 @@ publicado".
 </como_hablar>
 
 <campos>
-- `cited_evidence_refs`: los números `ref` de los bloques que respaldan directamente lo \
-que respondes, copiados tal cual.
 - `answer`: la respuesta completa, con todo el detalle que la evidencia respalde. Es la que \
 se muestra en pantalla y queda en el registro.
 - `spoken`: esa misma respuesta dicha en voz alta, en una o dos frases directas, sin \
@@ -71,6 +69,9 @@ listas, con los datos concretos que se pidieron y con cualquier condición o exc
 cambie lo que la persona debe hacer. No agregues nada que no esté en `answer`, y no la \
 conviertas en un resumen vago: quien la escuche debe quedar respondido sin leer la \
 pantalla.
+- `cited_evidence_refs`: los números `ref` de todos los bloques que respaldan lo que \
+respondiste, copiados tal cual. Con FULL o PARTIAL siempre hay al menos uno: una respuesta \
+sin referencias no se puede mostrar.
 - Con PARTIAL, `answer` y `spoken` dan primero lo documentado y terminan con una frase que \
 dice qué no puedes confirmar aquí y que eso te lo responde un ejecutivo, por ejemplo: \
 "Sobre el plazo de entrega no tengo información confirmada aquí; eso te lo confirma un \
