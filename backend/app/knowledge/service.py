@@ -87,7 +87,11 @@ class KnowledgeService:
 
             with STAGE_DURATION.labels(stage="ground").time():
                 decision = await self.answerer.grounded_answer(masked_query, chunks)
-            if answer_validator and not _reads_naturally(decision, answer_validator):
+            if (
+                answer_validator
+                and decision.answers_something
+                and not _reads_naturally(decision, answer_validator)
+            ):
                 # One more try with the reason spelled out. The grounder copies the register
                 # of the evidence, and the corpus is written in usted; rejecting outright
                 # would send a question the corpus answers to a queue over a verb ending.
