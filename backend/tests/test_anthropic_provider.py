@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import structlog.testing
 
 from app.domain.enums import Category, ConfirmationIntent, ConsultationLevel, GroundingCoverage
 from app.domain.schemas import (
@@ -119,6 +120,27 @@ async def test_grounded_answer_sends_branch_and_numbered_evidence() -> None:
     assert '<evidence ref="1" document="Horarios" page="3">' in content
     assert call["output_format"] is GroundedAnswerDecision
     assert call["output_config"] == {"effort": "medium"}
+
+
+async def test_each_call_logs_its_tokens_and_latency() -> None:
+    provider = _provider()
+    message = _message(_decision())
+    message.usage = SimpleNamespace(
+        input_tokens=40,
+        cache_read_input_tokens=1800,
+        cache_creation_input_tokens=0,
+        output_tokens=120,
+    )
+    provider.client.messages.parse.return_value = message
+
+    with structlog.testing.capture_logs() as logs:
+        await provider.classify("horarios")
+
+    [entry] = [log for log in logs if log["event"] == "anthropic_call"]
+    assert entry["route"] == "classify"
+    assert entry["cache_read_input_tokens"] == 1800
+    assert entry["output_tokens"] == 120
+    assert entry["latency_ms"] >= 0
 
 
 async def test_language_feedback_rides_in_the_user_turn_not_the_cached_system() -> None:
