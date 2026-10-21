@@ -20,6 +20,7 @@ from app.domain.enums import Category, ClarificationOutcome, ConsultationLevel
 from app.domain.schemas import ClassificationDecision
 from app.services.agents import ClassificationAgent, category_from_keywords, sensitivity_floor
 from app.services.agents.classification import SCOPED_FLOOR_SOURCE
+from app.services.agents.rules.sensitivity import requests_money_movement
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
@@ -358,3 +359,17 @@ def test_outside_a_clarification_the_whole_text_is_read() -> None:
     reply = "Quiero saber el horario de atención de la sucursal."
     decision, _ = _enforce(_OPENER_WITH_ASIDE, reply, _clarified(), scoped=False)
     assert decision.consultation_level is ConsultationLevel.SENSIBLE
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Quiero transferir [MONTO] de mi cuenta a la cuenta de mi mamá, ahora mismo.", True),
+        ("Necesito retirar plata de mi cuenta.", True),
+        ("Quiero saber cómo transferir desde la app.", False),
+        ("¿La app sirve para hacer transferencias?", False),
+        ("Quiero bloquear mi tarjeta.", False),
+    ],
+)
+def test_a_request_to_move_money_is_told_apart_from_a_question_about_it(text, expected) -> None:
+    assert requests_money_movement(text) is expected

@@ -347,6 +347,9 @@ only HTTP entry point into them.
    plan and `conversation_can_continue=false`, and the requirement is stored inactive with
    `classification_source="CLOSING"` for idempotency and audit. It is honoured only after
    the kiosk has answered something in the session.
+10. A human handoff states why: a public question the corpus could not answer says the kiosk
+    has no confirmed information on it, and a request for the kiosk to move money says the
+    kiosk makes no transfers, instead of the generic per-category reason.
 
 The realtime agent has no tools; the browser decides where each transcribed turn goes
 (analysis, confirmation, or nowhere) from reconciled business state, and RAG,

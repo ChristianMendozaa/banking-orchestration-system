@@ -34,6 +34,7 @@ from app.domain.schemas import (
     TicketResult,
     TurnAnalysisResponse,
 )
+from app.services.agents.rules.sensitivity import requests_money_movement
 from app.services.graph.state import CLOSING_SOURCE
 from app.services.orchestrator.speech import (
     CAPTURE_SPEECH_TEXT,
@@ -342,6 +343,7 @@ async def build_result(
                 else None
             ),
             unanswered_question=primary_case.grounding_status is GroundingStatus.NO_EVIDENCE,
+            money_movement=requests_money_movement(primary_requirement.masked_text),
         )
     elif primary_ticket:
         speech, plan = pending_assignment_plan(primary_ticket.number)

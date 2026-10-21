@@ -128,6 +128,27 @@ def security_incident_category(masked_text: str) -> Category | None:
     return None
 
 
+# Asking the kiosk to move money -- "quiero transferir [MONTO] a la cuenta de mi mamá". The
+# kiosk executes no transaction, and a handoff that only says "para resolver tu caso" leaves
+# the person expecting the transfer at the window to be the kiosk's doing.
+_MONEY_MOVEMENT = re.compile(
+    r"\b(?:quiero|quisiera|necesito|deseo|vengo\s+a|vine\s+a|me\s+puedes|puedes|"
+    r"podr[ií]as|hazme|haz|h[aá]game)\s+(?:que\s+me\s+)?"
+    r"(?:transferir|hacer\s+una\s+transferencia|depositar|retirar|girar|enviar|mandar|"
+    r"pasar)\b|\btransfi[eé]re(?:me|le)\b",
+    re.IGNORECASE,
+)
+
+
+def requests_money_movement(masked_text: str) -> bool:
+    """Whether the customer asks the kiosk itself to move money, not how it is done."""
+    return bool(
+        _MONEY_MOVEMENT.search(masked_text)
+        and not _INFORMATION_REQUEST.search(masked_text)
+        and not _HYPOTHETICAL.search(masked_text)
+    )
+
+
 def requests_service_action(masked_text: str) -> bool:
     """Whether the customer wants a bank operation started, not merely explained."""
     return bool(

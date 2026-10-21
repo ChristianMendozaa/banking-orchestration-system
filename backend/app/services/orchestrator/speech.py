@@ -64,6 +64,12 @@ _UNANSWERED_AREAS = {
 }
 
 
+MONEY_MOVEMENT_HANDOFF_REASON = (
+    "Desde este kiosco no puedo hacer transferencias ni mover dinero, así que te derivo con "
+    "un ejecutivo que puede ayudarte con eso."
+)
+
+
 def unanswered_handoff_reason(category: Category) -> str:
     area = _UNANSWERED_AREAS.get(category, "")
     return (
@@ -319,15 +325,20 @@ def handoff_plan(
     urgent_case: bool,
     unresolved_summary: str | None = None,
     unanswered_question: bool = False,
+    money_movement: bool = False,
 ) -> tuple[str, SpeechPlan]:
     """A named executive at a named window. Returns the written rendering and the plan.
 
     `unanswered_question` is a public-information question the corpus could not answer,
-    which needs its own reason: the per-category one assumes a case to work on."""
+    which needs its own reason: the per-category one assumes a case to work on.
+    `money_movement` is a request for the kiosk to move money, which it never does: the
+    reason says so, so the person does not leave thinking the kiosk started a transfer."""
     if unresolved_summary:
         reason = f"Voy a derivarte con un ejecutivo para ayudarte. {unresolved_summary}"
     elif unanswered_question:
         reason = unanswered_handoff_reason(category)
+    elif money_movement:
+        reason = MONEY_MOVEMENT_HANDOFF_REASON
     else:
         reason = HANDOFF_REASONS.get(category, "")
     urgent = URGENT_HANDOFF_REASSURANCE if urgent_case else ""

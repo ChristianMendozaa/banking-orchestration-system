@@ -1168,6 +1168,58 @@ async def test_a_deferred_aside_does_not_send_a_clarified_question_to_a_window(
         app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
 
 
+class _TransferProvider(type(fake_provider)):
+    async def classify(self, _: str) -> ClassificationDecision:
+        return ClassificationDecision(
+            summary="Quiere transferir dinero a la cuenta de su madre",
+            customer_summary="Quieres transferir dinero a la cuenta de tu mamá.",
+            category=Category.BANCA_DIGITAL,
+            consultation_level=ConsultationLevel.SENSIBLE,
+            confidence=0.9,
+            ambiguous=False,
+        )
+
+
+async def test_a_transfer_request_is_told_the_kiosk_moves_no_money(client: AsyncClient) -> None:
+    """`solicita_transaccion` (eval 2026-10-21): the handoff said only "para resolver tu
+    caso", never that the kiosk itself cannot make the transfer."""
+    provider = _TransferProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        session_id, token = await _session(client)
+        headers = {"X-Session-Token": token}
+        turn = await _turn_with(
+            client, session_id, token, "Quiero transferir Bs 500 a la cuenta de mi mamá ahora."
+        )
+        analysis = turn.json()
+        assert analysis["next_action"] == "CONFIRM"
+        await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={"requirement_id": analysis["requirement_id"], "confirmed": True},
+        )
+        identification = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/identification",
+            headers=headers,
+            json={"identifier": "6735666"},
+        )
+        assert identification.status_code == 200, identification.text
+        motivo = identification.json()["speech_plan"]["facts"]["motivo"]
+        assert motivo.startswith("Desde este kiosco no puedo hacer transferencias")
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
 async def _turn_with(client: AsyncClient, session_id: str, token: str, transcript: str):
     return await client.post(
         f"/api/v1/kiosk/sessions/{session_id}/turns",
