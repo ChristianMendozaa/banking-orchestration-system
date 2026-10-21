@@ -229,6 +229,8 @@ async def mask_pii(state: OrchestrationState, runtime: Runtime[GraphContext]) ->
     )
     return {
         "masked_context": context,
+        # Only a clarification has an accumulated context to tell apart from the reply.
+        "latest_masked_reply": masked.masked_text if clarification is not None else None,
         "classification_input": as_classification_input(dialogue),
         "previous_routing_category": previous_routing_category,
         "previous_clarification_question": previous_clarification_question,
@@ -239,7 +241,9 @@ async def mask_pii(state: OrchestrationState, runtime: Runtime[GraphContext]) ->
 async def classify(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
     with STAGE_DURATION.labels(stage="classify").time():
         decision, source = await runtime.context.classifier.run_with_source(
-            state["masked_context"], state["classification_input"]
+            state["masked_context"],
+            state["classification_input"],
+            latest_reply=state.get("latest_masked_reply"),
         )
     if (
         decision.clarification_outcome

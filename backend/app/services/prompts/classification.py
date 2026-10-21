@@ -123,6 +123,10 @@ frase: `latest_customer_reply` responde a `previous_kiosk_question`, `recent_exc
 conversación previa en orden, `active_topic` el asunto que se venía tratando y \
 `resolved_topics` lo que el kiosco ya respondió. Sirven para entender a qué se refiere la \
 persona; no son pedidos pendientes y nunca se convierten en `additional_needs`.
+Cuando la respuesta a una aclaración precisa la necesidad, clasifica esa necesidad: lo que \
+la persona mencionó al pasar en su primer turno y dejó para después ("tenía que hacer otro \
+trámite, pero eso después te cuento") no decide su nivel. Si después lo plantea, se \
+clasifica en su propio turno.
 </conversacion>
 
 <senales>

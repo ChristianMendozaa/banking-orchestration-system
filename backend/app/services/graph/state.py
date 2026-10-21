@@ -79,6 +79,9 @@ class OrchestrationState(TypedDict, total=False):
 
     # turn_graph working state.
     masked_context: str
+    # The clarification reply on its own, without the opener it is appended to in
+    # `masked_context`. None outside a clarification turn.
+    latest_masked_reply: str | None
     classification_input: str
     previous_routing_category: Category
     previous_clarification_question: str

@@ -1089,6 +1089,85 @@ async def test_thanks_with_nothing_answered_yet_is_not_a_goodbye(
         )
 
 
+class _AsideThenHoursProvider(type(fake_provider)):
+    """A vague opener with a deferred aside about the person's account, then branch hours."""
+
+    async def classify(self, masked: str) -> ClassificationDecision:
+        dialogue = json.loads(masked).get("dialogue", {}) if masked.startswith("{") else {}
+        if not dialogue.get("previous_kiosk_question"):
+            return ClassificationDecision(
+                summary="Quiere saber algo del banco, sin precisar",
+                customer_summary="Necesitas orientación sobre una consulta bancaria.",
+                category=Category.CONSULTA_GENERAL,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.3,
+                ambiguous=True,
+                clarification_question="¿Qué te gustaría saber del banco?",
+            )
+        return ClassificationDecision(
+            summary="Necesita el horario de atencion de la sucursal",
+            customer_summary="Necesitas el horario de atención de la sucursal.",
+            category=Category.CONSULTA_GENERAL,
+            consultation_level=ConsultationLevel.GENERAL,
+            confidence=0.92,
+            ambiguous=False,
+            clarification_outcome=ClarificationOutcome.PROVIDED_DETAIL,
+            standalone_question="¿Cuál es el horario de atención de la sucursal?",
+        )
+
+
+async def test_a_deferred_aside_does_not_send_a_clarified_question_to_a_window(
+    client: AsyncClient,
+) -> None:
+    """`horarios_ambiguo` (eval 2026-10-21): "tenía que hacer un trámite de mi cuenta pero
+    eso después le cuento" in the opener made the floor raise the clarified hours question
+    to SENSIBLE -- confirmation, a CI and a ticket for branch hours."""
+    provider = _AsideThenHoursProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        session_id, token = await _session(client)
+        headers = {"X-Session-Token": token}
+        opener = await _turn_with(
+            client,
+            session_id,
+            token,
+            "Quisiera saber algo del banco, y también tenía que hacer un trámite de mi "
+            "cuenta pero eso después le cuento.",
+        )
+        assert opener.json()["next_action"] == "CLARIFY"
+        clarified = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={
+                "turn_id": str(uuid4()),
+                "transcript": "Quiero saber el horario de atención de la sucursal.",
+                "is_clarification": True,
+            },
+        )
+        assert clarified.status_code == 200, clarified.text
+        body = clarified.json()
+        assert body["consultation_level"] == "GENERAL"
+        assert body["next_action"] == "COMPLETE"
+        assert body["result"]["resolution_type"] == "AUTOMATIC"
+        async with TestSession() as db:
+            requirement = await db.scalar(
+                select(Requirement).where(Requirement.classification_source == "MODEL+SCOPED")
+            )
+            assert requirement is not None
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
 async def _turn_with(client: AsyncClient, session_id: str, token: str, transcript: str):
     return await client.post(
         f"/api/v1/kiosk/sessions/{session_id}/turns",

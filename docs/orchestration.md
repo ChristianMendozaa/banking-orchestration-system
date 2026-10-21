@@ -130,6 +130,17 @@ lowers it. Over-classification costs one confirmation turn; under-classification
 identification and human escalation outright. The keyword tables are shared with the offline
 fallback, so a floor and the fallback it mirrors cannot drift apart.
 
+The floor has two halves of different strength. `incident_floor` (a fraud report, an
+incident that already happened) always reads the whole accumulated conversation. On a
+clarification turn whose reply supplied the detail (`PROVIDED_DETAIL`), `possession_floor`
+("mi cuenta", "mi trámite", a requested operation) reads only that reply plus the
+classifier's `standalone_question`: the opener is the part the kiosk could not understand,
+and an aside in it ("tenía que hacer un trámite de mi cuenta, pero eso después le cuento")
+must not make a clarified branch-hours question personal. The restatement keeps a personal
+topic personal ("el saldo" after "algo de mi cuenta" resolves to "el saldo de mi cuenta").
+When this changes what the floor would have enforced, the requirement's source is
+`MODEL+SCOPED`; a reply with no useful detail keeps the opener's signal.
+
 Both loop counters are bounded, and neither ends in a dead session. When the clarification
 budget (`MAX_CLARIFICATIONS`) runs out, `force_human` drops the level to `GENERAL` -- asking
 for an identity card for a request nobody understood is the over-identification the policy

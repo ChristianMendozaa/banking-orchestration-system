@@ -147,13 +147,29 @@ def sensitivity_floor(masked_text: str, category: Category) -> ConsultationLevel
     answer comes from RAG (`InitialAttentionAgent.run`) -- so a single intermittent GENERAL
     from the model costs identification and human escalation in one HTTP request. The floor
     only ever raises: the model stays in charge of everything it is better at.
+
+    It is the two halves below together. They are separate because they are not equally
+    strong evidence: see `ClassificationAgent._enforce_sensitivity` for where that matters.
     """
+    return incident_floor(masked_text, category) or possession_floor(masked_text, category)
+
+
+def incident_floor(masked_text: str, category: Category) -> ConsultationLevel | None:
+    """Something has happened to this person's card, money or access. Strong evidence: it
+    holds for the whole conversation, wherever in it the person said it."""
     if category is Category.REPORTE_FRAUDE:
         # A fraud report is, by definition, about this person's own money. A purely
         # informational question about fraud classifies as CONSULTA_GENERAL instead.
         return ConsultationLevel.SENSIBLE
     if _reports_an_incident(masked_text):
         return ConsultationLevel.SENSIBLE
+    return None
+
+
+def possession_floor(masked_text: str, category: Category) -> ConsultationLevel | None:
+    """The person names something of their own ("mi cuenta", "mi trámite") or asks for an
+    operation on it. Weaker evidence: it makes a request personal, but only the request it
+    is said about."""
     preventive = bool(_HYPOTHETICAL.search(masked_text))
     if not preventive and _OWN_BANKING_OBJECT.search(masked_text):
         return ConsultationLevel.SENSIBLE

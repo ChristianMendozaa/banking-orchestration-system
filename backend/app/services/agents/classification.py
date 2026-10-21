@@ -11,7 +11,7 @@ The prompt this sends lives in `app.services.prompts.classification`.
 import structlog
 
 from app.core.config import Settings
-from app.domain.enums import Category, ConsultationLevel
+from app.domain.enums import Category, ClarificationOutcome, ConsultationLevel
 from app.domain.schemas import ClassificationDecision, ClassifiedNeed
 from app.services.agents.rules.categories import category_from_keywords
 from app.services.agents.rules.language import (
@@ -22,6 +22,8 @@ from app.services.agents.rules.language import (
 )
 from app.services.agents.rules.sensitivity import (
     _LEVEL_ORDER,
+    incident_floor,
+    possession_floor,
     security_incident_category,
     sensitivity_floor,
 )
@@ -29,6 +31,11 @@ from app.services.anthropic_provider import AnthropicProvider
 from app.services.intake import IntakePlanner
 
 logger = structlog.get_logger()
+
+# `Requirement.classification_source` when the possession floor was read against the
+# clarification alone and that changed what it would have enforced: the requirement, and the
+# trace event of any case opened from it, record that the opener's signal was not applied.
+SCOPED_FLOOR_SOURCE = "MODEL+SCOPED"
 
 
 class ClassificationAgent:
@@ -47,14 +54,19 @@ class ClassificationAgent:
         return decision
 
     async def run_with_source(
-        self, masked_text: str, classification_input: str | None = None
+        self,
+        masked_text: str,
+        classification_input: str | None = None,
+        latest_reply: str | None = None,
     ) -> tuple[ClassificationDecision, str]:
+        """`latest_reply` is set only on a clarification turn: what the person said when the
+        kiosk asked, as opposed to the accumulated `masked_text` it was appended to."""
         if self.provider:
             try:
                 decision = self._ensure_customer_language(
                     await self.provider.classify(classification_input or masked_text)
                 )
-                decision, source = self._enforce_sensitivity(decision, masked_text)
+                decision, source = self._enforce_sensitivity(decision, masked_text, latest_reply)
                 decision = self._recover_omitted_security_need(decision, masked_text)
                 return self.intake_planner.plan(decision), source
             except Exception as exc:
@@ -68,19 +80,49 @@ class ClassificationAgent:
 
     @staticmethod
     def _enforce_sensitivity(
-        decision: ClassificationDecision, masked_text: str
+        decision: ClassificationDecision, masked_text: str, latest_reply: str | None = None
     ) -> tuple[ClassificationDecision, str]:
         """Raises the model's consultation level to the deterministic floor when the text
         says the request is about this person's own money, plastic or access. Never lowers
         it -- the model is better than any keyword list at the calls this doesn't cover, and
         an over-classification only costs one confirmation turn, while an
-        under-classification costs identification and human escalation outright."""
-        floor = sensitivity_floor(masked_text, decision.category)
+        under-classification costs identification and human escalation outright.
+
+        On a clarification that supplied the detail (PROVIDED_DETAIL), the possession half
+        of the floor reads only what the person said when asked, plus the classifier's
+        context-resolved restatement of it. The opener is by definition the part the kiosk
+        could not understand, and an aside in it -- "tenía que hacer un trámite de mi
+        cuenta, pero eso después le cuento" -- turned a branch-hours question into
+        identification and a ticket (`horarios_ambiguo`, 2026-10-21). The restatement keeps
+        a personal topic personal: "el saldo", said after "algo de mi cuenta", comes back
+        as "el saldo de mi cuenta". The incident half always reads the whole conversation:
+        a theft mentioned in the opener is never scoped away."""
+        category = decision.category
+        floor = sensitivity_floor(masked_text, category)
+        scoped = (
+            latest_reply is not None
+            and decision.clarification_outcome is ClarificationOutcome.PROVIDED_DETAIL
+        )
+        if scoped:
+            current = f"{latest_reply}\n{decision.standalone_question or ''}"
+            scoped_floor = incident_floor(masked_text, category) or possession_floor(
+                current, category
+            )
+            if scoped_floor != floor:
+                logger.info(
+                    "classification_floor_scoped",
+                    category=category.value,
+                    accumulated_floor=floor.value if floor else None,
+                    scoped_floor=scoped_floor.value if scoped_floor else None,
+                )
+                floor = scoped_floor
+            else:
+                scoped = False
         if floor is None or _LEVEL_ORDER[floor] <= _LEVEL_ORDER[decision.consultation_level]:
-            return decision, "MODEL"
+            return decision, SCOPED_FLOOR_SOURCE if scoped else "MODEL"
         logger.warning(
             "classification_level_raised",
-            category=decision.category.value,
+            category=category.value,
             model_level=decision.consultation_level.value,
             enforced_level=floor.value,
         )
