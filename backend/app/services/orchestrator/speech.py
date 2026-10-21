@@ -54,6 +54,23 @@ HANDOFF_REASONS = {
 }
 URGENT_HANDOFF_REASSURANCE = " Este caso se está atendiendo como prioritario."
 
+# A question the corpus could not answer is not a trámite or a case: HANDOFF_REASONS told
+# someone who had just said "todavía no tengo ningún trámite" that they were being sent on
+# "para continuar tu trámite", and never said why the kiosk had no answer for them.
+_UNANSWERED_AREAS = {
+    Category.SOLICITUD_CREDITO: " de créditos",
+    Category.BANCA_DIGITAL: " de banca digital",
+    Category.REPORTE_FRAUDE: " de prevención de fraude",
+}
+
+
+def unanswered_handoff_reason(category: Category) -> str:
+    area = _UNANSWERED_AREAS.get(category, "")
+    return (
+        "No tengo esa información confirmada aquí, así que te derivo con un ejecutivo"
+        f"{area} que puede responderte."
+    )
+
 
 # What belongs in `verbatim` and what belongs in `facts` -- see the module docstring. The
 # short version: operational tokens that carry a digit (ticket number, wait estimate,
@@ -285,13 +302,18 @@ def handoff_plan(
     assignment: ExecutiveAssignment,
     urgent_case: bool,
     unresolved_summary: str | None = None,
+    unanswered_question: bool = False,
 ) -> tuple[str, SpeechPlan]:
-    """A named executive at a named window. Returns the written rendering and the plan."""
-    reason = (
-        f"Voy a derivarte con un ejecutivo para ayudarte. {unresolved_summary}"
-        if unresolved_summary
-        else HANDOFF_REASONS.get(category, "")
-    )
+    """A named executive at a named window. Returns the written rendering and the plan.
+
+    `unanswered_question` is a public-information question the corpus could not answer,
+    which needs its own reason: the per-category one assumes a case to work on."""
+    if unresolved_summary:
+        reason = f"Voy a derivarte con un ejecutivo para ayudarte. {unresolved_summary}"
+    elif unanswered_question:
+        reason = unanswered_handoff_reason(category)
+    else:
+        reason = HANDOFF_REASONS.get(category, "")
     urgent = URGENT_HANDOFF_REASSURANCE if urgent_case else ""
     wait_message = (
         f" La espera estimada es de {estimated_wait_minutes} minutos."

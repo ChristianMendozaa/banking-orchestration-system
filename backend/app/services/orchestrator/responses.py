@@ -334,6 +334,7 @@ async def build_result(
                 if primary_requirement.intent_status is IntentStatus.UNRESOLVED
                 else None
             ),
+            unanswered_question=primary_case.grounding_status is GroundingStatus.NO_EVIDENCE,
         )
     elif primary_ticket:
         speech, plan = pending_assignment_plan(primary_ticket.number)

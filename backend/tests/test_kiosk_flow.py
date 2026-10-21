@@ -458,6 +458,12 @@ async def test_general_inquiry_outside_consulta_general_reports_true_no_evidence
     result = analysis["result"]
     assert result["resolution_type"] == "HUMAN"
     assert result["grounding_status"] == "NO_EVIDENCE"
+    # `requisitos_credito_general` (eval 2026-10-20): the per-category reason told someone
+    # who had no application yet "para continuar tu trámite", and never said why.
+    motivo = result["speech_plan"]["facts"]["motivo"]
+    assert "trámite" not in motivo
+    assert motivo.startswith("No tengo esa información confirmada aquí")
+    assert "de créditos" in motivo
 
     async with TestSession() as db:
         events = list(
