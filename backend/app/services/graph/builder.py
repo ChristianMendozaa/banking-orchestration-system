@@ -33,6 +33,7 @@ def build_turn_graph(finalize_subgraph):
     builder.add_node("force_human", turn_nodes.force_human)
     builder.add_node("accept", turn_nodes.accept)
     builder.add_node("decline", turn_nodes.decline)
+    builder.add_node("close_conversation", turn_nodes.close_conversation)
     builder.add_node("persist_requirement", turn_nodes.persist_requirement)
     builder.add_node("auto_capture", turn_nodes.auto_capture)
     builder.add_node("finalize", finalize_subgraph)
@@ -47,12 +48,14 @@ def build_turn_graph(finalize_subgraph):
             "force_human": "force_human",
             "accept": "accept",
             "decline": "decline",
+            "close_conversation": "close_conversation",
         },
     )
     builder.add_edge("clarify", "persist_requirement")
     builder.add_edge("force_human", "persist_requirement")
     builder.add_edge("accept", "persist_requirement")
     builder.add_edge("decline", "persist_requirement")
+    builder.add_edge("close_conversation", "persist_requirement")
     # A confident GENERAL classification (see turn_nodes.requires_confirmation) skips the
     # confirmation round-trip and runs straight through the same finalize subgraph a
     # confirmed requirement uses -- clarify/force_human/decline never set auto_resolve, so

@@ -104,3 +104,7 @@ class ClassificationDecision(BaseModel):
     # made, so context costs no additional round trip -- and it stays a *proposal*: the
     # backend still decides sensitivity, state and whether the turn may resolve at all.
     standalone_question: str | None = Field(default=None, max_length=400)
+    # "Ya está, gracias, eso era todo": the person ends the conversation and asks nothing new.
+    # Honoured only after the kiosk has already answered something in this session (see
+    # `turn_nodes.route_ambiguity`); anywhere else the turn is classified as usual.
+    closing_turn: bool = False

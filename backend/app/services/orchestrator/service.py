@@ -48,6 +48,7 @@ from app.services.orchestrator.responses import (
     identification_result,
     reconfirm_result,
 )
+from app.services.orchestrator.speech import FAREWELL_SPEECH_TEXT, farewell_plan
 from app.services.pii import PIIMaskingService
 
 
@@ -96,6 +97,8 @@ class OrchestratorService:
         # straight through the shared finalize subgraph (turn_nodes.auto_capture) or when
         # guard_turn replayed an already-resolved turn_id -- every other path here still
         # ends in NEEDS_CLARIFICATION / AWAITING_CONFIRMATION / DECLINED, handled below.
+        if final_state.get("next_action") == "CLOSE_CONVERSATION":
+            return await self._farewell(db, kiosk_session, final_state["requirement"])
         if final_state.get("next_action") == "BUILD_RESULT":
             await self.outcome_coordinator.finalize_plan(
                 db,
@@ -109,6 +112,23 @@ class OrchestratorService:
         return analysis_response(
             final_state["kiosk_session"], final_state["requirement"], self.settings
         )
+
+    async def _farewell(
+        self, db: AsyncSession, kiosk_session: KioskSession, requirement: Requirement
+    ) -> TurnAnalysisResponse:
+        """The session's existing result, said goodbye over. The answer stays in `outcomes`
+        for the record, but leaves `response`: the voice client hands `response` to the
+        model as the grounded answer, and reading it again is not a goodbye."""
+        result = await build_result(db, kiosk_session.id, self.repository, self.settings)
+        result = result.model_copy(
+            update={
+                "response": None,
+                "speech_text": FAREWELL_SPEECH_TEXT,
+                "speech_plan": farewell_plan(),
+                "conversation_can_continue": False,
+            }
+        )
+        return completed_analysis_response(kiosk_session, requirement, result)
 
     async def _lock_session(self, db: AsyncSession, session_id: UUID) -> KioskSession:
         statement = (

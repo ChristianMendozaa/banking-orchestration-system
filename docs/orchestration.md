@@ -161,6 +161,7 @@ graph TD;
 	force_human(force_human)
 	accept(accept)
 	decline(decline)
+	close_conversation(close_conversation)
 	persist_requirement(persist_requirement)
 	auto_capture(auto_capture)
 	finalize(finalize)
@@ -171,8 +172,10 @@ graph TD;
 	clarify --> persist_requirement;
 	classify -.-> accept;
 	classify -.-> clarify;
+	classify -.-> close_conversation;
 	classify -.-> decline;
 	classify -.-> force_human;
+	close_conversation --> persist_requirement;
 	decline --> persist_requirement;
 	force_human --> persist_requirement;
 	guard_turn -.-> __end__;
@@ -327,7 +330,12 @@ only HTTP entry point into them.
 9. A further question after an automatic answer reopens the session
    (`RESOLVED_AUTOMATIC` -> `LISTENING`, per-need counters reset) and produces a second
    auditable case without a ticket. `ASSIGNED` sessions are excluded -- an executive
-   already holds that case.
+   already holds that case. A turn that only ends the conversation ("ya está, gracias,
+   eso era todo"), classified `closing_turn` with no other need, opens nothing: the
+   session stays `RESOLVED_AUTOMATIC`, the response is `COMPLETE` with a `FAREWELL` speech
+   plan and `conversation_can_continue=false`, and the requirement is stored inactive with
+   `classification_source="CLOSING"` for idempotency and audit. It is honoured only after
+   the kiosk has answered something in the session.
 
 The realtime agent has no tools; the browser decides where each transcribed turn goes
 (analysis, confirmation, or nowhere) from reconciled business state, and RAG,

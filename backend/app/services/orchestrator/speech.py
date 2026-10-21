@@ -146,6 +146,22 @@ def decline_plan(*, conversation_can_continue: bool) -> SpeechPlan:
     )
 
 
+FAREWELL_SPEECH_TEXT = "Con gusto. Que te vaya muy bien."
+
+
+def farewell_plan() -> SpeechPlan:
+    """The person said they have everything they needed. Nothing is opened and nothing more
+    is asked: a question here is what kept the conversation going after a goodbye."""
+    return SpeechPlan(
+        intent="FAREWELL",
+        guidance=(
+            "Despídete en una frase breve y cordial. No hagas otra pregunta ni ofrezcas nada "
+            "más: la persona ya terminó."
+        ),
+        fallback_text=FAREWELL_SPEECH_TEXT,
+    )
+
+
 def clarify_plan(question: str) -> SpeechPlan:
     return SpeechPlan(
         intent="CLARIFY",

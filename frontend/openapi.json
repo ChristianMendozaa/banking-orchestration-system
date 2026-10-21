@@ -1972,7 +1972,8 @@
               "CAPTURE",
               "IDENTIFY",
               "ANSWER",
-              "HANDOFF"
+              "HANDOFF",
+              "FAREWELL"
             ],
             "title": "Intent",
             "type": "string"

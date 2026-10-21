@@ -34,6 +34,7 @@ from app.domain.schemas import (
     TicketResult,
     TurnAnalysisResponse,
 )
+from app.services.graph.state import CLOSING_SOURCE
 from app.services.orchestrator.speech import (
     CAPTURE_SPEECH_TEXT,
     DECLINE_SPEECH_TEXT,
@@ -230,9 +231,15 @@ async def build_result(
     settings: Settings,
 ) -> FlowResult:
 
+    # A closing turn ("gracias, eso era todo") leaves a requirement with no case behind it;
+    # the result is still the last thing the kiosk resolved.
     primary_requirement = await db.scalar(
         select(Requirement)
-        .where(Requirement.session_id == session_id, Requirement.need_index == 0)
+        .where(
+            Requirement.session_id == session_id,
+            Requirement.need_index == 0,
+            Requirement.classification_source != CLOSING_SOURCE,
+        )
         .order_by(Requirement.created_at.desc())
         .limit(1)
     )

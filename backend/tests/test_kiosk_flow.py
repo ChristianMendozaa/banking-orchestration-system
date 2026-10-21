@@ -954,6 +954,115 @@ class _DeclinesOffTopicProvider:
         )
 
 
+class _ClosingProvider(type(fake_provider)):
+    """Reads "gracias" as the end of the conversation and anything else as branch hours."""
+
+    async def classify(self, masked: str) -> ClassificationDecision:
+        try:
+            reply = json.loads(masked)["dialogue"]["latest_customer_reply"]
+        except (ValueError, KeyError, TypeError):
+            reply = masked
+        closing = "gracias" in reply.lower()
+        return ClassificationDecision(
+            summary=(
+                "Da por terminada la consulta" if closing else "Necesita el horario de atencion"
+            ),
+            customer_summary=(
+                "Ya tienes lo que necesitabas." if closing else "Necesitas el horario de atención."
+            ),
+            category=Category.CONSULTA_GENERAL,
+            consultation_level=ConsultationLevel.GENERAL,
+            confidence=0.95,
+            ambiguous=False,
+            closing_turn=closing,
+        )
+
+
+@pytest.fixture
+def closing_orchestrator():
+    provider = _ClosingProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    yield orchestrator
+    app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+async def test_thanks_after_an_automatic_answer_closes_without_a_ticket(
+    client: AsyncClient, closing_orchestrator: OrchestratorService
+) -> None:
+    """`horarios_ambiguo` (eval 2026-10-20): "Ya está, muchas gracias, eso era todo" after
+    a grounded answer went down the follow-up path, failed grounding and became ticket 7."""
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    answered = await _turn_with(client, session_id, token, "¿Cuál es el horario de atención?")
+    assert answered.json()["result"]["resolution_type"] == "AUTOMATIC"
+
+    payload = {"turn_id": str(uuid4()), "transcript": "Ya está, muchas gracias, eso era todo."}
+    closed = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns", headers=headers, json=payload
+    )
+    assert closed.status_code == 200, closed.text
+    body = closed.json()
+    assert body["next_action"] == "COMPLETE"
+    assert body["speech_plan"]["intent"] == "FAREWELL"
+    result = body["result"]
+    assert result["speech_plan"]["intent"] == "FAREWELL"
+    assert result["conversation_can_continue"] is False
+    # Out of `response`, so the voice client is not handed the answer to read again.
+    assert result["response"] is None
+    assert result["ticket"] is None
+
+    # A retried goodbye says goodbye again; it does not open anything either.
+    replayed = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns", headers=headers, json=payload
+    )
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json()["speech_plan"]["intent"] == "FAREWELL"
+
+    async with TestSession() as db:
+        assert len(list(await db.scalars(select(CaseRecord)))) == 1
+        assert list(await db.scalars(select(Ticket))) == []
+        closing = await db.scalar(
+            select(Requirement).where(Requirement.classification_source == "CLOSING")
+        )
+        assert closing is not None
+        assert closing.active is False
+        kiosk_session = await db.get(KioskSession, UUID(session_id))
+        assert kiosk_session.status.value == "RESOLVED_AUTOMATIC"
+
+    # The session still reads back as the answer it resolved, not as a missing result.
+    snapshot = await client.get(f"/api/v1/kiosk/sessions/{session_id}", headers=headers)
+    assert snapshot.status_code == 200, snapshot.text
+    assert snapshot.json()["result"]["resolution_type"] == "AUTOMATIC"
+
+
+async def test_thanks_with_nothing_answered_yet_is_not_a_goodbye(
+    client: AsyncClient, closing_orchestrator: OrchestratorService
+) -> None:
+    """A closing turn is only honoured after the kiosk answered something: an opening
+    "gracias" is classified and handled like any other first turn."""
+    session_id, token = await _session(client)
+    opened = await _turn_with(client, session_id, token, "Hola, gracias por atenderme")
+    assert opened.status_code == 200, opened.text
+    assert opened.json()["speech_plan"]["intent"] != "FAREWELL"
+    async with TestSession() as db:
+        assert (
+            await db.scalar(
+                select(Requirement).where(Requirement.classification_source == "CLOSING")
+            )
+            is None
+        )
+
+
 async def _turn_with(client: AsyncClient, session_id: str, token: str, transcript: str):
     return await client.post(
         f"/api/v1/kiosk/sessions/{session_id}/turns",

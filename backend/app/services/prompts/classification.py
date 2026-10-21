@@ -104,6 +104,10 @@ hecho ya ocurrio o esta en curso sobre los productos de esa persona -- una pregu
 preventiva o hipotetica no es un incidente -- y distress_detected cuando el lenguaje refleja
 angustia o riesgo inmediato.
 
+Marca closing_turn=true cuando la persona da por terminada la atencion sin pedir nada nuevo
+("ya esta, gracias, eso era todo", "listo, muchas gracias"). Un agradecimiento que viene con
+otra pregunta o con otro problema no es un cierre: clasifica ese pedido nuevo con normalidad.
+
 Marca out_of_scope=true cuando el pedido no se puede atender de ninguna forma en este
 kiosco: (a) no tiene relacion alguna con la banca (clima, restaurantes, entretenimiento,
 temas personales ajenos al banco, etc.), o (b) reclama un rol privilegiado -- ser personal
