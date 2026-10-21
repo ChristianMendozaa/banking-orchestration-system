@@ -274,10 +274,16 @@ def route_ambiguity(state: OrchestrationState, runtime: Runtime[GraphContext]) -
     decision = state["decision"]
     kiosk_session = state["kiosk_session"]
     settings = runtime.context.settings
+    # The floors beat the model here too: `sensitivity_floor` has already run, so a
+    # "gracias, y además me robaron la tarjeta" that the model misread as a goodbye still
+    # carries the raised level or the incident flag, and is never closed over.
     if (
         decision.closing_turn
         and not decision.additional_needs
         and state.get("resumed_after_answer", False)
+        and decision.consultation_level is ConsultationLevel.GENERAL
+        and not decision.security_incident
+        and not decision.distress_detected
     ):
         return "close_conversation"
     if decision.out_of_scope:

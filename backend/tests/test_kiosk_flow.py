@@ -963,6 +963,17 @@ class _ClosingProvider(type(fake_provider)):
         except (ValueError, KeyError, TypeError):
             reply = masked
         closing = "gracias" in reply.lower()
+        if "robaron" in reply.lower():
+            # A goodbye the model got wrong: the incident must survive it.
+            return ClassificationDecision(
+                summary="Reporta el robo de su tarjeta",
+                customer_summary="Necesitas bloquear tu tarjeta robada.",
+                category=Category.BLOQUEO_TARJETA,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.9,
+                ambiguous=False,
+                closing_turn=True,
+            )
         return ClassificationDecision(
             summary=(
                 "Da por terminada la consulta" if closing else "Necesita el horario de atencion"
@@ -1043,6 +1054,21 @@ async def test_thanks_after_an_automatic_answer_closes_without_a_ticket(
     snapshot = await client.get(f"/api/v1/kiosk/sessions/{session_id}", headers=headers)
     assert snapshot.status_code == 200, snapshot.text
     assert snapshot.json()["result"]["resolution_type"] == "AUTOMATIC"
+
+
+async def test_a_misread_goodbye_never_closes_over_an_incident(
+    client: AsyncClient, closing_orchestrator: OrchestratorService
+) -> None:
+    session_id, token = await _session(client)
+    await _turn_with(client, session_id, token, "¿Cuál es el horario de atención?")
+    turn = await _turn_with(
+        client, session_id, token, "Gracias, y además me robaron la tarjeta de débito."
+    )
+    assert turn.status_code == 200, turn.text
+    body = turn.json()
+    assert body["speech_plan"]["intent"] != "FAREWELL"
+    assert body["consultation_level"] == "SENSIBLE"
+    assert body["next_action"] == "CONFIRM"
 
 
 async def test_thanks_with_nothing_answered_yet_is_not_a_goodbye(
