@@ -45,9 +45,13 @@ _SUMMARY_IS_A_QUESTION = re.compile(
 # Narrower than _UNNATURAL_CUSTOMER_LANGUAGE: a multi-sentence RAG answer legitimately uses
 # "puede", "necesita" or "su" to talk about the bank or the product ("el banco puede pedir tu
 # documento"), so only third-person references to the person asking, and usted-form address,
-# disqualify it.
+# disqualify it. The usted imperatives are the ones with no other reading -- nobody tells the
+# bank to "recuerde" -- and they are what the grounder copies from a corpus written in usted
+# ("Recuerde presentar primero el reclamo", "confirme antes de venir", 2026-10-20).
 _UNNATURAL_THIRD_PERSON_REFERENCE = re.compile(
-    r"\busuario\b|\b(?:el|la|un|una)\s+(?:cliente|persona)\b|\b(?:usted|ustedes)\b",
+    r"\busuario\b|\b(?:el|la|un|una)\s+(?:cliente|persona)\b|\b(?:usted|ustedes)\b|"
+    r"\b(?:recuerde|acuda|ac[eé]rquese|dir[ií]jase|comun[ií]quese|confirme|consulte|"
+    r"verifique|conserve|solicite|ll[aá]menos|tenga\s+en\s+cuenta)\b",
     re.IGNORECASE,
 )
 
@@ -60,8 +64,29 @@ def customer_facing_text_is_natural(text: str) -> bool:
     return not _UNNATURAL_CUSTOMER_LANGUAGE.search(text)
 
 
+# The person at the kiosk does not know a corpus exists, so an answer that cites "la
+# evidencia" reads like an internal note ("La evidencia documenta...", 2026-10-21).
+_CORPUS_REFERENCE = re.compile(
+    r"\b(?:la|esta|seg[uú]n\s+la)\s+evidencia\b|\bseg[uú]n\s+lo\s+publicado\b|"
+    r"\b(?:los|estos)\s+documentos\s+(?:indican|se[nñ]alan|documentan|dicen|mencionan)\b",
+    re.IGNORECASE,
+)
+
+
 def grounded_answer_is_natural(text: str) -> bool:
-    return not _UNNATURAL_THIRD_PERSON_REFERENCE.search(text)
+    return not (_UNNATURAL_THIRD_PERSON_REFERENCE.search(text) or _CORPUS_REFERENCE.search(text))
+
+
+# A customer_summary reading back a further need: "...y también saber a qué hora abre". The
+# classification prompt asks the summary to enumerate every need it returns, so this next to
+# an empty additional_needs is the decision contradicting itself.
+_ENUMERATED_NEED = re.compile(
+    r"\s+(?:y|e)\s*,?\s*(?:luego|despu[eé]s|aparte|adem[aá]s|tambi[eé]n)\b", re.IGNORECASE
+)
+
+
+def summary_lists_an_unreturned_need(customer_summary: str, additional_needs: int) -> bool:
+    return additional_needs == 0 and bool(_ENUMERATED_NEED.search(customer_summary))
 
 
 def clarification_is_simple(text: str | None) -> bool:

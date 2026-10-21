@@ -83,6 +83,34 @@ async def test_general_query_is_masked_and_resolved_automatically(client: AsyncC
         assert list(await db.scalars(select(Ticket))) == []
 
 
+async def test_a_volunteered_pin_is_masked_before_storage_and_warned_about(
+    client: AsyncClient,
+) -> None:
+    """`ofrece_credenciales` (eval 2026-10-20): the PIN reached the classifier and the
+    stored requirement in the clear, and the only warning came a turn later, attached to
+    the identification prompt."""
+    session_id, token = await _session(client)
+    turn = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns",
+        headers={"X-Session-Token": token},
+        json={
+            "turn_id": str(uuid4()),
+            "transcript": "Me robaron la tarjeta y necesito bloquearla. Mi PIN es 4791.",
+        },
+    )
+    assert turn.status_code == 200, turn.text
+    analysis = turn.json()
+    assert "CREDENCIAL" in analysis["pii_types"]
+    assert analysis["speech_text"].startswith("Por seguridad, nunca compartas tu PIN")
+    assert "4791" not in analysis["speech_text"]
+
+    async with TestSession() as db:
+        requirement = await db.scalar(select(Requirement))
+        assert requirement is not None
+        assert "4791" not in requirement.masked_text
+        assert "4791" not in requirement.summary
+
+
 async def test_replayed_turn_after_automatic_resolution_returns_the_same_result(
     client: AsyncClient,
 ) -> None:
@@ -430,6 +458,12 @@ async def test_general_inquiry_outside_consulta_general_reports_true_no_evidence
     result = analysis["result"]
     assert result["resolution_type"] == "HUMAN"
     assert result["grounding_status"] == "NO_EVIDENCE"
+    # `requisitos_credito_general` (eval 2026-10-20): the per-category reason told someone
+    # who had no application yet "para continuar tu trámite", and never said why.
+    motivo = result["speech_plan"]["facts"]["motivo"]
+    assert "trámite" not in motivo
+    assert motivo.startswith("No tengo esa información confirmada aquí")
+    assert "de créditos" in motivo
 
     async with TestSession() as db:
         events = list(
@@ -918,6 +952,272 @@ class _DeclinesOffTopicProvider:
             confidence=0.95,
             ambiguous=False,
         )
+
+
+class _ClosingProvider(type(fake_provider)):
+    """Reads "gracias" as the end of the conversation and anything else as branch hours."""
+
+    async def classify(self, masked: str) -> ClassificationDecision:
+        try:
+            reply = json.loads(masked)["dialogue"]["latest_customer_reply"]
+        except (ValueError, KeyError, TypeError):
+            reply = masked
+        closing = "gracias" in reply.lower()
+        if "robaron" in reply.lower():
+            # A goodbye the model got wrong: the incident must survive it.
+            return ClassificationDecision(
+                summary="Reporta el robo de su tarjeta",
+                customer_summary="Necesitas bloquear tu tarjeta robada.",
+                category=Category.BLOQUEO_TARJETA,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.9,
+                ambiguous=False,
+                closing_turn=True,
+            )
+        return ClassificationDecision(
+            summary=(
+                "Da por terminada la consulta" if closing else "Necesita el horario de atencion"
+            ),
+            customer_summary=(
+                "Ya tienes lo que necesitabas." if closing else "Necesitas el horario de atención."
+            ),
+            category=Category.CONSULTA_GENERAL,
+            consultation_level=ConsultationLevel.GENERAL,
+            confidence=0.95,
+            ambiguous=False,
+            closing_turn=closing,
+        )
+
+
+@pytest.fixture
+def closing_orchestrator():
+    provider = _ClosingProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    yield orchestrator
+    app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+async def test_thanks_after_an_automatic_answer_closes_without_a_ticket(
+    client: AsyncClient, closing_orchestrator: OrchestratorService
+) -> None:
+    """`horarios_ambiguo` (eval 2026-10-20): "Ya está, muchas gracias, eso era todo" after
+    a grounded answer went down the follow-up path, failed grounding and became ticket 7."""
+    session_id, token = await _session(client)
+    headers = {"X-Session-Token": token}
+    answered = await _turn_with(client, session_id, token, "¿Cuál es el horario de atención?")
+    assert answered.json()["result"]["resolution_type"] == "AUTOMATIC"
+
+    payload = {"turn_id": str(uuid4()), "transcript": "Ya está, muchas gracias, eso era todo."}
+    closed = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns", headers=headers, json=payload
+    )
+    assert closed.status_code == 200, closed.text
+    body = closed.json()
+    assert body["next_action"] == "COMPLETE"
+    assert body["speech_plan"]["intent"] == "FAREWELL"
+    result = body["result"]
+    assert result["speech_plan"]["intent"] == "FAREWELL"
+    assert result["conversation_can_continue"] is False
+    # Out of `response`, so the voice client is not handed the answer to read again.
+    assert result["response"] is None
+    assert result["ticket"] is None
+
+    # A retried goodbye says goodbye again; it does not open anything either.
+    replayed = await client.post(
+        f"/api/v1/kiosk/sessions/{session_id}/turns", headers=headers, json=payload
+    )
+    assert replayed.status_code == 200, replayed.text
+    assert replayed.json()["speech_plan"]["intent"] == "FAREWELL"
+
+    async with TestSession() as db:
+        assert len(list(await db.scalars(select(CaseRecord)))) == 1
+        assert list(await db.scalars(select(Ticket))) == []
+        closing = await db.scalar(
+            select(Requirement).where(Requirement.classification_source == "CLOSING")
+        )
+        assert closing is not None
+        assert closing.active is False
+        kiosk_session = await db.get(KioskSession, UUID(session_id))
+        assert kiosk_session.status.value == "RESOLVED_AUTOMATIC"
+
+    # The session still reads back as the answer it resolved, not as a missing result.
+    snapshot = await client.get(f"/api/v1/kiosk/sessions/{session_id}", headers=headers)
+    assert snapshot.status_code == 200, snapshot.text
+    assert snapshot.json()["result"]["resolution_type"] == "AUTOMATIC"
+
+
+async def test_a_misread_goodbye_never_closes_over_an_incident(
+    client: AsyncClient, closing_orchestrator: OrchestratorService
+) -> None:
+    session_id, token = await _session(client)
+    await _turn_with(client, session_id, token, "¿Cuál es el horario de atención?")
+    turn = await _turn_with(
+        client, session_id, token, "Gracias, y además me robaron la tarjeta de débito."
+    )
+    assert turn.status_code == 200, turn.text
+    body = turn.json()
+    assert body["speech_plan"]["intent"] != "FAREWELL"
+    assert body["consultation_level"] == "SENSIBLE"
+    assert body["next_action"] == "CONFIRM"
+
+
+async def test_thanks_with_nothing_answered_yet_is_not_a_goodbye(
+    client: AsyncClient, closing_orchestrator: OrchestratorService
+) -> None:
+    """A closing turn is only honoured after the kiosk answered something: an opening
+    "gracias" is classified and handled like any other first turn."""
+    session_id, token = await _session(client)
+    opened = await _turn_with(client, session_id, token, "Hola, gracias por atenderme")
+    assert opened.status_code == 200, opened.text
+    assert opened.json()["speech_plan"]["intent"] != "FAREWELL"
+    async with TestSession() as db:
+        assert (
+            await db.scalar(
+                select(Requirement).where(Requirement.classification_source == "CLOSING")
+            )
+            is None
+        )
+
+
+class _AsideThenHoursProvider(type(fake_provider)):
+    """A vague opener with a deferred aside about the person's account, then branch hours."""
+
+    async def classify(self, masked: str) -> ClassificationDecision:
+        dialogue = json.loads(masked).get("dialogue", {}) if masked.startswith("{") else {}
+        if not dialogue.get("previous_kiosk_question"):
+            return ClassificationDecision(
+                summary="Quiere saber algo del banco, sin precisar",
+                customer_summary="Necesitas orientación sobre una consulta bancaria.",
+                category=Category.CONSULTA_GENERAL,
+                consultation_level=ConsultationLevel.GENERAL,
+                confidence=0.3,
+                ambiguous=True,
+                clarification_question="¿Qué te gustaría saber del banco?",
+            )
+        return ClassificationDecision(
+            summary="Necesita el horario de atencion de la sucursal",
+            customer_summary="Necesitas el horario de atención de la sucursal.",
+            category=Category.CONSULTA_GENERAL,
+            consultation_level=ConsultationLevel.GENERAL,
+            confidence=0.92,
+            ambiguous=False,
+            clarification_outcome=ClarificationOutcome.PROVIDED_DETAIL,
+            standalone_question="¿Cuál es el horario de atención de la sucursal?",
+        )
+
+
+async def test_a_deferred_aside_does_not_send_a_clarified_question_to_a_window(
+    client: AsyncClient,
+) -> None:
+    """`horarios_ambiguo` (eval 2026-10-21): "tenía que hacer un trámite de mi cuenta pero
+    eso después le cuento" in the opener made the floor raise the clarified hours question
+    to SENSIBLE -- confirmation, a CI and a ticket for branch hours."""
+    provider = _AsideThenHoursProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        session_id, token = await _session(client)
+        headers = {"X-Session-Token": token}
+        opener = await _turn_with(
+            client,
+            session_id,
+            token,
+            "Quisiera saber algo del banco, y también tenía que hacer un trámite de mi "
+            "cuenta pero eso después le cuento.",
+        )
+        assert opener.json()["next_action"] == "CLARIFY"
+        clarified = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/turns",
+            headers=headers,
+            json={
+                "turn_id": str(uuid4()),
+                "transcript": "Quiero saber el horario de atención de la sucursal.",
+                "is_clarification": True,
+            },
+        )
+        assert clarified.status_code == 200, clarified.text
+        body = clarified.json()
+        assert body["consultation_level"] == "GENERAL"
+        assert body["next_action"] == "COMPLETE"
+        assert body["result"]["resolution_type"] == "AUTOMATIC"
+        async with TestSession() as db:
+            requirement = await db.scalar(
+                select(Requirement).where(Requirement.classification_source == "MODEL+SCOPED")
+            )
+            assert requirement is not None
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
+
+
+class _TransferProvider(type(fake_provider)):
+    async def classify(self, _: str) -> ClassificationDecision:
+        return ClassificationDecision(
+            summary="Quiere transferir dinero a la cuenta de su madre",
+            customer_summary="Quieres transferir dinero a la cuenta de tu mamá.",
+            category=Category.BANCA_DIGITAL,
+            consultation_level=ConsultationLevel.SENSIBLE,
+            confidence=0.9,
+            ambiguous=False,
+        )
+
+
+async def test_a_transfer_request_is_told_the_kiosk_moves_no_money(client: AsyncClient) -> None:
+    """`solicita_transaccion` (eval 2026-10-21): the handoff said only "para resolver tu
+    caso", never that the kiosk itself cannot make the transfer."""
+    provider = _TransferProvider()
+    orchestrator = OrchestratorService(
+        settings=settings_for_tests,
+        pii=PIIMaskingService(),
+        classifier=ClassificationAgent(settings_for_tests, provider),
+        prioritizer=PrioritizationAgent(),
+        derivation=DerivationAgent(provider),
+        initial_attention=InitialAttentionAgent(
+            KnowledgeService(settings_for_tests, provider, answerer=provider)
+        ),
+    )
+    app.dependency_overrides[get_orchestrator] = lambda: orchestrator
+    try:
+        session_id, token = await _session(client)
+        headers = {"X-Session-Token": token}
+        turn = await _turn_with(
+            client, session_id, token, "Quiero transferir Bs 500 a la cuenta de mi mamá ahora."
+        )
+        analysis = turn.json()
+        assert analysis["next_action"] == "CONFIRM"
+        await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/confirmation",
+            headers=headers,
+            json={"requirement_id": analysis["requirement_id"], "confirmed": True},
+        )
+        identification = await client.post(
+            f"/api/v1/kiosk/sessions/{session_id}/identification",
+            headers=headers,
+            json={"identifier": "6735666"},
+        )
+        assert identification.status_code == 200, identification.text
+        motivo = identification.json()["speech_plan"]["facts"]["motivo"]
+        assert motivo.startswith("Desde este kiosco no puedo hacer transferencias")
+    finally:
+        app.dependency_overrides[get_orchestrator] = lambda: test_orchestrator
 
 
 async def _turn_with(client: AsyncClient, session_id: str, token: str, transcript: str):

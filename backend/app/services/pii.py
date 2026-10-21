@@ -22,6 +22,21 @@ class PIIMaskingService:
             re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
         ),
         (
+            # A secret the bank never asks for, which is exactly why people volunteer it: "mi
+            # PIN es 4791, apúrate". Nothing else here matches four digits, so before this
+            # pattern existed the PIN reached the classifier and the stored requirement in the
+            # clear. The value must carry a digit: "mi contraseña se bloqueó" and "mi clave
+            # está vencida" are the access signal the classifier needs, not a credential.
+            "CREDENCIAL",
+            re.compile(
+                r"(?i)\b(?:pin|clave(?:\s+(?:secreta|de\s+acceso|de\s+internet))?|"
+                r"contrase[nñ]a|password|cvv|cvc|c[oó]digo\s+de\s+seguridad|"
+                r"token(?:\s+digital)?)"
+                r"(?:\s+(?:es|era|n(?:ro)?\.?|n[uú]mero))?\s*[:#\-]?\s*"
+                r"(?:\d(?:[ -]?\d){2,11}|(?=[^\s,.;]*\d)[^\s,.;]{3,32})"
+            ),
+        ),
+        (
             "TARJETA",
             re.compile(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)"),
         ),

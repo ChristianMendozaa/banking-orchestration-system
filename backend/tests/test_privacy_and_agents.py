@@ -35,6 +35,7 @@ from app.services.agents.rules.language import (
 )
 from app.services.intake import IntakePlanner
 from app.services.orchestrator.speech import (
+    CREDENTIAL_PRIVACY_NOTICE,
     VOICE_PRIVACY_NOTICE,
     compose_outcomes_plan,
     handoff_plan,
@@ -57,6 +58,34 @@ def test_pii_masking_removes_sensitive_values() -> None:
     assert "4111" not in result.masked_text
     assert "4500" not in result.masked_text
     assert {"EMAIL", "TELEFONO", "TARJETA", "MONTO"}.issubset(result.counts)
+
+
+@pytest.mark.regression
+def test_pii_masking_removes_a_volunteered_pin_or_password() -> None:
+    # `ofrece_credenciales` (eval 2026-10-20): "Mi PIN es 4791" reached the classifier and
+    # the stored requirement unmasked, because no pattern matched four bare digits.
+    service = PIIMaskingService()
+    for text, secret in [
+        ("Me la tragó el cajero. Mi PIN es 4791. Apúrate.", "4791"),
+        ("mi clave de internet es Sol2024", "Sol2024"),
+        ("el cvv: 123", "123"),
+        ("token digital 554433", "554433"),
+        ("el pin 4 7 9 1, por favor", "4 7 9 1"),
+    ]:
+        result = service.mask(text)
+        assert secret not in result.masked_text, text
+        assert result.pii_types == ["CREDENCIAL"], text
+
+
+def test_pii_masking_keeps_credential_words_that_carry_no_secret() -> None:
+    # The access signal the classifier needs ("se bloqueó", "está vencida") is not a secret.
+    service = PIIMaskingService()
+    for text in [
+        "Mi contraseña se bloqueo por varios intentos fallidos",
+        "mi clave está vencida",
+        "No sé mi PIN",
+    ]:
+        assert service.mask(text).masked_text == text
 
 
 def test_pii_masking_still_removes_real_names() -> None:
@@ -139,11 +168,110 @@ def test_grounded_answer_naturalness_allows_third_person_verbs_about_the_bank() 
     assert grounded_answer_is_natural(plausible_credit_answer) is True
 
 
+def test_grounded_answer_naturalness_rejects_usted_imperatives_and_corpus_talk() -> None:
+    for text in [
+        "Recuerde presentar primero el reclamo.",
+        "Así que confirme antes de venir.",
+        "La evidencia documenta transferencias y pagos.",
+        "Según lo publicado, atienden hasta las 19:00.",
+    ]:
+        assert not grounded_answer_is_natural(text), text
+    for text in [
+        "Recuerda presentar primero el reclamo.",
+        "El banco puede pedir tu documento.",
+        "Trae los documentos que te piden para abrir la cuenta.",
+    ]:
+        assert grounded_answer_is_natural(text), text
+
+
 def test_grounded_answer_naturalness_still_rejects_third_person_customer_references() -> None:
     assert grounded_answer_is_natural("El cliente debe presentar su documento de identidad.") is (
         False
     )
     assert grounded_answer_is_natural("Usted debe presentar su documento de identidad.") is False
+
+
+_BOTH_NEEDS = (
+    "Necesitas reportar un cargo en tu tarjeta que no reconoces, y también saber a qué hora "
+    "abre la sucursal."
+)
+
+
+def _fraud_decision(customer_summary: str, *, with_hours: bool) -> ClassificationDecision:
+    return ClassificationDecision(
+        summary="Reporta un cargo que no reconoce",
+        customer_summary=customer_summary,
+        category=Category.REPORTE_FRAUDE,
+        consultation_level=ConsultationLevel.SENSIBLE,
+        confidence=0.93,
+        ambiguous=False,
+        security_incident=True,
+        additional_needs=(
+            [
+                ClassifiedNeed(
+                    summary="Necesita el horario de la sucursal",
+                    customer_summary="Quieres saber a qué hora abre la sucursal.",
+                    category=Category.CONSULTA_GENERAL,
+                    consultation_level=ConsultationLevel.GENERAL,
+                    confidence=0.9,
+                )
+            ]
+            if with_hours
+            else []
+        ),
+    )
+
+
+class _ScriptedClassifier:
+    def __init__(self, *replies) -> None:
+        self.replies = list(replies)
+        self.feedback: list[str | None] = []
+
+    async def classify(self, _payload: str, *, feedback: str | None = None):
+        self.feedback.append(feedback)
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply
+
+
+@pytest.mark.regression
+async def test_a_summary_listing_a_need_it_did_not_return_is_classified_again(settings) -> None:
+    """`multi_intencion` (eval 2026-10-21): the read-back promised the hours, nothing
+    carried them, and the person confirmed a request the kiosk then dropped."""
+    provider = _ScriptedClassifier(
+        _fraud_decision(_BOTH_NEEDS, with_hours=False),
+        _fraud_decision(_BOTH_NEEDS, with_hours=True),
+    )
+    decision, _ = await ClassificationAgent(settings, provider).run_with_source("texto")
+    assert len(decision.additional_needs) == 1
+    assert provider.feedback[0] is None
+    assert "additional_needs" in provider.feedback[1]
+
+
+async def test_a_consistent_decision_costs_one_call(settings) -> None:
+    provider = _ScriptedClassifier(_fraud_decision(_BOTH_NEEDS, with_hours=True))
+    await ClassificationAgent(settings, provider).run_with_source("texto")
+    assert provider.feedback == [None]
+
+
+async def test_the_consistency_retry_happens_once_and_never_falls_back(settings) -> None:
+    """A model that insists it is one need is believed, and a retry that errors keeps the
+    first decision rather than dropping to the keyword classifier."""
+    insists = _ScriptedClassifier(
+        _fraud_decision(_BOTH_NEEDS, with_hours=False),
+        _fraud_decision(_BOTH_NEEDS, with_hours=False),
+    )
+    decision, source = await ClassificationAgent(settings, insists).run_with_source("texto")
+    assert len(insists.feedback) == 2
+    assert source != "FALLBACK"
+
+    errors = _ScriptedClassifier(
+        _fraud_decision(_BOTH_NEEDS, with_hours=False), RuntimeError("timeout")
+    )
+    decision, source = await ClassificationAgent(settings, errors).run_with_source("texto")
+    assert source != "FALLBACK"
+    assert decision.category is Category.REPORTE_FRAUDE
 
 
 async def test_fallback_classifier_is_conservative(settings) -> None:
@@ -456,6 +584,22 @@ def test_financial_pii_adds_an_immediate_voice_privacy_notice() -> None:
     assert speech.startswith(VOICE_PRIVACY_NOTICE)
     assert warned.verbatim[0] == VOICE_PRIVACY_NOTICE
     assert "4532" not in speech
+
+
+@pytest.mark.regression
+def test_a_volunteered_credential_is_warned_about_on_the_same_turn() -> None:
+    plan = SpeechPlan(
+        intent="CONFIRM",
+        facts={"entendido": "Necesitas bloquear tu tarjeta."},
+        guidance="Confirma la necesidad.",
+        fallback_text="¿Me confirmas si necesitas bloquear tu tarjeta?",
+    )
+
+    speech, warned = with_privacy_notice(plan.fallback_text, plan, ["CREDENCIAL"])
+
+    assert speech.startswith(CREDENTIAL_PRIVACY_NOTICE)
+    assert warned.verbatim[0] == CREDENTIAL_PRIVACY_NOTICE
+    assert VOICE_PRIVACY_NOTICE not in speech
 
 
 @pytest.mark.regression

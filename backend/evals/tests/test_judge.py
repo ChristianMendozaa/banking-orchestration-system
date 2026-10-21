@@ -14,8 +14,16 @@ from conftest import make_scenario, make_session, make_verdict
 from pydantic import ValidationError
 
 from harness.evaluator import CheckResult
-from harness.judge import DimensionScore, Judge, JudgeVerdict, build_dossier
+from harness.judge import (
+    CLIPPED_MARKER,
+    JUDGE_SYSTEM_MESSAGE,
+    DimensionScore,
+    Judge,
+    JudgeVerdict,
+    build_dossier,
+)
 from harness.scenarios.models import ExpectedOutcome
+from harness.session import ExchangeRecord
 
 FINAL_STATE = {
     "status": "ASSIGNED",
@@ -147,6 +155,69 @@ def test_dossier_truncates_a_long_check_detail() -> None:
     )
     payload = json.loads(dossier.split("\n\n", 1)[1])
     assert len(payload["deterministic_checks"][0]["detail"]) <= 160
+
+
+def _payload(session, final_state=FINAL_STATE) -> dict:
+    dossier = build_dossier(
+        scenario=make_scenario(), session=session, final_state=final_state, checks=[]
+    )
+    return json.loads(dossier.split("\n\n", 1)[1])
+
+
+def test_dossier_separates_what_is_said_from_what_is_shown() -> None:
+    """2026-10-20: the on-screen paragraph was graded as if it had been read aloud."""
+    session = make_session()
+    session.exchanges = [
+        ExchangeRecord(
+            index=0,
+            tool="send_turn",
+            customer_text="¿Qué horario tienen?",
+            kiosk_speech="Atendemos de ocho y media a siete.",
+            screen_text="La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00 ...",
+            response={"speech_plan": {"intent": "ANSWER", "guidance": "Dilo tal cual."}},
+        ),
+        ExchangeRecord(
+            index=1,
+            tool="send_turn",
+            customer_text="Quiero hablar con alguien",
+            kiosk_speech="Voy a derivarte con un ejecutivo.",
+            response={"speech_plan": {"intent": "HANDOFF", "guidance": "Explícale por qué."}},
+        ),
+    ]
+    answer, handoff = _payload(session)["transcript"]
+    assert answer["kiosk_said"] == "Atendemos de ocho y media a siete."
+    assert answer["kiosk_screen"].startswith("La Sucursal Centro")
+    assert "kiosk_voice_guidance" not in answer
+    assert handoff["kiosk_voice_guidance"] == "Explícale por qué."
+
+
+def test_dossier_keeps_a_full_answer_and_marks_any_clipping() -> None:
+    """At 800 characters the judge saw answers cut mid-sentence and faulted the kiosk."""
+    long_answer = "a" * 1200
+    state = {"status": "RESOLVED_AUTOMATIC", "result": {"response": long_answer}}
+    assert (
+        _payload(make_session(), state)["final_recorded_state"]["final_answer_to_customer"]
+        == long_answer
+    )
+
+    state["result"]["response"] = "a" * 2000
+    clipped = _payload(make_session(), state)["final_recorded_state"]["final_answer_to_customer"]
+    assert clipped.endswith(CLIPPED_MARKER)
+
+
+def test_dossier_lists_every_outcome_of_the_session() -> None:
+    session = make_session()
+    session.outcomes = [
+        {"requirement_id": "r1", "answer": "El horario es de 08:30 a 19:00."},
+        {"requirement_id": "r2", "answer": "Trae tu carnet vigente."},
+    ]
+    outcomes = _payload(session)["final_recorded_state"]["session_outcomes"]
+    assert [outcome["requirement_id"] for outcome in outcomes] == ["r1", "r2"]
+
+
+def test_the_rubric_states_the_policies_the_judge_used_to_fault() -> None:
+    for policy in ("campo protegido", "clarification budget", "Partial answers", "kiosk_screen"):
+        assert policy in JUDGE_SYSTEM_MESSAGE
 
 
 def test_dossier_omits_expectations_the_scenario_does_not_set() -> None:

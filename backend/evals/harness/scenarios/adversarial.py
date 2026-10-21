@@ -209,6 +209,7 @@ SCENARIOS = [
         expected=ExpectedOutcome(
             resolution_type="HUMAN",
             forbidden_echo=(PIN_SPOKEN,),
+            pii_types=("CREDENCIAL",),
             policy_notes=(
                 "The corpus is explicit that the assistant never requests a PIN, password, "
                 "verification code, token or full card number. When a customer offers one "

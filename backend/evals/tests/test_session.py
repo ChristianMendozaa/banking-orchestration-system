@@ -108,7 +108,8 @@ async def test_identification_attempts_are_counted() -> None:
     session = _session(_fake_client(send_identification={"next_action": "COMPLETE"}))
     await session.send_identification("6735666")
     assert session.identification_attempts == 1
-    assert session.exchanges[0].customer_text == "Mi CI es 6735666."
+    # Typed into the protected field, not spoken -- and the number stays out of the dossier.
+    assert session.exchanges[0].customer_text == "[escribe su CI en el campo protegido]"
 
 
 async def test_a_completed_flow_tells_the_agent_to_stop() -> None:
@@ -121,7 +122,8 @@ async def test_a_completed_flow_tells_the_agent_to_stop() -> None:
     await session.send_turn("hola", False)
     description = await session.send_confirmation(True)
     assert session.finished is True
-    assert "TERMINATE" in description
+    assert "TERMINATE" not in description
+    assert "TERMINATE" in session.take_directive()
 
 
 async def test_send_turn_completing_on_its_own_tells_the_agent_to_stop() -> None:
@@ -137,9 +139,9 @@ async def test_send_turn_completing_on_its_own_tells_the_agent_to_stop() -> None
             }
         )
     )
-    description = await session.send_turn("horarios de atencion", False)
+    await session.send_turn("horarios de atencion", False)
     assert session.finished is True
-    assert "TERMINATE" in description
+    assert "TERMINATE" in session.take_directive()
 
 
 async def test_an_api_error_is_recorded_and_reported_back_instead_of_raising() -> None:
@@ -151,7 +153,8 @@ async def test_an_api_error_is_recorded_and_reported_back_instead_of_raising() -
     description = await session.send_turn("hola", False)
     assert session.errors == ["send_turn: send_turn failed: 409 conflict"]
     assert session.exchanges[0].error is not None
-    assert "TERMINATE" in description
+    assert "409 conflict" in description
+    assert "TERMINATE" in session.take_directive()
 
 
 async def test_record_raw_captures_a_protocol_exchange() -> None:
@@ -166,3 +169,55 @@ async def test_record_raw_captures_a_protocol_exchange() -> None:
     assert exchange.customer_text == "CI antes de confirmar"
     assert "HTTP 409" in exchange.kiosk_speech
     assert "INVALID_SESSION_STATE" in exchange.kiosk_speech
+
+
+async def test_a_grounded_answer_is_heard_short_and_read_in_full() -> None:
+    """The judge used to grade the on-screen paragraph as if it were read aloud."""
+    session = _session(
+        _fake_client(
+            send_turn={
+                "next_action": "COMPLETE",
+                "requirement_id": "r",
+                "speech_text": "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00.",
+                "speech_plan": {
+                    "intent": "ANSWER",
+                    "verbatim": ["Atendemos de lunes a viernes de ocho y media a siete."],
+                },
+                "result": {"resolution_type": "AUTOMATIC", "conversation_can_continue": True},
+            }
+        )
+    )
+    await session.send_turn("horario", False)
+    exchange = session.exchanges[0]
+    assert exchange.kiosk_speech == "Atendemos de lunes a viernes de ocho y media a siete."
+    assert exchange.screen_text.startswith("La Sucursal Centro atiende")
+    # The safety checks still read both.
+    assert len(session.kiosk_utterances) == 2
+
+
+async def test_every_outcome_across_the_session_is_kept() -> None:
+    client = _fake_client()
+    client.send_turn.side_effect = [
+        {
+            "next_action": "COMPLETE",
+            "requirement_id": "r1",
+            "result": {
+                "resolution_type": "AUTOMATIC",
+                "conversation_can_continue": True,
+                "outcomes": [{"requirement_id": "r1", "response": "Horario."}],
+            },
+        },
+        {
+            "next_action": "COMPLETE",
+            "requirement_id": "r2",
+            "result": {
+                "resolution_type": "AUTOMATIC",
+                "conversation_can_continue": True,
+                "outcomes": [{"requirement_id": "r2", "response": "Documentos."}],
+            },
+        },
+    ]
+    session = _session(client)
+    await session.send_turn("horario", False)
+    await session.send_turn("documentos", False)
+    assert [outcome["answer"] for outcome in session.outcomes] == ["Horario.", "Documentos."]

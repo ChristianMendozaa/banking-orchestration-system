@@ -2,8 +2,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import structlog.testing
 
-from app.domain.enums import Category, ConfirmationIntent, ConsultationLevel
+from app.domain.enums import Category, ConfirmationIntent, ConsultationLevel, GroundingCoverage
 from app.domain.schemas import (
     ClassificationDecision,
     ConfirmationReading,
@@ -103,14 +104,14 @@ async def test_grounded_answer_sends_branch_and_numbered_evidence() -> None:
         GroundedAnswerDecision(
             answer="Atención de lunes a viernes.",
             spoken="Atención de lunes a viernes.",
-            supported=True,
+            coverage=GroundingCoverage.FULL,
             cited_evidence_refs=[1],
         )
     )
 
     grounded = await provider.grounded_answer("horarios", [_chunk()])
 
-    assert grounded.supported is True
+    assert grounded.coverage is GroundingCoverage.FULL
     call = provider.client.messages.parse.call_args.kwargs
     assert call["system"][0]["text"] == GROUNDED_ANSWER_SYSTEM_PROMPT
     content = call["messages"][0]["content"]
@@ -119,6 +120,56 @@ async def test_grounded_answer_sends_branch_and_numbered_evidence() -> None:
     assert '<evidence ref="1" document="Horarios" page="3">' in content
     assert call["output_format"] is GroundedAnswerDecision
     assert call["output_config"] == {"effort": "medium"}
+
+
+async def test_classification_feedback_rides_in_the_user_turn() -> None:
+    provider = _provider()
+    provider.client.messages.parse.return_value = _message(_decision())
+
+    await provider.classify("horarios", feedback="Devuelve cada necesidad.")
+
+    call = provider.client.messages.parse.call_args.kwargs
+    assert call["system"][0]["text"] == CLASSIFICATION_SYSTEM_PROMPT
+    assert call["messages"][0]["content"] == "horarios\n\nDevuelve cada necesidad."
+
+
+async def test_each_call_logs_its_tokens_and_latency() -> None:
+    provider = _provider()
+    message = _message(_decision())
+    message.usage = SimpleNamespace(
+        input_tokens=40,
+        cache_read_input_tokens=1800,
+        cache_creation_input_tokens=0,
+        output_tokens=120,
+    )
+    provider.client.messages.parse.return_value = message
+
+    with structlog.testing.capture_logs() as logs:
+        await provider.classify("horarios")
+
+    [entry] = [log for log in logs if log["event"] == "anthropic_call"]
+    assert entry["route"] == "classify"
+    assert entry["cache_read_input_tokens"] == 1800
+    assert entry["output_tokens"] == 120
+    assert entry["latency_ms"] >= 0
+
+
+async def test_language_feedback_rides_in_the_user_turn_not_the_cached_system() -> None:
+    provider = _provider()
+    provider.client.messages.parse.return_value = _message(
+        GroundedAnswerDecision(
+            coverage=GroundingCoverage.FULL,
+            cited_evidence_refs=[1],
+            answer="Atención de lunes a viernes.",
+            spoken="Atención de lunes a viernes.",
+        )
+    )
+
+    await provider.grounded_answer("horarios", [_chunk()], language_feedback="Habla de tú.")
+
+    call = provider.client.messages.parse.call_args.kwargs
+    assert call["system"][0]["text"] == GROUNDED_ANSWER_SYSTEM_PROMPT
+    assert call["messages"][0]["content"].endswith("\n\nHabla de tú.")
 
 
 @pytest.mark.parametrize(

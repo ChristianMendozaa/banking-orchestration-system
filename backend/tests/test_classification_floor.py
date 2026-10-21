@@ -16,8 +16,11 @@ identification and undo what the same eval measures on the other side.
 
 import pytest
 
-from app.domain.enums import Category, ConsultationLevel
-from app.services.agents import category_from_keywords, sensitivity_floor
+from app.domain.enums import Category, ClarificationOutcome, ConsultationLevel
+from app.domain.schemas import ClassificationDecision
+from app.services.agents import ClassificationAgent, category_from_keywords, sensitivity_floor
+from app.services.agents.classification import SCOPED_FLOOR_SOURCE
+from app.services.agents.rules.sensitivity import requests_money_movement
 
 pytestmark = [pytest.mark.unit, pytest.mark.regression]
 
@@ -272,3 +275,101 @@ def test_direct_service_requests_require_personalized_attention(text: str) -> No
 )
 def test_service_information_stays_general(text: str) -> None:
     assert sensitivity_floor(text, Category.SOLICITUD_CREDITO) is None
+
+
+# --- the floor on a clarification turn ---------------------------------------------------
+
+_OPENER_WITH_ASIDE = (
+    "Hola, quisiera saber algo del banco, ayer fui y estaba cerrado, y también tenía que "
+    "hacer un trámite de mi cuenta pero eso después le cuento."
+)
+
+
+def _clarified(
+    *,
+    level: ConsultationLevel = ConsultationLevel.GENERAL,
+    outcome: ClarificationOutcome = ClarificationOutcome.PROVIDED_DETAIL,
+    standalone: str | None = None,
+    category: Category = Category.CONSULTA_GENERAL,
+):
+    return ClassificationDecision(
+        summary="Necesita algo",
+        customer_summary="Necesitas algo.",
+        category=category,
+        consultation_level=level,
+        confidence=0.9,
+        ambiguous=False,
+        clarification_outcome=outcome,
+        standalone_question=standalone,
+    )
+
+
+def _enforce(opener: str, reply: str, decision, *, scoped: bool = True):
+    accumulated = f"{opener}\nAclaracion: {reply}"
+    return ClassificationAgent._enforce_sensitivity(
+        decision, accumulated, reply if scoped else None
+    )
+
+
+def test_an_aside_in_the_opener_does_not_make_a_clarified_question_personal() -> None:
+    """`horarios_ambiguo` (eval 2026-10-21): "mi cuenta" in an aside the person deferred
+    turned a branch-hours question into identification and a ticket."""
+    reply = "Quiero saber el horario de atención de la sucursal."
+    decision, source = _enforce(
+        _OPENER_WITH_ASIDE,
+        reply,
+        _clarified(standalone="¿Cuál es el horario de atención de la sucursal?"),
+    )
+    assert decision.consultation_level is ConsultationLevel.GENERAL
+    assert source == SCOPED_FLOOR_SOURCE
+
+
+def test_an_incident_in_the_opener_is_never_scoped_away() -> None:
+    decision, _ = _enforce(
+        "Me robaron la tarjeta ayer en el micro.",
+        "La de débito.",
+        _clarified(category=Category.BLOQUEO_TARJETA),
+    )
+    assert decision.consultation_level is ConsultationLevel.SENSIBLE
+
+
+def test_a_personal_topic_stays_personal_through_its_restatement() -> None:
+    """The reply alone ("el saldo") has no possessive; the context-resolved restatement
+    carries it, so the possession floor still fires."""
+    decision, _ = _enforce(
+        "Quería ver algo de mi cuenta.",
+        "El saldo.",
+        _clarified(standalone="¿Cuál es el saldo de mi cuenta?"),
+    )
+    assert decision.consultation_level is ConsultationLevel.SENSIBLE
+
+
+@pytest.mark.parametrize(
+    "outcome", [ClarificationOutcome.NO_USEFUL_DETAIL, ClarificationOutcome.DID_NOT_UNDERSTAND]
+)
+def test_a_reply_without_detail_keeps_the_openers_signal(outcome) -> None:
+    decision, source = _enforce(
+        "Tengo un problema con mi cuenta.", "No sé.", _clarified(outcome=outcome)
+    )
+    assert decision.consultation_level is ConsultationLevel.SENSIBLE
+    assert source == "MODEL+FLOOR"
+
+
+def test_outside_a_clarification_the_whole_text_is_read() -> None:
+    reply = "Quiero saber el horario de atención de la sucursal."
+    decision, _ = _enforce(_OPENER_WITH_ASIDE, reply, _clarified(), scoped=False)
+    assert decision.consultation_level is ConsultationLevel.SENSIBLE
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Quiero transferir [MONTO] de mi cuenta a la cuenta de mi mamá, ahora mismo.", True),
+        ("Necesito retirar plata de mi cuenta.", True),
+        ("Quiero saber cómo transferir desde la app.", False),
+        ("¿La app sirve para hacer transferencias?", False),
+        ("Quiero bloquear mi tarjeta.", False),
+    ],
+)
+def test_a_request_to_move_money_is_told_apart_from_a_question_about_it(text, expected) -> None:
+    assert requests_money_movement(text) is expected

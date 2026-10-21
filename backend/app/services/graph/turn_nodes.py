@@ -34,7 +34,12 @@ from app.services.agents.rules.language import (
 )
 from app.services.graph import confirmation_nodes
 from app.services.graph.conversation_context import as_classification_input, build_dialogue
-from app.services.graph.state import CLARIFICATION_JOINER, GraphContext, OrchestrationState
+from app.services.graph.state import (
+    CLARIFICATION_JOINER,
+    CLOSING_SOURCE,
+    GraphContext,
+    OrchestrationState,
+)
 
 
 def requires_confirmation(decision: ClassificationDecision) -> bool:
@@ -89,6 +94,10 @@ async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) 
         # a request the client may simply be retrying after a dropped response. This is
         # replay of the *same* turn_id only; a genuinely new question after an automatic
         # answer is a follow-up and is handled below.
+        if existing.classification_source == CLOSING_SOURCE:
+            return Command(
+                goto=END, update={"requirement": existing, "next_action": "CLOSE_CONVERSATION"}
+            )
         if existing.confirmation_decision is True and kiosk_session.status in {
             SessionStatus.RESOLVED_AUTOMATIC,
             SessionStatus.ASSIGNED,
@@ -103,7 +112,8 @@ async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) 
             {"status": kiosk_session.status.value},
         )
 
-    if kiosk_session.status == SessionStatus.RESOLVED_AUTOMATIC:
+    resumed_after_answer = kiosk_session.status == SessionStatus.RESOLVED_AUTOMATIC
+    if resumed_after_answer:
         # A follow-up question after an automatic answer. `cases.session_id` is no longer
         # unique, so this opens a second case instead of 409-ing the
         # customer out of the conversation -- someone who asks two things ("el horario, y
@@ -149,7 +159,7 @@ async def guard_turn(state: OrchestrationState, runtime: Runtime[GraphContext]) 
             409,
         )
 
-    return Command(goto="mask_pii")
+    return Command(goto="mask_pii", update={"resumed_after_answer": resumed_after_answer})
 
 
 async def _ensure_turn_budget(runtime: Runtime[GraphContext], kiosk_session: KioskSession) -> None:
@@ -219,6 +229,8 @@ async def mask_pii(state: OrchestrationState, runtime: Runtime[GraphContext]) ->
     )
     return {
         "masked_context": context,
+        # Only a clarification has an accumulated context to tell apart from the reply.
+        "latest_masked_reply": masked.masked_text if clarification is not None else None,
         "classification_input": as_classification_input(dialogue),
         "previous_routing_category": previous_routing_category,
         "previous_clarification_question": previous_clarification_question,
@@ -229,7 +241,9 @@ async def mask_pii(state: OrchestrationState, runtime: Runtime[GraphContext]) ->
 async def classify(state: OrchestrationState, runtime: Runtime[GraphContext]) -> dict:
     with STAGE_DURATION.labels(stage="classify").time():
         decision, source = await runtime.context.classifier.run_with_source(
-            state["masked_context"], state["classification_input"]
+            state["masked_context"],
+            state["classification_input"],
+            latest_reply=state.get("latest_masked_reply"),
         )
     if (
         decision.clarification_outcome
@@ -264,6 +278,18 @@ def route_ambiguity(state: OrchestrationState, runtime: Runtime[GraphContext]) -
     decision = state["decision"]
     kiosk_session = state["kiosk_session"]
     settings = runtime.context.settings
+    # The floors beat the model here too: `sensitivity_floor` has already run, so a
+    # "gracias, y además me robaron la tarjeta" that the model misread as a goodbye still
+    # carries the raised level or the incident flag, and is never closed over.
+    if (
+        decision.closing_turn
+        and not decision.additional_needs
+        and state.get("resumed_after_answer", False)
+        and decision.consultation_level is ConsultationLevel.GENERAL
+        and not decision.security_incident
+        and not decision.distress_detected
+    ):
+        return "close_conversation"
     if decision.out_of_scope:
         return "decline"
     if decision.clarification_outcome is ClarificationOutcome.DID_NOT_UNDERSTAND:
@@ -347,6 +373,34 @@ async def accept(state: OrchestrationState) -> dict:
     return {"auto_resolve": True}
 
 
+async def close_conversation(state: OrchestrationState) -> dict:
+    """The person is done: "ya está, gracias, eso era todo" after an automatic answer.
+
+    Until 2026-10-21 that sentence went down the follow-up path as a new question, failed
+    grounding (there is nothing in it to ground) and came back as a ticket for an executive
+    -- the `horarios_ambiguo` eval was handed "Voy a derivarte con un ejecutivo" right after
+    it said thank you. The session returns to the state it was in, nothing is opened, and
+    the requirement row is kept only for turn_id idempotency and the audit trail.
+    """
+    kiosk_session = state["kiosk_session"]
+    kiosk_session.status = SessionStatus.RESOLVED_AUTOMATIC
+    decision = state["decision"].model_copy(
+        update={
+            "summary": "La persona da por terminada la atención.",
+            "category": Category.CONSULTA_GENERAL,
+            "consultation_level": ConsultationLevel.GENERAL,
+            "ambiguous": False,
+            "clarification_question": None,
+            "additional_needs": [],
+        }
+    )
+    return {
+        "decision": decision,
+        "classification_source": CLOSING_SOURCE,
+        "next_action": "CLOSE_CONVERSATION",
+    }
+
+
 async def decline(state: OrchestrationState) -> dict:
     """The kiosk is an unauthenticated public surface with a fixed set of banking
     services -- it has no privileged mode to unlock and no way to serve a request outside
@@ -414,6 +468,9 @@ async def persist_requirement(state: OrchestrationState, runtime: Runtime[GraphC
         urgency_detected=decision.urgency_detected,
         security_incident=decision.security_incident,
         distress_detected=decision.distress_detected,
+        # A closing turn is not a topic: leaving it active would make "gracias" the
+        # `active_topic` the next turn's classification is read against.
+        active=state["classification_source"] != CLOSING_SOURCE,
     )
     runtime.context.db.add(requirement)
     for index, need in enumerate(decision.additional_needs, start=1):

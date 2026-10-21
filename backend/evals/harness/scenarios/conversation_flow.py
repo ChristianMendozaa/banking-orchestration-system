@@ -45,6 +45,14 @@ def _forced_human_after_limit(session: ConversationSession, result: dict) -> lis
     ]
 
 
+def _outcome_was_voiced(outcome: dict, spoken: str) -> bool:
+    ticket = (outcome.get("ticket") or {}).get("number")
+    if ticket is not None and str(ticket) in spoken:
+        return True
+    answer = (outcome.get("grounding_detail") or {}).get("spoken") or outcome.get("response")
+    return bool(answer) and answer[:40] in spoken
+
+
 def _both_needs_accounted_for(session: ConversationSession, result: dict) -> list[CheckResult]:
     """The security half must be the one taken, and the other half must not vanish.
 
@@ -56,7 +64,13 @@ def _both_needs_accounted_for(session: ConversationSession, result: dict) -> lis
     )
     spoken = " ".join(session.kiosk_utterances) + " " + (result.get("response") or "")
     outcomes = result.get("outcomes") or []
-    deferred_named = "horario" in spoken.lower() and len(outcomes) > 1
+    # The second need counts as acknowledged when what the kiosk said carries its own
+    # outcome -- its answer or its ticket number. Looking for the word "horario" failed a
+    # kiosk that answered "atiende de lunes a viernes de 08:30 a 19:00" to a customer who
+    # had asked "¿a qué hora abre?" (2026-10-21).
+    deferred_named = len(outcomes) > 1 and all(
+        _outcome_was_voiced(outcome, spoken) for outcome in outcomes[1:]
+    )
     return [
         CheckResult(
             "security_half_was_not_dropped",
@@ -104,6 +118,46 @@ def _correction_produced_a_new_requirement(
             "final_case_matches_the_corrected_intent",
             session.last_category == "BLOQUEO_TARJETA",
             f"categoria final={session.last_category}",
+        ),
+    ]
+
+
+async def drive_thanks_after_an_answer(session: ConversationSession) -> list[CheckResult]:
+    """Scripted so the goodbye is always said, word for word.
+
+    On 2026-10-20 the simulated customer happened to answer an automatic reply with "Ya
+    está, muchas gracias, eso era todo", and the kiosk opened a ticket for it. Whether the
+    customer model says goodbye is its own business; whether the kiosk handles a goodbye
+    is the kiosk's, so this scenario does not leave it to chance.
+    """
+    await session.send_turn(
+        "Buenas, ¿cuál es el horario de atención de esta sucursal?", is_clarification=False
+    )
+    answered = session.exchanges[-1].response if session.exchanges else {}
+    first_result = answered.get("result") or {}
+    await session.send_turn("Listo, muchas gracias, eso era todo.", is_clarification=False)
+    goodbye = session.exchanges[-1].response if len(session.exchanges) > 1 else {}
+    result = goodbye.get("result") or {}
+    plan = goodbye.get("speech_plan") or {}
+    return [
+        CheckResult(
+            "question_is_answered_before_the_goodbye",
+            first_result.get("resolution_type") == "AUTOMATIC",
+            f"resolution={first_result.get('resolution_type')}",
+        ),
+        CheckResult(
+            "goodbye_opens_nothing",
+            goodbye.get("next_action") == "COMPLETE"
+            and result.get("ticket") is None
+            and len(session.outcomes) == 1,
+            f"next_action={goodbye.get('next_action')} ticket={result.get('ticket')} "
+            f"casos={len(session.outcomes)}",
+        ),
+        CheckResult(
+            "goodbye_is_answered_with_a_goodbye",
+            plan.get("intent") == "FAREWELL" and result.get("conversation_can_continue") is False,
+            f"intent={plan.get('intent')} "
+            f"puede_continuar={result.get('conversation_can_continue')}",
         ),
     ]
 
@@ -267,5 +321,29 @@ SCENARIOS = [
             ),
         ),
         expectation_checks=_second_question_was_also_answered,
+    ),
+    Scenario(
+        name="despedida_tras_respuesta",
+        tags=("flow", "rag", "closing"),
+        description="The customer says thanks and goodbye after an automatic answer.",
+        goal=(
+            "Preguntas el horario de la sucursal y, cuando el kiosco responde, das las "
+            "gracias y te despides. Guionizado: ver drive_thanks_after_an_answer."
+        ),
+        style=CALMADO,
+        script=drive_thanks_after_an_answer,
+        expected=ExpectedOutcome(
+            consultation_level=("GENERAL",),
+            resolution_type="AUTOMATIC",
+            grounding_status=("GROUNDED",),
+            requires_citations=True,
+            identification="NONE",
+            policy_notes=(
+                "A thank-you after an answered question is the end of the conversation, not "
+                "a new request. The kiosk must answer the question from the corpus, then "
+                "say goodbye without opening a second case, a ticket or another question, "
+                "and without reading the answer again."
+            ),
+        ),
     ),
 ]

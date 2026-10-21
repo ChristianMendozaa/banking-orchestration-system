@@ -62,6 +62,11 @@ class GraphContext:
 # alone, so the two must agree on the exact string.
 CLARIFICATION_JOINER = "\nAclaracion: "
 
+# `Requirement.classification_source` of a turn that only closed the conversation. It is how
+# a retried closing turn is recognised without a column of its own: the row exists for
+# turn_id idempotency and the audit trail, and no case is ever opened for it.
+CLOSING_SOURCE = "CLOSING"
+
 
 class OrchestrationState(TypedDict, total=False):
     # Always present at graph entry.
@@ -74,6 +79,9 @@ class OrchestrationState(TypedDict, total=False):
 
     # turn_graph working state.
     masked_context: str
+    # The clarification reply on its own, without the opener it is appended to in
+    # `masked_context`. None outside a clarification turn.
+    latest_masked_reply: str | None
     classification_input: str
     previous_routing_category: Category
     previous_clarification_question: str
@@ -90,6 +98,10 @@ class OrchestrationState(TypedDict, total=False):
     confirmation_kind: ConfirmationKind
     handoff_summary: str
     auto_resolve: bool
+    # Set by `guard_turn` when this turn reopened a session the kiosk had already answered.
+    # Only then can a turn close the conversation: a "gracias" with nothing answered before
+    # it is not a goodbye the kiosk can take at face value.
+    resumed_after_answer: bool
 
     # confirmation_graph working state: what the reply to the confirmation question meant.
     # Set by `interpret_confirmation`, read by `apply_confirmation` and by the adapter,

@@ -155,6 +155,28 @@ async def test_a_tool_call_reaches_the_kiosk_and_its_answer_goes_back_to_the_mod
     assert "is_error" not in result
 
 
+async def test_a_harness_directive_follows_the_tool_result_as_a_system_message() -> None:
+    """The customer model reads instructions inside a tool result as possibly injected text;
+    on 2026-10-20 it answered "the session is still open" with a goodbye via send_turn
+    instead of TERMINATE. The kiosk's data stays in the tool result, the instruction moves
+    to its own system message, and the history is only ever appended to."""
+    session = _session()
+    session._client.send_turn.return_value = {
+        "next_action": "COMPLETE",
+        "requirement_id": "req-1",
+        "speech_text": "La sucursal atiende de 08:30 a 19:00.",
+        "result": {"resolution_type": "HUMAN", "conversation_can_continue": False},
+    }
+    requests = await _run(session, SEND_TURN, TERMINATE)
+
+    _, _, tool_results, directive = requests[1]["messages"]
+    [result] = tool_results["content"]
+    assert "TERMINATE" not in result["content"]
+    assert directive["role"] == "system"
+    assert "TERMINATE" in directive["content"]
+    assert session.take_directive() is None
+
+
 async def test_the_customer_stops_when_the_model_stops_calling_tools() -> None:
     requests = await _run(_session(), TERMINATE)
     assert len(requests) == 1
@@ -167,7 +189,8 @@ async def test_the_customer_request_matches_the_installed_sdk_signature() -> Non
     [request] = await _run(_session(), TERMINATE)
     assert "temperature" not in request
     assert request["model"] == "claude-haiku-5-5"
-    assert request["thinking"] == {"type": "disabled"}
+    assert "thinking" not in request
+    assert request["output_config"] == {"effort": "low"}
     assert request["tool_choice"] == {"type": "auto", "disable_parallel_tool_use": True}
     assert request["tools"] == CUSTOMER_TOOLS
     assert request["system"] == build_system_message(make_scenario(identifier="6735666"))

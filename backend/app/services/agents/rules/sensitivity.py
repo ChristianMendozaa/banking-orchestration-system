@@ -128,6 +128,27 @@ def security_incident_category(masked_text: str) -> Category | None:
     return None
 
 
+# Asking the kiosk to move money -- "quiero transferir [MONTO] a la cuenta de mi mamá". The
+# kiosk executes no transaction, and a handoff that only says "para resolver tu caso" leaves
+# the person expecting the transfer at the window to be the kiosk's doing.
+_MONEY_MOVEMENT = re.compile(
+    r"\b(?:quiero|quisiera|necesito|deseo|vengo\s+a|vine\s+a|me\s+puedes|puedes|"
+    r"podr[ií]as|hazme|haz|h[aá]game)\s+(?:que\s+me\s+)?"
+    r"(?:transferir|hacer\s+una\s+transferencia|depositar|retirar|girar|enviar|mandar|"
+    r"pasar)\b|\btransfi[eé]re(?:me|le)\b",
+    re.IGNORECASE,
+)
+
+
+def requests_money_movement(masked_text: str) -> bool:
+    """Whether the customer asks the kiosk itself to move money, not how it is done."""
+    return bool(
+        _MONEY_MOVEMENT.search(masked_text)
+        and not _INFORMATION_REQUEST.search(masked_text)
+        and not _HYPOTHETICAL.search(masked_text)
+    )
+
+
 def requests_service_action(masked_text: str) -> bool:
     """Whether the customer wants a bank operation started, not merely explained."""
     return bool(
@@ -147,13 +168,29 @@ def sensitivity_floor(masked_text: str, category: Category) -> ConsultationLevel
     answer comes from RAG (`InitialAttentionAgent.run`) -- so a single intermittent GENERAL
     from the model costs identification and human escalation in one HTTP request. The floor
     only ever raises: the model stays in charge of everything it is better at.
+
+    It is the two halves below together. They are separate because they are not equally
+    strong evidence: see `ClassificationAgent._enforce_sensitivity` for where that matters.
     """
+    return incident_floor(masked_text, category) or possession_floor(masked_text, category)
+
+
+def incident_floor(masked_text: str, category: Category) -> ConsultationLevel | None:
+    """Something has happened to this person's card, money or access. Strong evidence: it
+    holds for the whole conversation, wherever in it the person said it."""
     if category is Category.REPORTE_FRAUDE:
         # A fraud report is, by definition, about this person's own money. A purely
         # informational question about fraud classifies as CONSULTA_GENERAL instead.
         return ConsultationLevel.SENSIBLE
     if _reports_an_incident(masked_text):
         return ConsultationLevel.SENSIBLE
+    return None
+
+
+def possession_floor(masked_text: str, category: Category) -> ConsultationLevel | None:
+    """The person names something of their own ("mi cuenta", "mi trámite") or asks for an
+    operation on it. Weaker evidence: it makes a request personal, but only the request it
+    is said about."""
     preventive = bool(_HYPOTHETICAL.search(masked_text))
     if not preventive and _OWN_BANKING_OBJECT.search(masked_text):
         return ConsultationLevel.SENSIBLE

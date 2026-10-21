@@ -7,7 +7,7 @@ because nothing outside the AI path constructs them.
 
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.domain.enums import (
     Category,
@@ -15,6 +15,7 @@ from app.domain.enums import (
     ConfirmationIntent,
     ConsultationLevel,
     GroundingAttemptOutcome,
+    GroundingCoverage,
 )
 
 
@@ -28,19 +29,69 @@ class KnowledgeCitation(BaseModel):
     score: float = Field(ge=-1, le=1)
 
 
+GROUNDED_ANSWER_MAX_CHARS = 1600
+GROUNDED_SPOKEN_MAX_CHARS = 400
+GROUNDING_GAP_MAX_CHARS = 300
+
+
+def _clip_at_sentence(value: object, limit: int) -> object:
+    """Structured outputs carry `max_length` to the model as a description, not as a decoding
+    constraint, so a few characters over the limit used to fail validation and throw away a
+    grounded answer as PROVIDER_ERROR (2026-10-21). Cut at the last sentence end that fits
+    instead -- never mid-sentence, unless no sentence end fits at all."""
+    if not isinstance(value, str) or len(value) <= limit:
+        return value
+    head = value[:limit]
+    end = max(head.rfind(". "), head.rfind("? "), head.rfind("! "))
+    return head[: end + 1] if end > 0 else head.rstrip()
+
+
 class GroundedAnswerDecision(BaseModel):
-    answer: str = Field(min_length=1, max_length=1600)
+    # The verdict comes first, before any answer text, so the answer is written to fit the
+    # verdict rather than the verdict rationalising an answer already written. It is three
+    # ways rather than a boolean because "documents and income are published, the credit
+    # bureau is not" is neither supported nor unsupported, and a boolean made the model
+    # throw the documented half away along with the gap.
+    coverage: GroundingCoverage
+    # What the evidence does not answer, when coverage is PARTIAL -- the answer says so out
+    # loud, and the knowledge service refuses a PARTIAL that cannot name its own gap.
+    missing: str | None = Field(default=None, max_length=GROUNDING_GAP_MAX_CHARS)
+    answer: str = Field(min_length=1, max_length=GROUNDED_ANSWER_MAX_CHARS)
     # The same answer said out loud. A kiosk is a conversation, not a document: the full
     # `answer` belongs on screen and in the audit trail, and reading it aloud word for word
     # is what made the voice channel sound like a document reader. Both come out of the one
     # grounding call, so brevity costs no extra round trip and stays bound to the evidence.
-    spoken: str = Field(min_length=1, max_length=400)
-    supported: bool
+    spoken: str = Field(min_length=1, max_length=GROUNDED_SPOKEN_MAX_CHARS)
     # Request-local ordinal references, never database identifiers. Asking a model to copy
     # UUIDs made a one-character transcription error turn an otherwise grounded answer into
     # INVALID_CITATIONS. The knowledge service maps these small integers back to the real
     # chunk IDs and remains the only authority that can construct a KnowledgeCitation.
-    cited_evidence_refs: list[int] = Field(default_factory=list)
+    # Required, and after the answer: with a default it was optional in the schema, and
+    # placed before the answer it came back empty on FULL verdicts (2026-10-21) -- the refs
+    # are easiest to name once the sentences they support are written.
+    cited_evidence_refs: list[int]
+
+    @field_validator("missing", mode="before")
+    @classmethod
+    def _clip_missing(cls, value: object) -> object:
+        return _clip_at_sentence(value, GROUNDING_GAP_MAX_CHARS)
+
+    @field_validator("answer", mode="before")
+    @classmethod
+    def _clip_answer(cls, value: object) -> object:
+        return _clip_at_sentence(value, GROUNDED_ANSWER_MAX_CHARS)
+
+    @field_validator("spoken", mode="before")
+    @classmethod
+    def _clip_spoken(cls, value: object) -> object:
+        return _clip_at_sentence(value, GROUNDED_SPOKEN_MAX_CHARS)
+
+    @property
+    def answers_something(self) -> bool:
+        """Whether there is a grounded answer to give at all."""
+        if self.coverage is GroundingCoverage.PARTIAL:
+            return bool((self.missing or "").strip())
+        return self.coverage is GroundingCoverage.FULL
 
 
 class GroundedResponse(BaseModel):
@@ -104,3 +155,7 @@ class ClassificationDecision(BaseModel):
     # made, so context costs no additional round trip -- and it stays a *proposal*: the
     # backend still decides sensitivity, state and whether the turn may resolve at all.
     standalone_question: str | None = Field(default=None, max_length=400)
+    # "Ya está, gracias, eso era todo": the person ends the conversation and asks nothing new.
+    # Honoured only after the kiosk has already answered something in this session (see
+    # `turn_nodes.route_ambiguity`); anywhere else the turn is classified as usual.
+    closing_turn: bool = False

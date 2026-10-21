@@ -54,6 +54,29 @@ HANDOFF_REASONS = {
 }
 URGENT_HANDOFF_REASSURANCE = " Este caso se está atendiendo como prioritario."
 
+# A question the corpus could not answer is not a trámite or a case: HANDOFF_REASONS told
+# someone who had just said "todavía no tengo ningún trámite" that they were being sent on
+# "para continuar tu trámite", and never said why the kiosk had no answer for them.
+_UNANSWERED_AREAS = {
+    Category.SOLICITUD_CREDITO: " de créditos",
+    Category.BANCA_DIGITAL: " de banca digital",
+    Category.REPORTE_FRAUDE: " de prevención de fraude",
+}
+
+
+MONEY_MOVEMENT_HANDOFF_REASON = (
+    "Desde este kiosco no puedo hacer transferencias ni mover dinero, así que te derivo con "
+    "un ejecutivo que puede ayudarte con eso."
+)
+
+
+def unanswered_handoff_reason(category: Category) -> str:
+    area = _UNANSWERED_AREAS.get(category, "")
+    return (
+        "No tengo esa información confirmada aquí, así que te derivo con un ejecutivo"
+        f"{area} que puede responderte."
+    )
+
 
 # What belongs in `verbatim` and what belongs in `facts` -- see the module docstring. The
 # short version: operational tokens that carry a digit (ticket number, wait estimate,
@@ -71,6 +94,11 @@ VOICE_PRIVACY_NOTICE = (
     "Por seguridad, no digas números de tarjeta ni datos financieros en voz alta."
 )
 _VOICE_FINANCIAL_PII = {"TARJETA", "MONTO", "CUENTA"}
+# A volunteered PIN or password is a different warning from a card number read aloud: the
+# number is sensitive, the secret is something nobody -- the bank included -- may ever hear.
+CREDENTIAL_PRIVACY_NOTICE = (
+    "Por seguridad, nunca compartas tu PIN ni tus claves con nadie, ni siquiera con el banco."
+)
 
 
 def with_privacy_notice(
@@ -78,15 +106,21 @@ def with_privacy_notice(
     plan: SpeechPlan,
     pii_types: list[str],
 ) -> tuple[str, SpeechPlan]:
-    """Prepend immediate voice-safety guidance when this turn contained financial PII."""
-    if not _VOICE_FINANCIAL_PII.intersection(pii_types):
+    """Prepend immediate voice-safety guidance when this turn contained financial PII or a
+    credential, so the warning lands on the turn the person said it rather than later."""
+    notices = []
+    if "CREDENCIAL" in pii_types:
+        notices.append(CREDENTIAL_PRIVACY_NOTICE)
+    if _VOICE_FINANCIAL_PII.intersection(pii_types):
+        notices.append(VOICE_PRIVACY_NOTICE)
+    if not notices:
         return speech, plan
-    warned_speech = f"{VOICE_PRIVACY_NOTICE} {speech}"
+    warned_speech = " ".join([*notices, speech])
     return warned_speech, plan.model_copy(
         update={
-            "verbatim": list(dict.fromkeys([VOICE_PRIVACY_NOTICE, *plan.verbatim])),
+            "verbatim": list(dict.fromkeys([*notices, *plan.verbatim])),
             "guidance": (
-                "Primero repite la advertencia de `verbatim` sobre datos en voz alta. "
+                "Primero repite tal cual las advertencias de seguridad de `verbatim`. "
                 f"Después sigue esta instrucción: {plan.guidance}"
             ),
             "fallback_text": warned_speech,
@@ -115,6 +149,22 @@ def decline_plan(*, conversation_can_continue: bool) -> SpeechPlan:
             "esté en esa lista y no pidas confirmación. " + closing
         ),
         fallback_text=DECLINE_SPEECH_TEXT,
+    )
+
+
+FAREWELL_SPEECH_TEXT = "Con gusto. Que te vaya muy bien."
+
+
+def farewell_plan() -> SpeechPlan:
+    """The person said they have everything they needed. Nothing is opened and nothing more
+    is asked: a question here is what kept the conversation going after a goodbye."""
+    return SpeechPlan(
+        intent="FAREWELL",
+        guidance=(
+            "Despídete en una frase breve y cordial. No hagas otra pregunta ni ofrezcas nada "
+            "más: la persona ya terminó."
+        ),
+        fallback_text=FAREWELL_SPEECH_TEXT,
     )
 
 
@@ -238,7 +288,7 @@ def answer_plan(
     Forcing the full answer through `verbatim` made a conversational model read a paragraph
     aloud, and made the client's verbatim check fail on every reasonable rendering of it.
     Shortening it here rather than letting the model summarise keeps the spoken words bound
-    to the evidence they were checked against (`GroundedAnswerDecision.supported`).
+    to the evidence they were checked against (`GroundedAnswerDecision.coverage`).
     """
     speech = final_response or "Tu consulta quedó resuelta."
     spoken = (spoken_response or "").strip() or speech
@@ -274,13 +324,23 @@ def handoff_plan(
     assignment: ExecutiveAssignment,
     urgent_case: bool,
     unresolved_summary: str | None = None,
+    unanswered_question: bool = False,
+    money_movement: bool = False,
 ) -> tuple[str, SpeechPlan]:
-    """A named executive at a named window. Returns the written rendering and the plan."""
-    reason = (
-        f"Voy a derivarte con un ejecutivo para ayudarte. {unresolved_summary}"
-        if unresolved_summary
-        else HANDOFF_REASONS.get(category, "")
-    )
+    """A named executive at a named window. Returns the written rendering and the plan.
+
+    `unanswered_question` is a public-information question the corpus could not answer,
+    which needs its own reason: the per-category one assumes a case to work on.
+    `money_movement` is a request for the kiosk to move money, which it never does: the
+    reason says so, so the person does not leave thinking the kiosk started a transfer."""
+    if unresolved_summary:
+        reason = f"Voy a derivarte con un ejecutivo para ayudarte. {unresolved_summary}"
+    elif unanswered_question:
+        reason = unanswered_handoff_reason(category)
+    elif money_movement:
+        reason = MONEY_MOVEMENT_HANDOFF_REASON
+    else:
+        reason = HANDOFF_REASONS.get(category, "")
     urgent = URGENT_HANDOFF_REASSURANCE if urgent_case else ""
     wait_message = (
         f" La espera estimada es de {estimated_wait_minutes} minutos."

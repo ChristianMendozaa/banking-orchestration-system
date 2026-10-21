@@ -202,7 +202,7 @@ Every run — live or `--rejudge` — is kept forever, not just the last one:
 
 ## The scenario catalog
 
-47 scenarios in `harness/scenarios/` (`uv run python -m harness --list` prints them). A **scenario** is the test case; a **persona style**
+48 scenarios in `harness/scenarios/` (`uv run python -m harness --list` prints them). A **scenario** is the test case; a **persona style**
 is only how that customer speaks — distressed, terse, elderly, hostile, rambling — kept
 separate so the same situation can be re-tested through a different mouth, which is what
 makes `tarjeta_robada_angustiado` and `tarjeta_extraviada_calmado` a controlled comparison
@@ -219,7 +219,7 @@ free pass.
 | Card & fraud | `card_fraud` | Priority floors, mandatory identification (with **real seeded CIs**), a card number spoken aloud that must never be echoed back, fraud phrased without the word "fraude", and an unknown CI degrading gracefully |
 | General inquiry | `general_inquiry` | Grounded, cited answers from the corpus — and the two cases where the right answer is *not to answer*: a product absent from the corpus, and a demand for an exact interest rate |
 | Digital & credit | `digital_credit` | The first `BANCA_DIGITAL` coverage in the suite, plus the GENERAL/PERSONALIZADA line tested from both sides in each category |
-| Conversation flow | `flow` | The clarification limit, the correction loop (`confirmed=false`), a mid-session change of topic, multi-intent, monosyllabic dead ends |
+| Conversation flow | `flow` | The clarification limit, the correction loop (`confirmed=false`), a mid-session change of topic, multi-intent, monosyllabic dead ends, and a scripted goodbye after an answer that must open nothing |
 | Accessibility | `accessibility` | Preferential attention raising priority — and correctly *not* raising it past `CRITICO` — plus comprehension of difficult speech |
 | Adversarial | `adversarial` | Prompt injection, requests to move money, a volunteered PIN, hostility, claimed staff identity, out-of-domain requests |
 | Transcription noise | `asr_noise` | Transcripts corrupted the way a Spanish speech recogniser corrupts them, so a mangled sentence has to be questioned rather than confidently routed |
@@ -299,11 +299,20 @@ The customer is a plain tool loop over `messages.create` in `harness/agent.py` �
 framework. Each of its three tools dispatches to the `ConversationSession` method of the same
 name, one call per response (`disable_parallel_tool_use`), because the kiosk is a state
 machine and two concurrent turns on one session would test the harness rather than the
-kiosk. It runs with thinking off: it is role-play plus one of three tools, and every earlier
-report ran that way, so runs stay comparable. Thinking off is a 400 on Sonnet 5.5 and
-Opus 5.5, so `--model` is meant to stay on Haiku. The judge calls `messages.parse` for
-structured output — one request per scenario with only the rubric and that scenario's
-dossier.
+kiosk. It runs with adaptive thinking at `low` effort — effort is the control Claude
+Haiku 5.5 is built around, and with thinking off the customer answered "the session is still
+open" with a goodbye instead of ending. A tool result carries only what the kiosk did; what the
+harness wants next (keep going, or answer `TERMINATE`) arrives as a separate mid-conversation
+`system` message, because the model treats instructions inside a tool result as possibly
+injected text. The judge calls `messages.parse` for structured output — one request per
+scenario with only the rubric and that scenario's dossier.
+
+What the dossier shows the judge is what a person at the kiosk experiences: `kiosk_said` is
+the voice (for a grounded answer, the short `spoken` rendering), `kiosk_screen` the written
+text beside it, handoffs carry the voice guidance the realtime model follows, the CI step reads
+"[escribe su CI en el campo protegido]" because it is typed rather than spoken, answers are
+passed whole up to the 1600-character schema cap, and `session_outcomes` lists every case the
+session opened rather than only the latest.
 Reports from earlier runs whose metadata names `gpt-5.4*` came from the previous OpenAI
 harness; `--rejudge` re-scores them with the current Claude judge.
 

@@ -7,11 +7,12 @@ import pytest
 from sqlalchemy import select
 
 from app.db.models import KnowledgeDocument, RAGInteraction
-from app.domain.enums import Category, GroundingAttemptOutcome
+from app.domain.enums import Category, GroundingAttemptOutcome, GroundingCoverage
 from app.domain.schemas import GroundedAnswerDecision
 from app.knowledge.chunking import chunk_pdf
 from app.knowledge.ingestion import KnowledgeIngestionService
 from app.knowledge.service import KnowledgeService
+from app.services.agents.rules.language import grounded_answer_is_natural
 from tests.conftest import TestSession, fake_provider, settings_for_tests
 
 pytestmark = [pytest.mark.functional, pytest.mark.integration, pytest.mark.regression]
@@ -114,7 +115,7 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
             return GroundedAnswerDecision(
                 answer="Respuesta no verificable",
                 spoken="Respuesta no verificable",
-                supported=True,
+                coverage=GroundingCoverage.FULL,
                 cited_evidence_refs=[999],
             )
 
@@ -136,6 +137,103 @@ async def test_model_cannot_cite_evidence_that_was_not_retrieved() -> None:
     assert interaction.outcome == "INVALID_CITATIONS"
 
 
+class _ScriptedGrounder:
+    """Returns the given decisions in order, recording any language feedback it was sent."""
+
+    def __init__(self, *decisions: GroundedAnswerDecision) -> None:
+        self.decisions = list(decisions)
+        self.feedback: list[str | None] = []
+
+    async def embeddings(self, texts):
+        return await fake_provider.embeddings(texts)
+
+    async def grounded_answer(self, _query, _chunks, *, language_feedback=None):
+        self.feedback.append(language_feedback)
+        return self.decisions.pop(0)
+
+
+async def _ground(provider: _ScriptedGrounder):
+    service = KnowledgeService(settings_for_tests, provider, answerer=provider)
+    async with TestSession() as db:
+        return await service.answer(
+            db,
+            case_id=None,
+            category=Category.CONSULTA_GENERAL,
+            masked_query="¿Cuál es el horario?",
+            answer_validator=grounded_answer_is_natural,
+        )
+
+
+async def test_a_partial_answer_is_given_when_it_names_its_gap() -> None:
+    """`requisitos_credito_general` (eval 2026-10-20): documents and income were in the
+    evidence, the credit bureau was not, and a yes/no verdict threw the documented half away
+    with the gap and sent a public question to a queue."""
+    attempt = await _ground(
+        _ScriptedGrounder(
+            GroundedAnswerDecision(
+                coverage=GroundingCoverage.PARTIAL,
+                missing="el costo de reponer la tarjeta",
+                cited_evidence_refs=[1],
+                answer=(
+                    "La línea gratuita atiende de lunes a sábado. Sobre el costo de reponer la "
+                    "tarjeta no tengo información confirmada aquí; eso te lo confirma un "
+                    "ejecutivo."
+                ),
+                spoken="La línea atiende de lunes a sábado; el costo te lo confirma un ejecutivo.",
+            )
+        )
+    )
+    assert attempt.outcome is GroundingAttemptOutcome.GROUNDED
+    assert attempt.diagnostics["coverage"] == "PARTIAL"
+    assert attempt.diagnostics["missing"] == "el costo de reponer la tarjeta"
+
+
+@pytest.mark.parametrize(
+    ("coverage", "missing"),
+    [(GroundingCoverage.NONE, None), (GroundingCoverage.PARTIAL, None)],
+)
+async def test_no_coverage_or_an_unnamed_gap_is_not_an_answer(coverage, missing) -> None:
+    attempt = await _ground(
+        _ScriptedGrounder(
+            GroundedAnswerDecision(
+                coverage=coverage,
+                missing=missing,
+                cited_evidence_refs=[1],
+                answer="Algo cercano a lo que se preguntó.",
+                spoken="Algo cercano.",
+            )
+        )
+    )
+    assert attempt.outcome is GroundingAttemptOutcome.EVIDENCE_UNSUPPORTED
+    assert attempt.response is None
+
+
+def _decision(text: str) -> GroundedAnswerDecision:
+    return GroundedAnswerDecision(
+        coverage=GroundingCoverage.FULL, cited_evidence_refs=[1], answer=text, spoken=text
+    )
+
+
+async def test_an_answer_in_usted_is_rewritten_once_before_it_is_rejected() -> None:
+    """`derechos_reclamo_asfi` (eval 2026-10-20): "Recuerde presentar primero el reclamo"
+    -- the grounder copied the corpus's usted, which only the word "usted" used to catch."""
+    provider = _ScriptedGrounder(
+        _decision("Recuerde llamar a la línea gratuita."),
+        _decision("Recuerda llamar a la línea gratuita."),
+    )
+    attempt = await _ground(provider)
+    assert attempt.outcome is GroundingAttemptOutcome.GROUNDED
+    assert attempt.response.answer == "Recuerda llamar a la línea gratuita."
+    assert attempt.diagnostics["answer_language_retried"] is True
+    assert provider.feedback[0] is None
+    assert "de tú" in provider.feedback[1]
+
+    stubborn = _ScriptedGrounder(
+        _decision("Confirme antes de venir."), _decision("Confirme antes de venir.")
+    )
+    assert (await _ground(stubborn)).outcome is GroundingAttemptOutcome.ANSWER_LANGUAGE_REJECTED
+
+
 async def test_model_evidence_references_are_resolved_to_real_chunk_ids() -> None:
     class AliasProvider:
         async def embeddings(self, texts):
@@ -145,7 +243,7 @@ async def test_model_evidence_references_are_resolved_to_real_chunk_ids() -> Non
             return GroundedAnswerDecision(
                 answer="Respuesta respaldada por dos fragmentos.",
                 spoken="Respuesta respaldada por dos fragmentos.",
-                supported=True,
+                coverage=GroundingCoverage.FULL,
                 cited_evidence_refs=[1, 1],
             )
 
@@ -339,3 +437,27 @@ async def test_grounding_needs_both_the_embedder_and_the_answerer(provider, answ
         )
     assert attempt.outcome == GroundingAttemptOutcome.PROVIDER_UNAVAILABLE
     assert attempt.response is None
+
+
+def test_a_grounded_answer_over_its_length_is_cut_at_a_sentence_not_rejected() -> None:
+    """Structured outputs do not enforce `max_length`; a few characters over the cap failed
+    validation and discarded a grounded answer as PROVIDER_ERROR (2026-10-21)."""
+    sentence = "Puedes abrir la cuenta en cualquier agencia con tu carnet vigente. "
+    decision = GroundedAnswerDecision.model_validate(
+        {
+            "coverage": "FULL",
+            "answer": sentence * 40,
+            "spoken": sentence * 10,
+            "cited_evidence_refs": [1],
+        }
+    )
+    assert len(decision.answer) <= 1600
+    assert decision.answer.endswith("vigente.")
+    assert len(decision.spoken) <= 400
+    assert decision.spoken.endswith("vigente.")
+
+
+def test_cited_evidence_refs_are_required_in_the_grounding_schema() -> None:
+    """With a default the field was optional in the JSON schema the model is constrained
+    to, and FULL verdicts came back with no references (INVALID_CITATIONS, 2026-10-21)."""
+    assert "cited_evidence_refs" in GroundedAnswerDecision.model_json_schema()["required"]

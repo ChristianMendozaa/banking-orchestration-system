@@ -130,6 +130,24 @@ lowers it. Over-classification costs one confirmation turn; under-classification
 identification and human escalation outright. The keyword tables are shared with the offline
 fallback, so a floor and the fallback it mirrors cannot drift apart.
 
+The floor has two halves of different strength. `incident_floor` (a fraud report, an
+incident that already happened) always reads the whole accumulated conversation. On a
+clarification turn whose reply supplied the detail (`PROVIDED_DETAIL`), `possession_floor`
+("mi cuenta", "mi trámite", a requested operation) reads only that reply plus the
+classifier's `standalone_question`: the opener is the part the kiosk could not understand,
+and an aside in it ("tenía que hacer un trámite de mi cuenta, pero eso después le cuento")
+must not make a clarified branch-hours question personal. The restatement keeps a personal
+topic personal ("el saldo" after "algo de mi cuenta" resolves to "el saldo de mi cuenta").
+When this changes what the floor would have enforced, the requirement's source is
+`MODEL+SCOPED`; a reply with no useful detail keeps the opener's signal.
+
+A decision that contradicts itself is classified once more before any floor runs: a
+`customer_summary` that reads back a further need ("…y también saber a qué hora abre") with
+`additional_needs` empty would have the person confirm a request the kiosk then drops. The
+retry tells the model what was inconsistent and its answer stands; the text is never split
+deterministically, because "bloquear tu tarjeta y también que te devuelvan el dinero" is one
+incident.
+
 Both loop counters are bounded, and neither ends in a dead session. When the clarification
 budget (`MAX_CLARIFICATIONS`) runs out, `force_human` drops the level to `GENERAL` -- asking
 for an identity card for a request nobody understood is the over-identification the policy
@@ -161,6 +179,7 @@ graph TD;
 	force_human(force_human)
 	accept(accept)
 	decline(decline)
+	close_conversation(close_conversation)
 	persist_requirement(persist_requirement)
 	auto_capture(auto_capture)
 	finalize(finalize)
@@ -171,8 +190,10 @@ graph TD;
 	clarify --> persist_requirement;
 	classify -.-> accept;
 	classify -.-> clarify;
+	classify -.-> close_conversation;
 	classify -.-> decline;
 	classify -.-> force_human;
+	close_conversation --> persist_requirement;
 	decline --> persist_requirement;
 	force_human --> persist_requirement;
 	guard_turn -.-> __end__;
@@ -327,7 +348,15 @@ only HTTP entry point into them.
 9. A further question after an automatic answer reopens the session
    (`RESOLVED_AUTOMATIC` -> `LISTENING`, per-need counters reset) and produces a second
    auditable case without a ticket. `ASSIGNED` sessions are excluded -- an executive
-   already holds that case.
+   already holds that case. A turn that only ends the conversation ("ya está, gracias,
+   eso era todo"), classified `closing_turn` with no other need, opens nothing: the
+   session stays `RESOLVED_AUTOMATIC`, the response is `COMPLETE` with a `FAREWELL` speech
+   plan and `conversation_can_continue=false`, and the requirement is stored inactive with
+   `classification_source="CLOSING"` for idempotency and audit. It is honoured only after
+   the kiosk has answered something in the session.
+10. A human handoff states why: a public question the corpus could not answer says the kiosk
+    has no confirmed information on it, and a request for the kiosk to move money says the
+    kiosk makes no transfers, instead of the generic per-category reason.
 
 The realtime agent has no tools; the browser decides where each transcribed turn goes
 (analysis, confirmation, or nowhere) from reconciled business state, and RAG,

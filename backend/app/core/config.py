@@ -60,22 +60,22 @@ class Settings(BaseSettings):
     # Haiku 5.5 accepts low/medium/high/xhigh/max and thinks adaptively at every level;
     # there is no "none", so "low" is the floor.
     #
-    # Both sit at "low". On gpt-5.4-mini, the previous orchestration model, "none" was tried
-    # for classification and reverted on 2026-08-21: it saved only ~170ms at p50 and cost
-    # `transcripcion_pierde_el_riesgo` outright -- "Me robaron la carpeta ayer" became
-    # ambiguous instead of out_of_scope, ending NEEDS_CLARIFICATION while `sensitivity_floor`
-    # pinned SENSIBLE. Over-classification is not a safety risk, which is why a probe that only
-    # looks for under-classification misses it; it is a terminal-state risk. Those numbers
-    # have not been re-measured on Haiku 5.5.
+    # Classification sits at "low": it runs on every turn, before anything else, and is
+    # second-guessed by the deterministic floors in `agents/rules/sensitivity.py`.
     #
-    # Grounding was never lowered below classification: deciding whether retrieved evidence
-    # actually answers the question is the judgement that keeps invented banking information
-    # out of a customer's ear.
+    # Grounding sits at "medium". It decides how much of a question the retrieved evidence
+    # answers -- the judgement that keeps invented banking information out of a customer's
+    # ear and keeps answerable questions out of the queue -- and at "low" Claude Haiku 5.5
+    # misread answerable questions as unanswered. Measured on 2026-10-21 over the
+    # general_inquiry and digital_credit groups, three repetitions each (runs
+    # 20261021T143248Z-cb3bbc0 and 20261021T143720Z-cb3bbc0): low passed 41/45 with 6
+    # EVIDENCE_UNSUPPORTED verdicts, medium 43/45 with 3, for about +0.4s at p50 on a turn
+    # that answers (6.45s -> 6.83s) and no change at p95.
     #
     # These stay settings rather than constants because the eval suite is what settles them:
     # run `make evals-live` after changing either and compare the scorecard.
     classification_reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
-    grounding_reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
+    grounding_reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
 
     rag_top_k: int = 5
     rag_min_score: float = 0.45

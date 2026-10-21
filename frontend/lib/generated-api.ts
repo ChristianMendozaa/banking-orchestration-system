@@ -1312,7 +1312,7 @@ export interface components {
              * Intent
              * @enum {string}
              */
-            intent: "CLARIFY" | "CONFIRM" | "DECLINE" | "CAPTURE" | "IDENTIFY" | "ANSWER" | "HANDOFF";
+            intent: "CLARIFY" | "CONFIRM" | "DECLINE" | "CAPTURE" | "IDENTIFY" | "ANSWER" | "HANDOFF" | "FAREWELL";
             /** Verbatim */
             verbatim?: string[];
         };

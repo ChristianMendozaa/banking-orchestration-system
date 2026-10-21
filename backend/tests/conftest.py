@@ -30,6 +30,7 @@ from app.db.seed import seed  # noqa: E402
 from app.db.session import get_db  # noqa: E402
 from app.domain.enums import (  # noqa: E402
     Category,
+    GroundingCoverage,
     KnowledgeIndexStatus,
     KnowledgeSourceType,
 )
@@ -93,7 +94,7 @@ class FakeKnowledgeProvider:
         return GroundedAnswerDecision(
             answer="La línea gratuita atiende de lunes a sábado de 09:00 a 18:00.",
             spoken="La línea gratuita atiende de lunes a sábado, de 09:00 a 18:00.",
-            supported=True,
+            coverage=GroundingCoverage.FULL,
             cited_evidence_refs=[1],
         )
 

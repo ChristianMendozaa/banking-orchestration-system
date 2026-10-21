@@ -137,6 +137,14 @@ class GroundingAttemptOutcome(StrEnum):
     PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
 
 
+class GroundingCoverage(StrEnum):
+    """How much of the question the retrieved evidence answers, as the grounder reads it."""
+
+    FULL = "FULL"
+    PARTIAL = "PARTIAL"
+    NONE = "NONE"
+
+
 class KnowledgeSourceType(StrEnum):
     OFFICIAL = "OFFICIAL"
     REGULATORY = "REGULATORY"
