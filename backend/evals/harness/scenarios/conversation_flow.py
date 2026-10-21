@@ -45,6 +45,14 @@ def _forced_human_after_limit(session: ConversationSession, result: dict) -> lis
     ]
 
 
+def _outcome_was_voiced(outcome: dict, spoken: str) -> bool:
+    ticket = (outcome.get("ticket") or {}).get("number")
+    if ticket is not None and str(ticket) in spoken:
+        return True
+    answer = (outcome.get("grounding_detail") or {}).get("spoken") or outcome.get("response")
+    return bool(answer) and answer[:40] in spoken
+
+
 def _both_needs_accounted_for(session: ConversationSession, result: dict) -> list[CheckResult]:
     """The security half must be the one taken, and the other half must not vanish.
 
@@ -56,7 +64,13 @@ def _both_needs_accounted_for(session: ConversationSession, result: dict) -> lis
     )
     spoken = " ".join(session.kiosk_utterances) + " " + (result.get("response") or "")
     outcomes = result.get("outcomes") or []
-    deferred_named = "horario" in spoken.lower() and len(outcomes) > 1
+    # The second need counts as acknowledged when what the kiosk said carries its own
+    # outcome -- its answer or its ticket number. Looking for the word "horario" failed a
+    # kiosk that answered "atiende de lunes a viernes de 08:30 a 19:00" to a customer who
+    # had asked "¿a qué hora abre?" (2026-10-21).
+    deferred_named = len(outcomes) > 1 and all(
+        _outcome_was_voiced(outcome, spoken) for outcome in outcomes[1:]
+    )
     return [
         CheckResult(
             "security_half_was_not_dropped",

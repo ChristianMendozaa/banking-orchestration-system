@@ -220,3 +220,29 @@ def test_all_tags_is_sorted_and_complete() -> None:
     tags = all_tags()
     assert tags == sorted(tags)
     assert "adversarial" in tags and "protocol" in tags
+
+
+def test_a_second_need_answered_without_its_keyword_is_still_acknowledged() -> None:
+    """2026-10-21: the kiosk answered the hours ("atiende de lunes a viernes de 08:30 a
+    19:00") without the word "horario", and a keyword check failed it."""
+    from conftest import make_session
+
+    from harness.scenarios.conversation_flow import _both_needs_accounted_for
+
+    hours = "La Sucursal Centro atiende de lunes a viernes de 08:30 a 19:00."
+    session = make_session(
+        category="REPORTE_FRAUDE",
+        kiosk_says=[f"Tu ticket es 13. Sobre saber a qué hora abre la sucursal: {hours}"],
+    )
+    result = {
+        "outcomes": [
+            {"ticket": {"number": 13}},
+            {"response": hours, "grounding_detail": {"spoken": hours}},
+        ]
+    }
+    checks = {check.name: check.passed for check in _both_needs_accounted_for(session, result)}
+    assert checks["deferred_need_was_acknowledged"] is True
+
+    silent = make_session(category="REPORTE_FRAUDE", kiosk_says=["Tu ticket es 13."])
+    checks = {check.name: check.passed for check in _both_needs_accounted_for(silent, result)}
+    assert checks["deferred_need_was_acknowledged"] is False
