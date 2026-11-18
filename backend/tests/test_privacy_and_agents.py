@@ -33,6 +33,7 @@ from app.services.agents.rules.language import (
     clarification_is_simple,
     comprehension_repair_question,
 )
+from app.services.graph.turn_nodes import requires_confirmation
 from app.services.intake import IntakePlanner
 from app.services.orchestrator.speech import (
     CREDENTIAL_PRIVACY_NOTICE,
@@ -387,6 +388,77 @@ def test_stolen_card_urgency_never_outranks_the_fraud_ceiling() -> None:
         agent.run(Category.CONSULTA_GENERAL, "consulta urgente", False, urgency_detected=True)
         == Priority.MEDIO
     )
+
+
+def test_distress_raises_low_and_medium_priority_one_level() -> None:
+    agent = PrioritizationAgent()
+    # CONSULTA_GENERAL starts at BAJO, SOLICITUD_CREDITO at MEDIO.
+    assert agent.run(Category.CONSULTA_GENERAL, "horarios", False) == Priority.BAJO
+    assert (
+        agent.run(Category.CONSULTA_GENERAL, "horarios", False, distress_detected=True)
+        == Priority.MEDIO
+    )
+    assert agent.run(Category.SOLICITUD_CREDITO, "credito", False) == Priority.MEDIO
+    assert (
+        agent.run(Category.SOLICITUD_CREDITO, "credito", False, distress_detected=True)
+        == Priority.ALTO
+    )
+
+
+def test_distress_leaves_high_and_critical_priority_unchanged() -> None:
+    """The bump only applies from BAJO or MEDIO: distress never manufactures a CRITICO,
+    which stays reserved for fraud and unrecognised movements."""
+    agent = PrioritizationAgent()
+    assert (
+        agent.run(Category.BLOQUEO_TARJETA, "bloqueo", False, distress_detected=True)
+        == Priority.ALTO
+    )
+    assert (
+        agent.run(Category.REPORTE_FRAUDE, "fraude", False, distress_detected=True)
+        == Priority.CRITICO
+    )
+
+
+def test_distress_and_preferential_attention_stack_but_never_reach_critical() -> None:
+    """Each signal bumps at most one step, distress first: BAJO climbs two levels to ALTO,
+    MEDIO stops at ALTO because preferential attention never raises ALTO, and ALTO and
+    CRITICO stay put."""
+    agent = PrioritizationAgent()
+    assert (
+        agent.run(Category.CONSULTA_GENERAL, "horarios", True, distress_detected=True)
+        == Priority.ALTO
+    )
+    assert (
+        agent.run(Category.SOLICITUD_CREDITO, "credito", True, distress_detected=True)
+        == Priority.ALTO
+    )
+    assert (
+        agent.run(Category.BLOQUEO_TARJETA, "bloqueo", True, distress_detected=True)
+        == Priority.ALTO
+    )
+    assert (
+        agent.run(Category.REPORTE_FRAUDE, "fraude", True, distress_detected=True)
+        == Priority.CRITICO
+    )
+
+
+def test_distress_forces_confirmation_of_a_general_request() -> None:
+    """A GENERAL classification normally resolves on the same turn without a read-back;
+    the distress flag alone is enough to make `requires_confirmation` insist on one."""
+
+    def general_decision(*, distress_detected: bool) -> ClassificationDecision:
+        return ClassificationDecision(
+            summary="Consulta el horario de la sucursal",
+            customer_summary="Quieres saber a qué hora abre la sucursal.",
+            category=Category.CONSULTA_GENERAL,
+            consultation_level=ConsultationLevel.GENERAL,
+            confidence=0.95,
+            ambiguous=False,
+            distress_detected=distress_detected,
+        )
+
+    assert requires_confirmation(general_decision(distress_detected=False)) is False
+    assert requires_confirmation(general_decision(distress_detected=True)) is True
 
 
 async def test_derivation_uses_semantic_similarity_before_experience() -> None:
