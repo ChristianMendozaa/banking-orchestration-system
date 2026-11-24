@@ -119,6 +119,11 @@ class Scenario:
     script: ProtocolScript | None = None
     # A short English description of the situation, for the dashboard and the judge.
     description: str = ""
+    # The customer's first turn, sent to the kiosk verbatim before the simulated customer
+    # says anything (`SimulatedCustomer.run`). Set by the independent bank, whose openers
+    # were written by people outside the project: a model rephrasing them would make the
+    # test about the model's Spanish instead of theirs. The model handles every later turn.
+    opening: str | None = None
 
     @property
     def group(self) -> str:

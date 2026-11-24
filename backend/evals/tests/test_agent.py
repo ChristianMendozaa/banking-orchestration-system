@@ -16,6 +16,7 @@ from conftest import make_scenario
 from harness.agent import (
     CUSTOMER_TOOLS,
     MAX_TOOL_ITERATIONS,
+    OPENING_TOOL_USE_ID,
     build_customer_agent,
     build_system_message,
 )
@@ -60,7 +61,9 @@ SEND_TURN = _tool_use(
 )
 
 
-async def _run(session: ConversationSession, *replies: Message) -> list[dict]:
+async def _run(
+    session: ConversationSession, *replies: Message, opening: str | None = None
+) -> list[dict]:
     """Runs the customer against scripted model replies and returns each request as it was
     sent. The loop keeps appending to one `messages` list, so each request's list is copied
     when it is made -- reading `call_args` afterwards would show only the final history."""
@@ -75,7 +78,7 @@ async def _run(session: ConversationSession, *replies: Message) -> list[dict]:
         client=AsyncAnthropic(),
         model="claude-haiku-5-5",
         session=session,
-        scenario=make_scenario(identifier="6735666"),
+        scenario=make_scenario(identifier="6735666", opening=opening),
     )
     # `create` is wrapped by the SDK's argument-checking decorator, so autospec does not
     # see it as a coroutine function; the async side effect makes the call awaitable. The
@@ -226,4 +229,95 @@ async def test_a_reply_cut_off_at_max_tokens_runs_no_tool() -> None:
     block = ToolUseBlock(type="tool_use", id="toolu_1", name="send_turn", input={})
     requests = await _run(session, _reply(block, stop_reason="max_tokens"))
     assert len(requests) == 1
+    session._client.send_turn.assert_not_awaited()
+
+
+# --- A scenario's literal opening line ------------------------------------------------
+
+OPENING = "hola, mira desde ayer no puedo entrar a la app, puse mal la contraseña creo que 3 veces"
+
+
+async def test_an_opening_reaches_the_kiosk_verbatim_before_any_model_request() -> None:
+    """The independent bank's openers were written by people outside the project; the
+    model must not get the chance to reword them."""
+    session = _session()
+    order: list[str] = []
+    session._client.send_turn.side_effect = lambda *args, **kwargs: (
+        order.append("kiosk") or KIOSK_CONFIRMS
+    )
+    requests: list[dict] = []
+
+    async def create(_self, **request):
+        order.append("model")
+        requests.append(request)
+        return TERMINATE
+
+    agent = build_customer_agent(
+        client=AsyncAnthropic(),
+        model="claude-haiku-5-5",
+        session=session,
+        scenario=make_scenario(opening=OPENING),
+    )
+    with patch.object(AsyncMessages, "create", autospec=True, side_effect=create):
+        await agent.run(task="Empieza.")
+
+    assert order == ["kiosk", "model"]
+    session._client.send_turn.assert_awaited_once_with(
+        session.handle, OPENING, is_clarification=False
+    )
+    assert session.exchanges[0].customer_text == OPENING
+    assert session.customer_utterances == [OPENING]
+
+
+async def test_the_model_sees_the_opening_as_its_own_call_and_the_kiosk_answer() -> None:
+    [request] = await _run(_session(), TERMINATE, opening=OPENING)
+
+    task, assistant, tool_results = request["messages"]
+    assert task == {"role": "user", "content": "Empieza."}
+    [call] = assistant["content"]
+    assert assistant["role"] == "assistant"
+    assert call["type"] == "tool_use"
+    assert call["id"] == OPENING_TOOL_USE_ID
+    assert call["name"] == "send_turn"
+    assert call["input"] == {"transcript": OPENING, "is_clarification": False}
+    [result] = tool_results["content"]
+    assert result["tool_use_id"] == OPENING_TOOL_USE_ID
+    assert "next_action=CONFIRM" in result["content"]
+
+
+async def test_the_model_takes_over_after_the_opening() -> None:
+    """Only the first turn is fixed: clarifications, confirmation and the CI stay the
+    simulated customer's."""
+    session = _session()
+    confirm = _tool_use("send_confirmation", {"confirmed": True}, tool_use_id="toolu_2")
+    session._client.send_confirmation.return_value = {"next_action": "IDENTIFY"}
+    requests = await _run(session, confirm, TERMINATE, opening=OPENING)
+
+    assert len(requests) == 2
+    session._client.send_turn.assert_awaited_once()
+    session._client.send_confirmation.assert_awaited_once()
+    assert [exchange.tool for exchange in session.exchanges] == [
+        "send_turn",
+        "send_confirmation",
+    ]
+
+
+async def test_a_directive_after_the_opening_follows_as_a_system_message() -> None:
+    session = _session()
+    session._client.send_turn.return_value = {
+        "next_action": "COMPLETE",
+        "requirement_id": "req-1",
+        "speech_text": "Te atiende un ejecutivo.",
+        "result": {"resolution_type": "HUMAN", "conversation_can_continue": False},
+    }
+    [request] = await _run(session, TERMINATE, opening=OPENING)
+    directive = request["messages"][-1]
+    assert directive["role"] == "system"
+    assert "TERMINATE" in directive["content"]
+
+
+async def test_without_an_opening_the_first_request_is_only_the_task() -> None:
+    session = _session()
+    [request] = await _run(session, TERMINATE)
+    assert request["messages"] == [{"role": "user", "content": "Empieza."}]
     session._client.send_turn.assert_not_awaited()

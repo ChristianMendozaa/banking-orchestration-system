@@ -39,6 +39,9 @@ MAX_TOOL_ITERATIONS = 12
 # through `send_turn` instead of TERMINATE. Effort also keeps working if `--customer-model`
 # points at a model that rejects `{"type": "disabled"}`.
 CUSTOMER_EFFORT = "low"
+# The id of the `send_turn` call the harness makes on the customer's behalf when a scenario
+# fixes its opening line (`Scenario.opening`).
+OPENING_TOOL_USE_ID = "toolu_scenario_opening"
 
 
 def _tool(name: str, properties: dict[str, dict]) -> ToolParam:
@@ -146,6 +149,8 @@ class SimulatedCustomer:
         or `MAX_TOOL_ITERATIONS` requests have been made. Everything worth keeping is
         recorded on the session, so nothing is returned."""
         messages: list[MessageParam] = [{"role": "user", "content": task}]
+        if self._scenario.opening:
+            await self._send_opening(messages, self._scenario.opening)
         for _ in range(MAX_TOOL_ITERATIONS):
             response = await self._client.messages.create(
                 model=self._model,
@@ -181,6 +186,34 @@ class SimulatedCustomer:
             directive = self._session.take_directive()
             if directive:
                 messages.append({"role": "system", "content": directive})
+
+    async def _send_opening(self, messages: list[MessageParam], opening: str) -> None:
+        """Send the scenario's first turn exactly as written, with no model in between, and
+        record it in the history as the customer's own `send_turn` call.
+
+        Asking the model to "say exactly this" would still let it reformulate; calling the
+        session directly cannot. The history then reads as if the model had made that call,
+        so from its first request it sees what it said and what the kiosk answered, and
+        carries on from there. Nothing is edited afterwards: later turns only append."""
+        arguments = {"transcript": opening, "is_clarification": False}
+        messages.append(
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": OPENING_TOOL_USE_ID,
+                        "name": "send_turn",
+                        "input": arguments,
+                    }
+                ],
+            }
+        )
+        result = await self._call_tool(OPENING_TOOL_USE_ID, "send_turn", arguments)
+        messages.append({"role": "user", "content": [result]})
+        directive = self._session.take_directive()
+        if directive:
+            messages.append({"role": "system", "content": directive})
 
     async def _call_tool(
         self, tool_use_id: str, name: str, arguments: dict[str, Any]
