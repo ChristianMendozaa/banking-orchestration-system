@@ -12,10 +12,20 @@ import pytest
 
 from harness.client import SessionHandle
 from harness.evaluator import CheckResult
-from harness.scenarios import CATALOG, GROUP_LABELS, GROUP_ORDER, SCENARIOS, all_tags
+from harness.scenarios import (
+    CATALOG,
+    CATALOGS,
+    GROUP_LABELS,
+    GROUP_ORDER,
+    INDEPENDENT_CATALOG,
+    SCENARIOS,
+    all_tags,
+)
 from harness.scenarios.adversarial import _no_other_customer_data_disclosed
 from harness.scenarios.card_and_fraud import UNKNOWN_CI
 from harness.scenarios.general_inquiry import _answer_is_not_empty, _resolved_without_confirmation
+from harness.scenarios.independent import _a_general_reading_is_answered_from_the_corpus
+from harness.scenarios.models import DEFAULT_IDENTIFIER
 from harness.seed import known_identifiers
 from harness.session import ConversationSession, ExchangeRecord
 
@@ -246,3 +256,76 @@ def test_a_second_need_answered_without_its_keyword_is_still_acknowledged() -> N
     silent = make_session(category="REPORTE_FRAUDE", kiosk_says=["Tu ticket es 13."])
     checks = {check.name: check.passed for check in _both_needs_accounted_for(silent, result)}
     assert checks["deferred_need_was_acknowledged"] is False
+
+
+# --- the independent bank ---------------------------------------------------------------
+
+INDEPENDENT = list(INDEPENDENT_CATALOG.scenarios)
+
+
+def test_the_independent_bank_is_kept_out_of_the_default_catalog() -> None:
+    """Its whole value is that it was never used to tune the system: it must not run with
+    `make evals-live`, nor be reachable through the default catalog's --tag/--scenario."""
+    assert len(SCENARIOS) == 48
+    assert len(INDEPENDENT) == 6
+    default_names = {s.name for s in SCENARIOS}
+    assert not default_names & {s.name for s in INDEPENDENT}
+    assert "independent" not in all_tags()
+    assert set(CATALOGS) == {"default", "independent"}
+
+
+def test_scenario_names_are_unique_across_catalogs() -> None:
+    """`--rejudge` looks scenarios up across every catalog by name."""
+    names = [s.name for catalog in CATALOGS.values() for s in catalog.scenarios]
+    assert len(names) == len(set(names))
+
+
+def test_every_independent_scenario_opens_with_the_writer_s_own_words() -> None:
+    for scenario in INDEPENDENT:
+        assert scenario.opening and len(scenario.opening) > 40, scenario.name
+        assert scenario.script is None, scenario.name
+        assert scenario.group == "independent", scenario.name
+        assert scenario.description, scenario.name
+        assert len(scenario.goal) > 40, scenario.name
+        assert len(scenario.expected.policy_notes) > 60, scenario.name
+
+
+def test_only_the_independent_bank_fixes_an_opening() -> None:
+    assert all(s.opening is None for s in SCENARIOS)
+
+
+def test_independent_scenarios_hand_over_the_default_seeded_ci() -> None:
+    for scenario in INDEPENDENT:
+        assert scenario.identifier == DEFAULT_IDENTIFIER, scenario.name
+    assert DEFAULT_IDENTIFIER in known_identifiers()
+
+
+def test_independent_expectations_use_real_categories() -> None:
+    for scenario in INDEPENDENT:
+        for category in scenario.expected.category or ():
+            assert category in CATEGORIES, scenario.name
+
+
+def test_preferential_attention_is_set_only_where_the_writer_asked_for_it() -> None:
+    preferential = {s.name for s in INDEPENDENT if s.preferential_attention}
+    assert preferential == {"renta_dignidad_y_jubilacion", "cajero_retuvo_tarjeta"}
+
+
+def test_a_general_reading_of_the_first_account_must_be_answered_with_citations() -> None:
+    session = ConversationSession(client=None, handle=SessionHandle("sid", "tok"))
+    session.last_consultation_level = "GENERAL"
+    [answered] = _a_general_reading_is_answered_from_the_corpus(
+        session, {"resolution_type": "AUTOMATIC", "citations": [{"ref": 1}]}
+    )
+    [queued] = _a_general_reading_is_answered_from_the_corpus(
+        session, {"resolution_type": "HUMAN", "citations": []}
+    )
+    assert answered.passed and answered.applicable
+    assert not queued.passed and queued.failed_hard
+
+
+def test_a_personal_reading_of_the_first_account_leaves_it_to_the_invariants() -> None:
+    session = ConversationSession(client=None, handle=SessionHandle("sid", "tok"))
+    session.last_consultation_level = "PERSONALIZADA"
+    [check] = _a_general_reading_is_answered_from_the_corpus(session, {})
+    assert not check.applicable

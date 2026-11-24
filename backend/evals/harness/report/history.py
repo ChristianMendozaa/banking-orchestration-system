@@ -67,6 +67,9 @@ def build_run_record(
         "generated_at": metadata.get("generated_at"),
         "git_sha": git_sha,
         "git_dirty": git_dirty,
+        # The independent bank is a different set of scenarios, not a later measurement of
+        # the same one: recorded so its runs can be told apart in the ledger.
+        "catalog": metadata.get("catalog", "default"),
         "customer_model": metadata.get("customer_model"),
         "judge_model": metadata.get("judge_model"),
         "judged_scenarios": judged,

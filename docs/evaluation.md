@@ -127,7 +127,8 @@ make evals-smoke EVAL_ARGS="--tag adversarial --repeat 3"
 
 | Flag | Effect |
 | --- | --- |
-| `--list` | Print the catalog and exit |
+| `--list` | Print the catalog and exit (the one `--catalog` names) |
+| `--catalog independent` | Run the [independent bank](#the-independent-bank) instead of the default 48 scenarios; `--scenario`/`--tag` then filter within it |
 | `--scenario NAME` | Run one scenario (repeatable) |
 | `--tag TAG` | Run one group, e.g. `--tag adversarial` (repeatable) |
 | `--only-failing REPORT.json` | Run (or `--rejudge`) only the scenarios that were not `PASS` in a prior report — the tight loop while fixing a kiosk bug |
@@ -230,6 +231,42 @@ replace it. What that suite cannot cover is the environment: it runs on in-memor
 with a stubbed provider, so it never exercises the `SELECT ... FOR UPDATE` session lock or
 real PostgreSQL transaction boundaries. The group is deliberately limited to the guards
 where the storage engine is part of the behaviour.
+
+## The independent bank
+
+Every scenario above was written by the author of the system and run, again and again, while
+its prompts were tuned until the suite passed. Its score is therefore evidence about how well
+the system fits *those* scenarios, not an estimate of how it does on requests nobody tuned it
+for. `harness/scenarios/independent.py` holds a second, separate catalog that answers that
+question on a small scale:
+
+- **Written by third parties.** Six situations from an anonymous form, two each from three
+  people who do not know the system; a fourth answer was discarded because its author had
+  seen it. Each describes a real reason to visit a branch, how the person would say it to the
+  kiosk, how they felt, and optionally what they expected the kiosk to do.
+- **Their first turn, verbatim.** `Scenario.opening` is sent to the kiosk exactly as written,
+  typos and missing accents included, before the simulated customer says anything:
+  `SimulatedCustomer` calls the session directly and records it in the model's history as its
+  own `send_turn` call, so no model can reword it. The simulated customer only handles what
+  follows -- clarifications, the confirmation, the CI -- from a `goal` that restates the need
+  and the stated expectation of the kiosk.
+- **Expectations fixed before the first run**, from the documented policy (the
+  classification prompt, the deterministic rules, `orchestration.md`, the corpus manifest),
+  never from what the system answered. Where the policy admits two readings the field is a
+  tuple, or is left open and the consequence of the reading the kiosk took is checked instead.
+- **Reported apart, never tuned against.** It is not part of the default catalog, `--tag` or
+  any `make evals-*` target on its own, so the 48-scenario results stay comparable run to run.
+  Its runs record `catalog: independent` in the report metadata and in the ledger.
+
+Run it with a different customer model than the one the backend decides with, three times:
+
+```bash
+make evals-live EVAL_ARGS="--catalog independent --model claude-sonnet-5-5 --repeat 3"
+```
+
+Six scenarios is too few for anything but a coarse check, the writers are people close to the
+author, and like the rest of the harness it uses the written channel. Treat it as a second,
+independent data point beside the default catalog, not as a replacement for it.
 
 ## The dashboard
 

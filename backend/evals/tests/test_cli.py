@@ -13,7 +13,7 @@ from conftest import make_result
 
 import harness.cli as cli
 from harness.judge import DimensionScore, JudgeVerdict
-from harness.scenarios import CATALOG
+from harness.scenarios import CATALOG, INDEPENDENT_CATALOG
 
 
 def _verdict(score: int = 7) -> JudgeVerdict:
@@ -184,6 +184,70 @@ async def test_rejudge_combines_with_only_failing(tmp_path, real_scenario_name) 
         results, _ = await cli._rejudge(args)
 
     assert [r.scenario for r in results] == [real_scenario_name]
+
+
+async def test_rejudge_finds_an_independent_scenario_without_the_catalog_flag(tmp_path) -> None:
+    """A stored independent-bank report must replay as it was run, not be dropped as a
+    scenario "no longer in the catalog"."""
+    name = INDEPENDENT_CATALOG.scenarios[0].name
+    report_path = tmp_path / "source.json"
+    report = _stored_report(_entry(name, tags=("independent",)))
+    report["metadata"]["catalog"] = "independent"
+    report_path.write_text(json.dumps(report), encoding="utf-8")
+    args = cli._parse_args(["--rejudge", str(report_path)])
+
+    with patch("harness.judge.Judge.assess", AsyncMock(return_value=_verdict(8))):
+        results, metadata = await cli._rejudge(args)
+
+    assert [r.scenario for r in results] == [name]
+    assert metadata["catalog"] == "independent"
+
+
+# --- --catalog ------------------------------------------------------------------------------
+
+
+async def _selected_by(argv: list[str]) -> tuple[list[str], dict]:
+    """Runs `_run` with `run_all` patched out and returns the scenario names it was handed."""
+    args = cli._parse_args(argv)
+    with patch.object(cli, "run_all", AsyncMock(return_value=[])) as run_all:
+        _, metadata = await cli._run(args)
+    return [s.name for s in run_all.await_args.kwargs["scenarios"]], metadata
+
+
+async def test_the_default_run_is_still_the_full_default_catalog() -> None:
+    """`make evals-live` passes no --catalog: it must keep running exactly the 48."""
+    names, metadata = await _selected_by([])
+    assert names == [s.name for s in CATALOG.scenarios]
+    assert len(names) == 48
+    assert metadata["catalog"] == "default"
+
+
+async def test_catalog_independent_runs_only_the_independent_bank() -> None:
+    names, metadata = await _selected_by(["--catalog", "independent"])
+    assert names == [s.name for s in INDEPENDENT_CATALOG.scenarios]
+    assert len(names) == 6
+    assert metadata["catalog"] == "independent"
+
+
+async def test_filters_apply_within_the_chosen_catalog() -> None:
+    """A default-catalog name cannot leak into an independent run."""
+    args = cli._parse_args(["--catalog", "independent", "--scenario", CATALOG.scenarios[0].name])
+    with pytest.raises(SystemExit):
+        await cli._run(args)
+
+
+def test_an_unknown_catalog_is_rejected() -> None:
+    with pytest.raises(SystemExit):
+        cli._parse_args(["--catalog", "nope"])
+
+
+def test_list_prints_the_chosen_catalog(capsys) -> None:
+    cli._print_catalog("independent")
+    out = capsys.readouterr().out
+    assert out.startswith("6 scenarios in the independent catalog")
+    assert all(s.name in out for s in INDEPENDENT_CATALOG.scenarios)
+    assert CATALOG.scenarios[0].name not in out
+    assert "adversarial" not in out  # tags are the chosen catalog's, not the default's
 
 
 # --- recording a run ----------------------------------------------------------------------
