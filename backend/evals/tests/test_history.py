@@ -38,9 +38,21 @@ def test_build_run_record_matches_the_scoring_summary() -> None:
     assert record["run_id"] == "run-1"
     assert record["git_sha"] == "abc1234"
     assert record["judge_model"] == "gpt-5.4-mini"
+    assert record["catalog"] == "default"
     assert record["summary"]["scenarios_passed"] == 1
     assert record["scenarios"]["horarios_directo"] == {"status": "PASS", "score": 9}
     assert record["scenarios"]["tarjeta_robada_angustiado"]["status"] in {"FAIL", "PARTIAL"}
+
+
+def test_build_run_record_names_the_catalog_it_ran() -> None:
+    record = history.build_run_record(
+        _results(),
+        run_id="run-1",
+        metadata={**METADATA, "catalog": "independent"},
+        git_sha="abc1234",
+        git_dirty=False,
+    )
+    assert record["catalog"] == "independent"
 
 
 def test_build_run_record_counts_only_judged_scenarios() -> None:

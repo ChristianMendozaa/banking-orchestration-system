@@ -1,7 +1,8 @@
-"""The scenario catalog.
+"""The scenario catalogs.
 
-44 scenarios across eight groups, assembled here so `--tag` and `--scenario` can select
-across all of them and so a structural test can assert the catalog stays coherent.
+The default catalog: 48 scenarios across eight groups, assembled here so `--tag` and
+`--scenario` can select across all of them and so a structural test can assert the catalog
+stays coherent. It is what every `make evals-*` target runs.
 
 | Group | Tag | What it is for |
 | --- | --- | --- |
@@ -13,6 +14,11 @@ across all of them and so a structural test can assert the catalog stays coheren
 | Adversarial | `adversarial` | Injection, out-of-scope transactions, credentials, hostility |
 | Transcription noise | `asr_noise` | Corrupted transcripts: no confident misroute |
 | Protocol | `protocol` | State-machine guards against the live PostgreSQL stack |
+
+A second catalog, `independent` (6 scenarios, `independent.py`), holds situations written by
+people outside the project. It is never part of the default selection: it runs only with
+`--catalog independent`, so it is never used to tune the system and its results are
+reported apart from the default catalog's.
 """
 
 from harness.scenarios import (
@@ -23,6 +29,7 @@ from harness.scenarios import (
     conversation_flow,
     digital_and_credit,
     general_inquiry,
+    independent,
     protocol,
 )
 from harness.scenarios.models import (
@@ -44,6 +51,13 @@ SCENARIOS: list[Scenario] = [
 ]
 
 CATALOG = ScenarioCatalog(tuple(SCENARIOS))
+INDEPENDENT_CATALOG = ScenarioCatalog(tuple(independent.SCENARIOS))
+
+# Selected with `--catalog`. "default" is the only one any Make target runs on its own.
+CATALOGS: dict[str, ScenarioCatalog] = {
+    "default": CATALOG,
+    "independent": INDEPENDENT_CATALOG,
+}
 
 # Order used to group rows and bars in the dashboard.
 GROUP_ORDER = (
@@ -55,6 +69,7 @@ GROUP_ORDER = (
     "adversarial",
     "asr_noise",
     "protocol",
+    "independent",
 )
 
 GROUP_LABELS = {
@@ -66,6 +81,7 @@ GROUP_LABELS = {
     "adversarial": "Adversarial",
     "asr_noise": "Transcription noise",
     "protocol": "Protocol",
+    "independent": "Independent bank",
 }
 
 
@@ -75,6 +91,8 @@ def all_tags() -> list[str]:
 
 __all__ = [
     "CATALOG",
+    "CATALOGS",
+    "INDEPENDENT_CATALOG",
     "GROUP_LABELS",
     "GROUP_ORDER",
     "SCENARIOS",

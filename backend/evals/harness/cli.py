@@ -34,7 +34,7 @@ from harness.evaluator import CheckResult
 from harness.judge import Judge
 from harness.report import history, html, json_report, markdown
 from harness.runner import JUDGE_TIMEOUT_SECONDS, run_all
-from harness.scenarios import CATALOG, all_tags
+from harness.scenarios import CATALOGS, all_tags
 from harness.scoring import ScenarioResult, summarize
 from harness.session import ConversationSession, ExchangeRecord
 
@@ -83,6 +83,15 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         type=float,
         default=float(os.environ.get("EVAL_RAG_MIN_SCORE", "0.45")),
         help="Must match the evaluated backend's RAG_MIN_SCORE setting.",
+    )
+    parser.add_argument(
+        "--catalog",
+        choices=sorted(CATALOGS),
+        default="default",
+        help=(
+            "Scenario catalog to draw from. 'independent' is the bank written by people "
+            "outside the project, reported apart and never part of the default selection."
+        ),
     )
     parser.add_argument(
         "--scenario", action="append", default=None, help="Run only these scenarios (repeatable)."
@@ -156,11 +165,13 @@ def _resolve_html_path(value: str | None) -> Path | None:
     return Path(value) if value else REPORTS_DIR / "dashboard.html"
 
 
-def _print_catalog() -> None:
-    print(f"{len(CATALOG.scenarios)} scenarios\n")
-    for scenario in CATALOG.scenarios:
+def _print_catalog(catalog_name: str = "default") -> None:
+    catalog = CATALOGS[catalog_name]
+    print(f"{len(catalog.scenarios)} scenarios in the {catalog_name} catalog\n")
+    for scenario in catalog.scenarios:
         print(f"  {scenario.name:<38} {','.join(scenario.tags)}")
-    print(f"\ntags: {', '.join(all_tags())}")
+    tags = sorted({tag for scenario in catalog.scenarios for tag in scenario.tags})
+    print(f"\ntags: {', '.join(tags)}")
 
 
 def _load_report(path: str) -> dict:
@@ -180,7 +191,7 @@ async def _run(args: argparse.Namespace) -> tuple[list[ScenarioResult], dict]:
         failing = _failing_scenario_names(_load_report(args.only_failing))
         names = sorted(set(names or []) | set(failing)) if names else failing
 
-    selected = CATALOG.filter(names=names, tags=args.tag)
+    selected = CATALOGS[args.catalog].filter(names=names, tags=args.tag)
     if not selected:
         raise SystemExit("No scenario matched the given --scenario/--tag/--only-failing filters.")
 
@@ -188,6 +199,7 @@ async def _run(args: argparse.Namespace) -> tuple[list[ScenarioResult], dict]:
     logger.info(
         "run_started",
         scenarios=len(selected),
+        catalog=args.catalog,
         repeat=args.repeat,
         customer_model=args.model,
         judge_model=judge_model or "disabled",
@@ -209,6 +221,7 @@ async def _run(args: argparse.Namespace) -> tuple[list[ScenarioResult], dict]:
     metadata = {
         "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         "base_url": args.base_url,
+        "catalog": args.catalog,
         "customer_model": args.model,
         "judge_model": judge_model,
         "max_clarifications": args.max_clarifications,
@@ -238,7 +251,10 @@ async def _rejudge(args: argparse.Namespace) -> tuple[list[ScenarioResult], dict
     if not entries:
         raise SystemExit("No scenarios in the stored report matched the given filters.")
 
-    catalog_by_name = {scenario.name: scenario for scenario in CATALOG.scenarios}
+    # Every catalog, so a stored independent-bank report replays without `--catalog`;
+    # names are unique across catalogs (`tests/test_scenarios.py`).
+    every_scenario = [s for catalog in CATALOGS.values() for s in catalog.scenarios]
+    catalog_by_name = {scenario.name: scenario for scenario in every_scenario}
     logger.info(
         "rejudge_started", scenarios=len(entries), judge_model=args.judge_model, source=args.rejudge
     )
@@ -321,13 +337,14 @@ async def _rejudge(args: argparse.Namespace) -> tuple[list[ScenarioResult], dict
         )
     duration = int(time.monotonic() - started)
 
-    order = {scenario.name: index for index, scenario in enumerate(CATALOG.scenarios)}
+    order = {scenario.name: index for index, scenario in enumerate(every_scenario)}
     results.sort(key=lambda item: (order.get(item.scenario, 0), item.repetition))
 
     source_metadata = source.get("metadata") or {}
     metadata = {
         "generated_at": datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC"),
         "base_url": source_metadata.get("base_url", "n/a (rejudge -- backend not called)"),
+        "catalog": source_metadata.get("catalog", "default"),
         "customer_model": source_metadata.get("customer_model", "n/a (rejudge)"),
         "judge_model": args.judge_model,
         "max_clarifications": source_metadata.get("max_clarifications"),
@@ -413,7 +430,7 @@ def _finish(results: list[ScenarioResult], metadata: dict, args: argparse.Namesp
 def main() -> None:
     args = _parse_args(sys.argv[1:])
     if args.list:
-        _print_catalog()
+        _print_catalog(args.catalog)
         return
     if args.rebuild_index:
         runs = history.load_runs(LEDGER_PATH)
